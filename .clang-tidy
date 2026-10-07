@@ -1,0 +1,22 @@
+---
+Checks: >
+  -*,
+  bugprone-*,
+  performance-*,
+  modernize-*,
+  concurrency-*,
+  cppcoreguidelines-pro-type-member-init,
+  cppcoreguidelines-pro-type-reinterpret-cast,
+  readability-identifier-naming,
+  -modernize-use-trailing-return-type
+
+WarningsAsErrors: '*'
+
+# Matched against the FULL path (/home/.../NanoBook/include/...), so no leading ^.
+# Third-party headers (_deps/) are not matched and therefore not checked.
+HeaderFilterRegex: '.*/(include/nanobook|src)/.*'
+
+CheckOptions:
+  - key:   readability-identifier-naming.NamespaceCase
+    value: lower_case
+...

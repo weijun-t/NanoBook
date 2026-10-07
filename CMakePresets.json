@@ -1,0 +1,147 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "NANOBOOK_BUILD_TESTS": "ON",
+        "NANOBOOK_BUILD_BENCH": "OFF"
+      }
+    },
+    {
+      "name": "gcc",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "gcc-14",
+        "CMAKE_CXX_COMPILER": "g++-14"
+      }
+    },
+    {
+      "name": "clang",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang-18",
+        "CMAKE_CXX_COMPILER": "clang++-18"
+      }
+    },
+    {
+      "name": "asan",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "NANOBOOK_SANITIZER": "address,undefined"
+      }
+    },
+    {
+      "name": "tsan",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "NANOBOOK_SANITIZER": "thread"
+      }
+    },
+    {
+      "name": "release",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "NANOBOOK_BUILD_BENCH": "ON",
+        "NANOBOOK_NATIVE_OPTIMIZATION": "OFF"
+      }
+    },
+    {
+      "name": "profile",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "NANOBOOK_BUILD_BENCH": "ON"
+      }
+    },
+    { "name": "gcc-debug-asan",   "displayName": "GCC Debug + ASan + UBSan",   "inherits": ["asan", "gcc", "base"] },
+    { "name": "clang-debug-asan", "displayName": "Clang Debug + ASan + UBSan", "inherits": ["asan", "clang", "base"] },
+    { "name": "gcc-tsan",         "displayName": "GCC TSan",                   "inherits": ["tsan", "gcc", "base"] },
+    { "name": "clang-tsan",       "displayName": "Clang TSan",                 "inherits": ["tsan", "clang", "base"] },
+    { "name": "gcc-release",      "displayName": "GCC Release (-O3)",          "inherits": ["release", "gcc", "base"] },
+    { "name": "clang-release",    "displayName": "Clang Release (-O3)",        "inherits": ["release", "clang", "base"] },
+    { "name": "gcc-profile",      "displayName": "GCC Profile (perf)",         "inherits": ["profile", "gcc", "base"] },
+    { "name": "clang-profile",    "displayName": "Clang Profile (perf)",       "inherits": ["profile", "clang", "base"] }
+  ],
+  "buildPresets": [
+    { "name": "gcc-debug-asan",   "configurePreset": "gcc-debug-asan" },
+    { "name": "clang-debug-asan", "configurePreset": "clang-debug-asan" },
+    { "name": "gcc-tsan",         "configurePreset": "gcc-tsan" },
+    { "name": "clang-tsan",       "configurePreset": "clang-tsan" },
+    { "name": "gcc-release",      "configurePreset": "gcc-release" },
+    { "name": "clang-release",    "configurePreset": "clang-release" },
+    { "name": "gcc-profile",      "configurePreset": "gcc-profile" },
+    { "name": "clang-profile",    "configurePreset": "clang-profile" }
+  ],
+  "testPresets": [
+    {
+      "name": "test-base",
+      "hidden": true,
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error" }
+    },
+    { "name": "gcc-debug-asan",   "inherits": "test-base", "configurePreset": "gcc-debug-asan" },
+    { "name": "clang-debug-asan", "inherits": "test-base", "configurePreset": "clang-debug-asan" },
+    { "name": "gcc-tsan",         "inherits": "test-base", "configurePreset": "gcc-tsan" },
+    { "name": "clang-tsan",       "inherits": "test-base", "configurePreset": "clang-tsan" },
+    { "name": "gcc-release",      "inherits": "test-base", "configurePreset": "gcc-release" },
+    { "name": "clang-release",    "inherits": "test-base", "configurePreset": "clang-release" }
+  ],
+  "workflowPresets": [
+    {
+      "name": "gcc-debug-asan",
+      "steps": [
+        { "type": "configure", "name": "gcc-debug-asan" },
+        { "type": "build",     "name": "gcc-debug-asan" },
+        { "type": "test",      "name": "gcc-debug-asan" }
+      ]
+    },
+    {
+      "name": "clang-debug-asan",
+      "steps": [
+        { "type": "configure", "name": "clang-debug-asan" },
+        { "type": "build",     "name": "clang-debug-asan" },
+        { "type": "test",      "name": "clang-debug-asan" }
+      ]
+    },
+    {
+      "name": "gcc-tsan",
+      "steps": [
+        { "type": "configure", "name": "gcc-tsan" },
+        { "type": "build",     "name": "gcc-tsan" },
+        { "type": "test",      "name": "gcc-tsan" }
+      ]
+    },
+    {
+      "name": "clang-tsan",
+      "steps": [
+        { "type": "configure", "name": "clang-tsan" },
+        { "type": "build",     "name": "clang-tsan" },
+        { "type": "test",      "name": "clang-tsan" }
+      ]
+    },
+    {
+      "name": "gcc-release",
+      "steps": [
+        { "type": "configure", "name": "gcc-release" },
+        { "type": "build",     "name": "gcc-release" },
+        { "type": "test",      "name": "gcc-release" }
+      ]
+    },
+    {
+      "name": "clang-release",
+      "steps": [
+        { "type": "configure", "name": "clang-release" },
+        { "type": "build",     "name": "clang-release" },
+        { "type": "test",      "name": "clang-release" }
+      ]
+    }
+  ]
+}

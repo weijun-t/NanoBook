@@ -1,0 +1,21 @@
+# Build output
+build/
+compile_commands.json
+
+# Personal presets (e.g. -march=native)
+CMakeUserPresets.json
+
+# clangd index
+.cache/
+
+# Windows "downloaded from internet" metadata created when copying files into WSL
+*:Zone.Identifier
+
+# Python (scripts/)
+__pycache__/
+*.pyc
+.venv/
+
+# perf / profiling output
+perf.data
+perf.data.old
