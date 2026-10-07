@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch cancels the older, now-outdated run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Build + test every preset. Same command you run locally.
+  build-test:
+    name: ${{ matrix.preset }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [gcc-debug-asan, clang-debug-asan, gcc-release, clang-release]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build g++-14 clang-18
+
+      # Newer runner kernels randomise memory layout more than older
+      # ASan/TSan runtimes expect, which makes them crash or hang at startup.
+      - name: Make sanitizers work on this kernel
+        run: sudo sysctl vm.mmap_rnd_bits=28
+
+      - name: Configure, build, test
+        run: cmake --workflow --preset ${{ matrix.preset }}
+
+      # Proves the benchmark runs. These numbers come from a shared VM: never publish them.
+      - name: Benchmark smoke run
+        if: endsWith(matrix.preset, 'release')
+        run: ./build/${{ matrix.preset }}/nanobook_microbench --benchmark_min_time=0.01s
+
+  # Fails if any file differs from .clang-format.
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format-18
+
+      - name: Check formatting
+        run: git ls-files '*.hpp' '*.cpp' | xargs clang-format-18 --dry-run --Werror
+
+  # Runs clang-tidy with .clang-tidy on our own code only (not _deps/).
+  tidy:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang-18 clang-tidy-18
+
+      # Configure only: produces compile_commands.json, which clang-tidy reads.
+      - name: Configure
+        run: cmake --preset clang-debug-asan -DNANOBOOK_BUILD_BENCH=ON
+
+      - name: Run clang-tidy
+        run: run-clang-tidy-18 -quiet -p build/clang-debug-asan "$PWD/(src|tests|bench|tools)/"
