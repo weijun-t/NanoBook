@@ -1,8 +1,9 @@
 # Phase 1 design: reference order book
 
-> **Status:** draft for review. Items marked **[REVIEW]** are proposals that still need sign-off.
+> **Status:** approved (2026-10-16). Changes from here on are made by an edit plus a note in the commit message.
 > Signed off: FIX vocabulary, SMP cancels the resting order, FIX-style total qty on modify,
-> `UseCancel`, `NoChange`, strong types, speed-first contract with per-book price band (§12).
+> `UseCancel`, `NoChange`, strong types, speed-first contract with per-book price band (§12),
+> SMP interactions (§6).
 
 The reference book is the slow, obviously correct engine. Phase 2's fast book must produce the
 **same event stream** for the same input, so this note defines that stream exactly. When the two
@@ -150,7 +151,7 @@ order keeps matching against the next resting order.
 **Why:** if a strategy sends an order that crosses its own old order, its view of fair value has
 changed, so the old order is stale. The new order is the one the strategy wants filled.
 
-Interactions **[REVIEW]**:
+Interactions:
 - **FOK** ignores own orders when it counts liquidity in step 1. They will be cancelled, not traded.
 - **Market** order: if the only liquidity belongs to the same owner, it's `Rejected{NoLiquidity}`
   **before** any matching, so the own resting orders are **not** cancelled. Otherwise the trader would
