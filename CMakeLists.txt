@@ -60,6 +60,9 @@ endfunction()
 add_library(nanobook src/core.cpp)
 target_include_directories(nanobook PUBLIC include)
 nanobook_configure_target(nanobook)
+# Rule 3: the engine never throws. PRIVATE = only the library's own .cpp files;
+# tests and benchmarks keep exceptions because GoogleTest relies on them.
+target_compile_options(nanobook PRIVATE -fno-exceptions)
 
 # ---------------------------------------------------------------------------
 # 6. Tests (GoogleTest)

@@ -63,7 +63,7 @@ The hot path is everything from "message received" to "book updated / fills emit
 
 1. **Zero heap allocations after warm-up.** No `new`, `malloc`, or growth of `vector`/`string`/`unordered_map` on the hot path. Preallocate pools at startup. *Verify it:* run a test with an allocation-counting hook (override global `operator new`) that asserts the count is 0 during replay.
 2. **Prices are integers.** Store ticks as `int64_t` (or a strong type wrapping it). **Never `double` for price.** Floating-point equality and rounding will break matching. Quantities are integers too.
-3. **No exceptions thrown on the hot path.** Exceptions cost (almost) nothing when not thrown, but a throw costs microseconds. Return status codes or `std::expected`. Decide early whether you build with `-fno-exceptions` and document the decision.
+3. **No exceptions thrown on the hot path.** Exceptions cost (almost) nothing when not thrown, but a throw costs microseconds. Return status codes or `std::expected`. **Decision:** the engine library is built with `-fno-exceptions`, so a `throw` in it is a compile error. Tests and benchmarks keep exceptions, because GoogleTest relies on them.
 4. **No virtual dispatch on the hot path.** Use templates/concepts, CRTP, or a `switch` on message type. The real cost of virtual calls is lost inlining plus an indirect branch, not "one pointer chase".
 5. **No locks in the engine.** The engine is **single-threaded** (the LMAX model). Threads communicate only through **lock-free SPSC ring buffers**.
 6. **No syscalls on the hot path.** That means no logging I/O, no `clock_gettime` in tight loops (use `rdtsc` and calibrate), no `std::cout`.
