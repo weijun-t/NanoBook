@@ -1,6 +1,7 @@
 #pragma once
 
 #include <compare>
+#include <cstddef>
 #include <cstdint>
 #include <type_traits>
 
@@ -77,6 +78,12 @@ struct BookConfig {
 
     [[nodiscard]] constexpr bool in_band(Price p) const {
         return min_price <= p && p <= max_price;
+    }
+
+    // Worst case for one input (design §12): New, one event per resting order touched, and one
+    // closing Canceled.
+    [[nodiscard]] constexpr std::size_t max_events_per_input() const {
+        return std::size_t{max_orders} + 2;
     }
 };
 

@@ -85,7 +85,7 @@
       "name": "test-base",
       "hidden": true,
       "output": { "outputOnFailure": true },
-      "execution": { "noTestsAction": "error" }
+      "execution": { "noTestsAction": "error", "timeout": 60 }
     },
     { "name": "gcc-debug-asan",   "inherits": "test-base", "configurePreset": "gcc-debug-asan" },
     { "name": "clang-debug-asan", "inherits": "test-base", "configurePreset": "clang-debug-asan" },

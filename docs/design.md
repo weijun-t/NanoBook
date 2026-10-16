@@ -101,7 +101,19 @@ remainder), `FokKill` (FOK could not fill completely).
 | `UseCancel` | Modify with `new_total_qty == 0` | — |
 | `NoChange` | Modify with the same price and same total | — |
 
-A rejected input **changes nothing** in the book.
+A rejected input **changes nothing** in the book. That includes the highest id seen: a rejected
+new order's id does not count as used, so it may be sent again.
+
+**Check order for a new order.** If several checks fail, only the first one is reported, so both
+books must check in the same order: `DuplicateId`, `InvalidQty`, `InvalidPrice` (skipped for
+Market), `NoLiquidity` (Market only), `BookFull`.
+
+**When exactly is the book full?** `BookFull` is checked **before** matching, and only fires when
+the book holds `max_orders` resting orders **and** the new order does not cross (no opposite order
+at an acceptable price). The reason: if the order crosses and still has a remainder after matching,
+it must have used up every acceptable opposite order, either filled or cancelled by SMP. That frees
+at least one slot, so the remainder always fits. IOC, FOK and Market orders never rest, so they are
+never `BookFull`. A modify frees its own slot before it re-inserts, so it is never `BookFull` either.
 
 **Finished ids cost no memory.** Ids must be strictly increasing, so the book keeps one number, the
 highest id seen. Any id at or below it that isn't resting has finished, which gives

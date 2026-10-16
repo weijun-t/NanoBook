@@ -1,0 +1,166 @@
+#pragma once
+
+// Test-only helpers: short builders for inputs and expected events (in the same "owner/id
+// qty@price" order as the design §10 table), and readable printing of events when a test fails.
+
+#include <cstdint>
+#include <ostream>
+#include <vector>
+
+#include <gtest/gtest.h>
+
+#include "nanobook/event_buffer.hpp"
+#include "nanobook/messages.hpp"
+#include "nanobook/reference_book.hpp"
+
+namespace nanobook {
+
+// GoogleTest calls PrintTo (found by argument-dependent lookup) to show a value in a failure
+// message, instead of dumping its raw bytes.
+inline void PrintTo(Price p, std::ostream *os) {
+    *os << "Price{" << p.ticks << "}";
+}
+inline void PrintTo(Qty q, std::ostream *os) {
+    *os << "Qty{" << q.value << "}";
+}
+inline void PrintTo(OrderId id, std::ostream *os) {
+    *os << "OrderId{" << id.value << "}";
+}
+
+inline const char *name(EventType t) {
+    switch (t) {
+    case EventType::New:
+        return "New";
+    case EventType::Trade:
+        return "Trade";
+    case EventType::Canceled:
+        return "Canceled";
+    case EventType::Replaced:
+        return "Replaced";
+    case EventType::Rejected:
+        return "Rejected";
+    }
+    return "?";
+}
+
+inline const char *name(CancelReason r) {
+    switch (r) {
+    case CancelReason::None:
+        return "None";
+    case CancelReason::Requested:
+        return "Requested";
+    case CancelReason::SelfMatch:
+        return "SelfMatch";
+    case CancelReason::Unfilled:
+        return "Unfilled";
+    case CancelReason::FokKill:
+        return "FokKill";
+    }
+    return "?";
+}
+
+inline const char *name(RejectReason r) {
+    switch (r) {
+    case RejectReason::None:
+        return "None";
+    case RejectReason::InvalidQty:
+        return "InvalidQty";
+    case RejectReason::InvalidPrice:
+        return "InvalidPrice";
+    case RejectReason::DuplicateId:
+        return "DuplicateId";
+    case RejectReason::BookFull:
+        return "BookFull";
+    case RejectReason::NoLiquidity:
+        return "NoLiquidity";
+    case RejectReason::UnknownOrder:
+        return "UnknownOrder";
+    case RejectReason::TooLateToCancel:
+        return "TooLateToCancel";
+    case RejectReason::UseCancel:
+        return "UseCancel";
+    case RejectReason::NoChange:
+        return "NoChange";
+    }
+    return "?";
+}
+
+inline void PrintTo(const Event &e, std::ostream *os) {
+    *os << name(e.type) << " id=" << e.id.value;
+    switch (e.type) {
+    case EventType::New:
+        break;
+    case EventType::Trade:
+        *os << " resting=" << e.resting_id.value << " " << e.qty.value << "@" << e.price.ticks;
+        break;
+    case EventType::Canceled:
+        *os << " qty=" << e.qty.value << " " << name(e.cancel_reason);
+        break;
+    case EventType::Replaced:
+        *os << " " << e.qty.value << "@" << e.price.ticks;
+        break;
+    case EventType::Rejected:
+        *os << " " << name(e.reject_reason);
+        break;
+    }
+}
+
+namespace test {
+
+// ---- inputs --------------------------------------------------------------
+
+inline NewOrder limit(Side side, std::uint32_t owner, std::uint64_t id, std::int64_t qty,
+                      std::int64_t price) {
+    return NewOrder{.id = OrderId{id},
+                    .owner = OwnerId{owner},
+                    .side = side,
+                    .type = OrderType::Limit,
+                    .price = Price{price},
+                    .qty = Qty{qty}};
+}
+inline NewOrder buy(std::uint32_t owner, std::uint64_t id, std::int64_t qty, std::int64_t price) {
+    return limit(Side::Buy, owner, id, qty, price);
+}
+inline NewOrder sell(std::uint32_t owner, std::uint64_t id, std::int64_t qty, std::int64_t price) {
+    return limit(Side::Sell, owner, id, qty, price);
+}
+inline Cancel cancel(std::uint64_t id) {
+    return Cancel{.id = OrderId{id}};
+}
+
+// ---- expected events -----------------------------------------------------
+
+inline Event accepted(std::uint64_t id) {
+    return Event::make_new(OrderId{id});
+}
+inline Event trade(std::uint64_t aggressor, std::uint64_t resting, std::int64_t qty,
+                   std::int64_t price) {
+    return Event::make_trade(OrderId{aggressor}, OrderId{resting}, Price{price}, Qty{qty});
+}
+inline Event canceled(std::uint64_t id, std::int64_t qty, CancelReason reason) {
+    return Event::make_canceled(OrderId{id}, Qty{qty}, reason);
+}
+inline Event rejected(std::uint64_t id, RejectReason reason) {
+    return Event::make_rejected(OrderId{id}, reason);
+}
+
+// ---- driver --------------------------------------------------------------
+
+// Owns a book plus a correctly sized event buffer. send() runs one input, checks the design §9
+// invariants, and returns that input's events as a vector for easy comparison.
+struct Harness {
+    explicit Harness(BookConfig config) : book(config), out(config.max_events_per_input()) {
+    }
+
+    template <typename Input> std::vector<Event> send(const Input &input) {
+        book.handle(input, out);
+        EXPECT_TRUE(book.invariants_hold()) << "invariant broken after this input";
+        return {out.view().begin(), out.view().end()};
+    }
+
+    ReferenceBook book;
+    EventBuffer out;
+};
+
+} // namespace test
+} // namespace nanobook

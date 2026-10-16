@@ -57,7 +57,7 @@ endfunction()
 # ---------------------------------------------------------------------------
 # 5. Core library
 # ---------------------------------------------------------------------------
-add_library(nanobook src/nanobook.cpp)
+add_library(nanobook src/nanobook.cpp src/reference_book.cpp)
 target_include_directories(nanobook PUBLIC include)
 nanobook_configure_target(nanobook)
 # Rule 3: the engine never throws. PRIVATE = only the library's own .cpp files;
@@ -83,7 +83,11 @@ if(NANOBOOK_BUILD_TESTS)
     set(INSTALL_GTEST OFF CACHE INTERNAL "")
     FetchContent_MakeAvailable(googletest)
 
-    add_executable(nanobook_tests tests/test_types.cpp tests/test_messages.cpp)
+    add_executable(nanobook_tests
+        tests/test_types.cpp
+        tests/test_messages.cpp
+        tests/test_reference_book.cpp
+    )
     target_link_libraries(nanobook_tests PRIVATE nanobook GTest::gtest_main)
     nanobook_configure_target(nanobook_tests)
     gtest_discover_tests(nanobook_tests)
