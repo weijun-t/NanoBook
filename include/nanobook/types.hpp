@@ -1,0 +1,83 @@
+#pragma once
+
+#include <compare>
+#include <cstdint>
+#include <type_traits>
+
+namespace nanobook {
+
+// Strong types (design §2): each is a one-field struct, so passing a Qty where a Price belongs
+// is a compile error. They have the same size and generate the same machine code as the bare
+// integer. Every field defaults to 0, so a default-constructed value is never garbage.
+
+// Price in ticks (e.g. 1 tick = $0.01). Never floating point (README rule 2).
+struct Price {
+    std::int64_t ticks{};
+
+    friend constexpr auto operator<=>(Price, Price) = default;
+};
+
+// Signed on purpose: a negative input is detected and rejected instead of wrapping around.
+struct Qty {
+    std::int64_t value{};
+
+    friend constexpr auto operator<=>(Qty, Qty) = default;
+    friend constexpr Qty operator+(Qty a, Qty b) {
+        return Qty{a.value + b.value};
+    }
+    friend constexpr Qty operator-(Qty a, Qty b) {
+        return Qty{a.value - b.value};
+    }
+    constexpr Qty &operator+=(Qty other) {
+        value += other.value;
+        return *this;
+    }
+    constexpr Qty &operator-=(Qty other) {
+        value -= other.value;
+        return *this;
+    }
+};
+
+// Ordered, because new ids must be strictly increasing (design §12).
+struct OrderId {
+    std::uint64_t value{};
+
+    friend constexpr auto operator<=>(OrderId, OrderId) = default;
+};
+
+// Who sent the order. Only ever compared for equality, by self-match prevention (design §6).
+struct OwnerId {
+    std::uint32_t value{};
+
+    friend constexpr bool operator==(OwnerId, OwnerId) = default;
+};
+
+static_assert(sizeof(Price) == 8 && std::is_trivially_copyable_v<Price>);
+static_assert(sizeof(Qty) == 8 && std::is_trivially_copyable_v<Qty>);
+static_assert(sizeof(OrderId) == 8 && std::is_trivially_copyable_v<OrderId>);
+static_assert(sizeof(OwnerId) == 4 && std::is_trivially_copyable_v<OwnerId>);
+
+// The whole point of strong types: none of them converts to another.
+static_assert(!std::is_convertible_v<Qty, Price> && !std::is_convertible_v<Price, Qty>);
+static_assert(!std::is_convertible_v<std::int64_t, Price>);
+
+enum class Side : std::uint8_t { Buy, Sell };
+
+enum class OrderType : std::uint8_t { Limit, Market, IOC, FOK };
+
+// Per-book limits, fixed at construction (design §12). Both books take the same config.
+struct BookConfig {
+    Price min_price{1};          // price band, inclusive
+    Price max_price{1};          // price band, inclusive
+    std::uint32_t max_orders{0}; // resting orders; uint32_t because pool indices are uint32_t
+
+    [[nodiscard]] constexpr bool is_valid() const {
+        return min_price.ticks >= 1 && min_price <= max_price && max_orders > 0;
+    }
+
+    [[nodiscard]] constexpr bool in_band(Price p) const {
+        return min_price <= p && p <= max_price;
+    }
+};
+
+} // namespace nanobook

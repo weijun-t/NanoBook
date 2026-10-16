@@ -51,7 +51,8 @@ accepts. It never comes from a clock (rule 11: the same input must give the same
 `struct Price { int64_t ticks; }`), not a `using` alias. Passing a `Qty` where a `Price` belongs is
 then a compile error. They cost nothing at runtime: same size, same registers, same machine code.
 Each gets only the operations it needs. `Price` and `Qty` get comparison (`operator<=>`), and `Qty`
-gets `+` and `-`. `OrderId` and `OwnerId` get `==` only. Each type has a `static_assert` on its size.
+gets `+` and `-`. `OrderId` gets comparison too, because the strictly-increasing id rule (§12) needs `<`.
+`OwnerId` gets `==` only. Each type has a `static_assert` on its size.
 
 ---
 
