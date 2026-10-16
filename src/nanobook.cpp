@@ -1,5 +1,14 @@
-// Compiles every public header with the engine's flags (-fno-exceptions, -Werror, ...), so a
-// header that throws, warns or is missing an #include fails the build here, not later in a test.
+/*
+ * nanobook.cpp: a build check for the engine's headers.
+ *
+ * What it does: Includes every public header and compiles Exchange<ReferenceBook>, all with the
+ *   engine's strict flags (-fno-exceptions, -Werror, ...).
+ *
+ * Why it exists: Headers and templates are only compiled where something uses them. This file makes
+ *   sure a header that throws, warns or is missing an #include fails here, in the library, instead
+ *   of later in some test.
+ */
+
 #include "nanobook/core/event_buffer.hpp"
 #include "nanobook/exchange.hpp"
 #include "nanobook/core/messages.hpp"

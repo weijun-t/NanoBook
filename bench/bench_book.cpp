@@ -1,3 +1,22 @@
+/*
+ * bench_book.cpp: microbenchmarks for order books (Google Benchmark).
+ *
+ * What it does: Times add, cancel, match, sweeps through 1, 10 and 100 levels, and a seeded random
+ *   mix, and counts heap allocations per operation. Results are recorded in docs/perf-log.md.
+ *
+ * Why it exists: Phase 1's numbers are the "before" the fast book must beat, and rule 10 says no
+ *   optimisation without before/after numbers.
+ *
+ * How it works: Every benchmark is a template over the book type, so the fast book runs exactly the
+ *   same code. Each iteration builds a fresh book with the timer paused, then times a batch of
+ *   10,000 operations, so the cost of pausing the timer (over 100 ns) is negligible. Random streams
+ *   use a fixed seed, so every run sees the same input.
+ *
+ * Trade-offs: Google Benchmark reports averages, not tail latency (p99 comes from the rdtsc harness
+ *   in phase 3). Numbers from a laptop, WSL2 or CI only compare books on the same machine: never
+ *   publish them (rules 17, 19, 20).
+ */
+
 #include <benchmark/benchmark.h>
 
 #include <algorithm>
@@ -12,15 +31,6 @@
 #include "nanobook/core/messages.hpp"
 #include "nanobook/core/order_book.hpp"
 #include "nanobook/reference/reference_book.hpp"
-
-// Baseline benchmarks (design §13). Every benchmark is a template over the book type, so phase 2
-// registers the fast book with the same code and the before/after numbers are comparable.
-//
-// What these numbers are, and aren't:
-// - Google Benchmark reports AVERAGES over many operations, not tail latency (rule 17). The
-//   p50/p99/p99.9 numbers come from the rdtsc harness in phase 3.
-// - Measured on a laptop / WSL2 / CI, they are only for comparing books on the SAME machine.
-//   Never publish them (rule 20). Record them in docs/perf-log.md with the environment (rule 19).
 
 namespace {
 

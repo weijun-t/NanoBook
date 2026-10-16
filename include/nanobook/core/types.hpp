@@ -1,3 +1,25 @@
+/*
+ * types.hpp: the basic vocabulary of the engine: prices, quantities, ids and limits.
+ *
+ * What it does: Defines Price, Qty, OrderId, OwnerId and SymbolId, the Side and OrderType enums,
+ *   and BookConfig: one book's price band, capacity and maximum order size.
+ *
+ * Why it exists: Every other file talks in these types. Prices are whole numbers of ticks, never
+ *   floating point, because floating point can't compare prices exactly (rule 2).
+ *
+ * How it works: Each value is a "strong type": a struct with one integer inside. Passing a Qty
+ *   where a Price is expected is a compile error, yet the machine code is the same as a plain
+ *   integer. Each type only gets the operations that make sense: a Qty can be added, an OwnerId
+ *   can only be compared with ==. static_asserts pin every size.
+ *
+ * Data structures: Plain structs and 1-byte enums. BookConfig::is_valid() checks that
+ *   max_orders x max_qty fits in 64 bits, which makes signed overflow impossible in every sum the
+ *   book computes.
+ *
+ * Trade-offs: A little more typing (Price{10} instead of 10) in exchange for a whole class of
+ *   mix-up bugs becoming compile errors.
+ */
+
 #pragma once
 
 #include <compare>

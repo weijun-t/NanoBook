@@ -1,10 +1,18 @@
+/*
+ * test_exchange.cpp: tests for the exchange layer.
+ *
+ * What it does: Checks the exchange-wide id counter (ids 1, 2, 3 across stocks), routing to the
+ *   right book, and the exact reasons for cancels and modifies (rows E1 to E9 of the design §10
+ *   table): never issued, finished, wrong stock, rejected, and ids running out.
+ *
+ * How it works: Typed tests over the book type, with two stocks, A and M. Ids in the expected
+ *   events are the ones the exchange assigns.
+ */
+
 #include <gtest/gtest.h>
 #include "test_helpers.hpp"
 
 #include <cstdint>
-
-// Test numbers E1-E9 refer to the exchange rows of the design §10 table. Two symbols: A and M.
-// Ids in the expected events are the ones the exchange assigns: 1, 2, 3, ... for all symbols.
 
 using namespace nanobook;
 using namespace nanobook::test;

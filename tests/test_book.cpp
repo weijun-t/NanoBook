@@ -1,10 +1,22 @@
+/*
+ * test_book.cpp: behaviour tests for every order book.
+ *
+ * What it does: Covers every order type, every row of the design §10 table, partial fills, sweeps,
+ *   FIFO order, cancel, modify (keeping or losing priority, the total-quantity rule), self-match
+ *   prevention, and the capacity and quantity limits.
+ *
+ * Why it exists: The fast book must pass exactly the same tests as the reference book.
+ *
+ * How it works: Typed tests: each test is written once and runs on every book listed in BookTypes
+ *   (test_helpers.hpp). The harness checks the book's invariants after every input. Test numbers
+ *   (#1 to #32) refer to the design §10 table, whose notation is "owner/id qty@price".
+ */
+
 #include <gtest/gtest.h>
 #include "test_helpers.hpp"
 
 #include <cstdint>
 #include <limits>
-
-// Test numbers refer to the design §10 table. Notation there: "owner/id qty@price".
 
 using namespace nanobook;
 using namespace nanobook::test;

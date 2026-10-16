@@ -1,3 +1,24 @@
+/*
+ * reference_book.cpp: how the reference book handles each input.
+ *
+ * What it does: Implements handle() for NewOrder, Cancel and Modify, the matching loop, the checks
+ *   (in the order the contract fixes), and the queries and invariant check the tests use.
+ *
+ * How it works: handle(NewOrder) = validate, emit New, FOK look-first, match, then rest the
+ *   remainder (Limit) or cancel it (IOC, Market). match_against() is one loop for both sides,
+ *   written as a template because bids and asks are maps sorted in opposite directions.
+ *   invariants_hold() walks the whole book and re-checks every rule in design §9 (slow, so
+ *   tests only).
+ *
+ * Algorithms: Matching repeatedly takes the best level (map.begin()), trades with the front of its
+ *   queue (O(1) per order), and erases a level the moment it empties. Look-first walks levels
+ *   best-first and stops as soon as it has counted enough. Every count skips the trader's own
+ *   orders (self-match prevention).
+ *
+ * Trade-offs: Clear before fast: one obvious code path per rule, and asserts that stop the program
+ *   in Debug builds instead of hiding a broken invariant.
+ */
+
 #include "nanobook/reference/reference_book.hpp"
 
 #include <algorithm>

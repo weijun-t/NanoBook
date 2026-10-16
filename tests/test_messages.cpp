@@ -1,3 +1,13 @@
+/*
+ * test_messages.cpp: tests for events.
+ *
+ * What it does: Checks that each make_* function sets exactly its own fields and leaves the rest at
+ *   0, and that == notices a difference in any field.
+ *
+ * Why it exists: The differential fuzzer will compare whole event streams with ==, so == has to
+ *   look at everything.
+ */
+
 #include <gtest/gtest.h>
 #include "nanobook/core/messages.hpp"
 

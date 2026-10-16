@@ -1,3 +1,27 @@
+/*
+ * exchange.hpp: the exchange: one book per stock, one order-id counter for all of them.
+ *
+ * What it does: Receives every message. Gives each new order the next id from one counter for the
+ *   whole exchange (like Nasdaq), sends it to its stock's book, and turns a book's "order not
+ *   found" into the exact reason.
+ *
+ * Why it exists: Traders can't choose ids, so they can't send a wrong one, and every rejection gets
+ *   an exact reason. Each book sees increasing ids with gaps, exactly like a real ITCH feed.
+ *
+ * How it works: New order: assign the id, route it to books_[symbol], and if the book accepted it,
+ *   record "id -> stock" in the id table. Cancel and Modify name their stock, so they go straight
+ *   to the book and the table is not read (the hot path). Only when the book doesn't find the
+ *   order does the exchange read the table (the cold path): "this book had it" means
+ *   TooLateToCancel, anything else means UnknownOrder.
+ *
+ * Data structures: books_, a vector of books indexed by SymbolId (one array lookup). The id table,
+ *   a vector<uint16_t> indexed by order id: 2 bytes per order of the session, sized once.
+ *
+ * Trade-offs: The id table costs memory for every order of the day (about 200 MB for 100 million
+ *   orders), but it is written once per order and only read on errors. Exchange is a template over
+ *   the book type, so the fast book plugs in without virtual functions.
+ */
+
 #pragma once
 
 #include <algorithm>
@@ -39,11 +63,8 @@ struct ExchangeConfig {
     }
 };
 
-// One book per symbol, one order-id counter for the whole exchange, and a table from id to the
-// book that accepted it (design §3.1). Single-threaded, like the books.
-//
-// A template over the book type, so the phase 2 fast book plugs in without virtual functions
-// (rule 4). `OrderBook Book` means: only types that meet the OrderBook concept are allowed.
+// Design §3.1. Single-threaded, like the books. `OrderBook Book` means only types that meet the
+// OrderBook concept are allowed.
 template <OrderBook Book> class Exchange {
 public:
     explicit Exchange(ExchangeConfig config)

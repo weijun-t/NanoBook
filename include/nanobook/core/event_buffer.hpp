@@ -1,3 +1,22 @@
+/*
+ * event_buffer.hpp: a fixed-size list the engine writes its events into.
+ *
+ * What it does: The caller owns one EventBuffer and passes it to every handle() call. The book
+ *   clears it, then appends that input's events.
+ *
+ * Why it exists: A std::vector that grows would allocate memory while trading (rule 1). This
+ *   buffer allocates once, in its constructor, and never again.
+ *
+ * How it works: A vector sized once to `capacity`, plus a count of events written. push() writes at
+ *   the count and adds 1, and clear() sets the count back to 0. view() returns a std::span (a
+ *   pointer and a length), so reading the events copies nothing.
+ *
+ * Data structures: std::vector<Event> (never resized) and a std::size_t count.
+ *
+ * Trade-offs: The caller must size it for the worst case, BookConfig::max_events_per_input()
+ *   (max_orders + 2). Overflowing is a bug, caught by assert in Debug builds only.
+ */
+
 #pragma once
 
 #include <cassert>
@@ -9,9 +28,6 @@
 
 namespace nanobook {
 
-// Fixed-capacity list of events, owned by the caller and reused for every input (design §12).
-// All memory is allocated once, in the constructor. push() never grows it: overflowing is a bug,
-// caught by assert in Debug builds. Size it with BookConfig::max_events_per_input().
 class EventBuffer {
 public:
     explicit EventBuffer(std::size_t capacity) : events_(capacity) {

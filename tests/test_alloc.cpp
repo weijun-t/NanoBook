@@ -1,3 +1,18 @@
+/*
+ * test_alloc.cpp: zero-allocation tests (README rule 1).
+ *
+ * What it does: First checks the allocation counter on code whose allocations are known (one new
+ *   counts 1, none counts 0). Then points it at engine code: the EventBuffer must never allocate,
+ *   and the reference book, which is allowed to allocate, must be seen allocating.
+ *
+ * Why it exists: Phase 2's exit test is "the fast book allocates exactly 0 times while trading".
+ *   Testing the counter in both directions means it can't be wrong either way unnoticed.
+ *
+ * Trade-offs: It is its own program, built only without sanitizers, because it replaces the global
+ *   operator new for the whole program. The compiler may delete an allocation whose memory is
+ *   never used, so the tests mark memory as used with keep().
+ */
+
 #include <gtest/gtest.h>
 #include "alloc_counter.hpp"
 #include "test_helpers.hpp"
@@ -7,11 +22,6 @@
 #include <memory>
 #include <new>
 #include <vector>
-
-// Zero-allocation tests (README rule 1, fast-book design §8.4). This is its own program, built
-// only without sanitizers, because it replaces the global operator new to count calls.
-//
-// First the tool is checked on code whose allocations are known. Then it is pointed at engine code.
 
 using namespace nanobook;
 using namespace nanobook::test;

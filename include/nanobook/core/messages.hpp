@@ -1,3 +1,25 @@
+/*
+ * messages.hpp: what goes into the engine (inputs) and what comes out (events).
+ *
+ * What it does: Inputs: OrderRequest (trader to exchange, no id), NewOrder (exchange to book, with
+ *   the assigned id), Cancel and Modify. Output: Event, the "receipt" for what happened: New,
+ *   Trade, Canceled, Replaced or Rejected, with a reason. The names follow the FIX protocol.
+ *
+ * Why it exists: It is the contract between the engine and the outside world. The fast book must
+ *   produce exactly the same events as the reference book, so events must be easy to compare.
+ *
+ * How it works: One flat Event struct for all five kinds, tagged by `type`. Fields a kind doesn't
+ *   use stay 0, so == compares two events completely. Events are only built through the make_*
+ *   functions, so no field is forgotten.
+ *
+ * Data structures: Fixed-size, trivially copyable structs (Event 40 bytes, OrderRequest 24,
+ *   NewOrder 32), checked by static_assert. Field order is chosen so the compiler adds no padding.
+ *
+ * Trade-offs: A flat struct wastes a few bytes for kinds that don't use every field, but it avoids
+ *   std::variant: no hidden branching, a fixed size, and it can be copied as raw bytes (needed
+ *   later for ring buffers between threads).
+ */
+
 #pragma once
 
 #include <cstdint>

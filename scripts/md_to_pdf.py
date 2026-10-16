@@ -1,15 +1,17 @@
-"""Render a NanoBook Markdown report to PDF with reportlab.
+"""md_to_pdf.py: renders a NanoBook Markdown report as a PDF.
 
-Usage (from the repo root, inside the project's virtual environment):
-    .venv/bin/python scripts/md_to_pdf.py docs/phase1-report.md docs/phase1-report.pdf
+What it does: Reads a Markdown file and writes an A4 PDF with headings, tables, code blocks, lists
+  and page numbers.
+  Usage: .venv/bin/python scripts/md_to_pdf.py docs/phase1-report.md docs/phase1-report.pdf
 
-Needs: reportlab (listed in requirements.txt), and the DejaVu fonts (Ubuntu: fonts-dejavu-core,
-installed by default). DejaVu is used because reportlab's built-in fonts can't draw characters
-such as "≤" or "→".
+How it works: A line-by-line parser turns the Markdown into reportlab "flowables" (paragraphs,
+  tables, code boxes), and reportlab lays them out onto pages. Table columns get a width in
+  proportion to their text, but never narrower than their longest word.
 
-Supports the Markdown the reports use, nothing more: # / ## / ### headings, paragraphs, - and 1.
-lists, | tables |, ``` code blocks ```, --- rules, **bold** and `code`. A table whose header row is
-empty ("| | |") is drawn as a key/value table without a header.
+Trade-offs: It only supports the Markdown the reports use: # headings, paragraphs, - and 1. lists,
+  | tables |, ``` code blocks ```, --- rules, **bold** and `code`. It uses the DejaVu fonts,
+  because reportlab's built-in fonts can't draw characters like "≤". Needs reportlab
+  (requirements.txt) and the DejaVu fonts (Ubuntu: fonts-dejavu-core, installed by default).
 """
 
 import re

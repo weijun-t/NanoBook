@@ -1,3 +1,7 @@
+# .gitignore: files git never tracks.
+#
+# What it does: Build output, the Python environment, editor indexes and profiler output.
+
 # Build output
 build/
 compile_commands.json

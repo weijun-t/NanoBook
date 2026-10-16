@@ -1,3 +1,11 @@
+/*
+ * test_types.cpp: tests for the basic types and BookConfig.
+ *
+ * What it does: Checks that strong types start at 0 and compare and add correctly (a Qty may go
+ *   negative instead of wrapping around), and that BookConfig rejects invalid limits, including a
+ *   max_orders x max_qty that would overflow 64 bits.
+ */
+
 #include <gtest/gtest.h>
 #include "nanobook/core/types.hpp"
 

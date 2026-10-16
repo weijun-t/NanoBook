@@ -1,14 +1,24 @@
+/*
+ * alloc_counter.cpp: the replacement operator new and delete that do the counting.
+ *
+ * What it does: Defines the global operator new, new[], delete and delete[]. Each new adds 1 to an
+ *   atomic counter, then gets the memory from malloc. Each delete gives it back to free.
+ *
+ * Why it exists: See alloc_counter.hpp. The standard allows a program to replace these functions:
+ *   defining them makes every `new` in the program call them.
+ *
+ * Trade-offs: Only the benchmarks and the zero-allocation tests link this file, through the CMake
+ *   OBJECT target nanobook_alloc_counter (an OBJECT library, so the linker can't skip it). The
+ *   engine library, the main test program and sanitizer builds keep the normal ones. Aligned new
+ *   is not replaced, because nothing in the engine uses over-aligned types yet.
+ */
+
 #include "alloc_counter.hpp"
 
 #include <atomic>
 #include <cstddef>
 #include <cstdlib>
 #include <new>
-
-// Replacing the global operator new/delete is allowed by the standard: defining these functions
-// in a program makes every `new` in that program call them. Only the benchmark program and the
-// zero-allocation test program link this file (CMake target nanobook_alloc_counter). The engine
-// library and the main test program keep the normal ones, and so do sanitizer builds.
 
 namespace {
 

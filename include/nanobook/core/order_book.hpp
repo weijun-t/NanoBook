@@ -1,3 +1,22 @@
+/*
+ * order_book.hpp: the OrderBook concept, a compile-time checklist every order book must meet.
+ *
+ * What it does: Lists what a book must provide: construction from a BookConfig, handle() for
+ *   NewOrder, Cancel and Modify, and test-only queries (best bid and ask, level quantity, ...).
+ *
+ * Why it exists: There will be two books, reference and fast, that must be interchangeable.
+ *   Exchange<Book>, the typed tests and the benchmarks are written once, against this concept,
+ *   and work for any book that meets it.
+ *
+ * How it works: A C++20 concept with a requires-expression: the compiler checks that each listed
+ *   expression would compile and returns the right type. Nothing happens at runtime. A book that
+ *   is missing a function fails to compile, with an error naming the missing line.
+ *
+ * Trade-offs: The usual alternative, a base class with virtual functions, costs an indirect call
+ *   per operation and stops the compiler inlining (rule 4). A concept gives the same "interface"
+ *   at zero runtime cost.
+ */
+
 #pragma once
 
 #include <concepts>
@@ -11,10 +30,6 @@
 
 namespace nanobook {
 
-// The contract every order book must meet (design §11): the reference book today, the fast book
-// in phase 2. It's checked at compile time. A type that is missing a function, or has the wrong
-// signature, fails to compile, and the error names what is missing. No virtual functions and no
-// runtime cost (rule 4).
 template <typename B>
 concept OrderBook =
     std::constructible_from<B, BookConfig> &&

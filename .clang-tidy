@@ -1,3 +1,8 @@
+# .clang-tidy: static checks run on our code in CI.
+#
+# What it does: Turns on the bugprone, performance, modernize and concurrency check groups, plus a
+#   few single checks, and treats every finding as an error. Third-party headers are not checked.
+
 ---
 Checks: >
   -*,

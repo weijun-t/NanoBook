@@ -1,3 +1,30 @@
+/*
+ * reference_book.hpp: the reference order book: slow on purpose, obviously correct.
+ *
+ * What it does: Holds the resting orders for one stock and matches incoming orders by price-time
+ *   priority: best price first, oldest first within a price, trading at the resting order's
+ *   price. Supports Limit, Market, IOC and FOK orders, Cancel and Modify, with self-match
+ *   prevention.
+ *
+ * Why it exists: It is the answer key. The phase 2 fast book is checked against it on millions of
+ *   random inputs, so it is written for clarity, not speed, and may allocate freely.
+ *
+ * How it works: Matching walks the best opposite level's queue from the front, trading until the
+ *   incoming order is filled or the price no longer crosses. FOK first counts what it could fill
+ *   without changing anything, so it never has to undo a trade. Modify keeps queue priority only
+ *   when it shrinks the order at the same price.
+ *
+ * Data structures: Bids and asks are std::map<Price, std::list<Order>>: a red-black tree of price
+ *   levels (O(log n) lookup), each level a FIFO linked list. Orders by id: std::map<OrderId,
+ *   Locator>, where the Locator holds a std::list iterator, so a cancel unlinks its order directly
+ *   without searching the queue.
+ *
+ * Trade-offs: Every order and every level is a separate heap allocation (about 2 per added order),
+ *   scattered in memory, so lookups miss the CPU cache. That is exactly what the fast book removes.
+ *   A book only knows its resting orders, so any other id is UnknownOrder here, and the exchange
+ *   refines it.
+ */
+
 #pragma once
 
 #include <cstddef>
@@ -15,17 +42,8 @@
 
 namespace nanobook {
 
-// Phase 1 reference book (design §1). Slow on purpose and written to be obviously correct:
-// a std::map of price levels per side, a std::list (FIFO queue) of orders per level, and a
-// std::map from order id to where the order sits. It allocates freely. The phase 2 fast book
-// must produce exactly the same events for the same inputs.
-//
-// A book trusts the ids it is given: the Exchange (exchange.hpp) assigns them, always increasing
-// (design §3.1). A book only knows its resting orders, so it answers UnknownOrder for any id that
-// isn't resting; the exchange refines that to TooLateToCancel when it can.
-//
-// Supports every input in the design: Limit, Market, IOC and FOK orders, Cancel and Modify,
-// with self-match prevention.
+// Design §1-§9. Trusts the ids it is given: the Exchange assigns them, always increasing
+// (design §3.1).
 class ReferenceBook {
 public:
     explicit ReferenceBook(BookConfig config);

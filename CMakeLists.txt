@@ -1,3 +1,13 @@
+# CMakeLists.txt: how NanoBook is built.
+#
+# What it does: Builds the engine library (nanobook), the tests (nanobook_tests, plus
+#   nanobook_alloc_tests in builds without sanitizers) and the benchmarks (nanobook_microbench).
+#   Downloads GoogleTest and Google Benchmark at pinned versions, checked by SHA256.
+#
+# How it works: Options come from CMakePresets.json. Sanitizer flags are global, so third-party code
+#   is built the same way as ours. The strict warnings (-Werror) apply to our code only. The engine
+#   library is built with -fno-exceptions.
+
 cmake_minimum_required(VERSION 3.25) # CMakePresets.json version 6 needs 3.25
 project(nanobook LANGUAGES CXX)
 

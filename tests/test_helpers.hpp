@@ -1,7 +1,20 @@
-#pragma once
+/*
+ * test_helpers.hpp: shared tools for the tests.
+ *
+ * What it does: Short builders for inputs and expected events, in the same "owner/id qty@price"
+ *   order as the design §10 table: buy(1, 2, 100, 10) is owner 1, id 2, 100 @ 10. Harness and
+ *   ExchangeHarness own a book (or an exchange) plus a correctly sized EventBuffer; send() runs one
+ *   input, checks every invariant, and returns that input's events. PrintTo makes a failing test
+ *   print "Trade id=3 resting=1 30@10" instead of raw bytes.
+ *
+ * Why it exists: So each test reads like its row in the design table, and every test checks the
+ *   invariants after every single input without having to ask.
+ *
+ * How it works: BookTypes lists every book the typed tests run on: ReferenceBook today, and the
+ *   fast book is added here in phase 2. The harnesses are templates over the book type.
+ */
 
-// Test-only helpers: short builders for inputs and expected events (in the same "owner/id
-// qty@price" order as the design §10 table), and readable printing of events when a test fails.
+#pragma once
 
 #include <cstdint>
 #include <ostream>

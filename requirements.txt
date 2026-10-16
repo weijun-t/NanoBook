@@ -1,3 +1,6 @@
-# Python tools for scripts/ (not needed to build or test the C++ engine).
-# Set up once:  python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+# requirements.txt: the Python packages that scripts/ needs (not needed to build or test the C++).
+#
+# What it does: Pins exact versions, so everyone gets the same output.
+#   Set up once: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+
 reportlab==5.0.1   # scripts/md_to_pdf.py: Markdown report -> PDF

@@ -1,3 +1,11 @@
+# ci.yml: continuous integration on GitHub Actions.
+#
+# What it does: On every push and pull request, builds and tests 4 presets (GCC and Clang, Debug
+#   with ASan and UBSan, and Release), runs a short benchmark smoke run, and checks formatting
+#   (clang-format) and code quality (clang-tidy).
+#
+# Why it exists: Every commit must build and pass its tests on both compilers (rule 21).
+
 name: CI
 
 on:

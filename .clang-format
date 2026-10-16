@@ -1,3 +1,8 @@
+# .clang-format: the code style, applied by clang-format and checked in CI.
+#
+# What it does: LLVM style with 4-space indents and 100-character lines. Includes are not re-sorted,
+#   so each file keeps its include groups in the order they were written.
+
 BasedOnStyle: LLVM
 ColumnLimit: 100
 IndentWidth: 4
