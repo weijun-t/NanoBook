@@ -8,10 +8,10 @@
 #include <optional>
 #include <vector>
 
-#include "nanobook/event_buffer.hpp"
-#include "nanobook/messages.hpp"
-#include "nanobook/order_book.hpp"
-#include "nanobook/types.hpp"
+#include "nanobook/core/event_buffer.hpp"
+#include "nanobook/core/messages.hpp"
+#include "nanobook/core/order_book.hpp"
+#include "nanobook/core/types.hpp"
 
 namespace nanobook {
 

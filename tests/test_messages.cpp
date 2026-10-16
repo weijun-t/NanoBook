@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "nanobook/messages.hpp"
+#include "nanobook/core/messages.hpp"
 
 using namespace nanobook;
 

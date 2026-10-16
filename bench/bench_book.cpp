@@ -8,10 +8,10 @@
 #include <vector>
 
 #include "alloc_counter.hpp"
-#include "nanobook/event_buffer.hpp"
-#include "nanobook/messages.hpp"
-#include "nanobook/order_book.hpp"
-#include "nanobook/reference_book.hpp"
+#include "nanobook/core/event_buffer.hpp"
+#include "nanobook/core/messages.hpp"
+#include "nanobook/core/order_book.hpp"
+#include "nanobook/reference/reference_book.hpp"
 
 // Baseline benchmarks (design §13). Every benchmark is a template over the book type, so phase 2
 // registers the fast book with the same code and the before/after numbers are comparable.

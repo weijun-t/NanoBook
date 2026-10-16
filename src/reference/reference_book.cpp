@@ -1,4 +1,4 @@
-#include "nanobook/reference_book.hpp"
+#include "nanobook/reference/reference_book.hpp"
 
 #include <algorithm>
 #include <cassert>

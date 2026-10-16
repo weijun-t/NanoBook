@@ -57,7 +57,7 @@ endfunction()
 # ---------------------------------------------------------------------------
 # 5. Core library
 # ---------------------------------------------------------------------------
-add_library(nanobook src/nanobook.cpp src/reference_book.cpp)
+add_library(nanobook src/nanobook.cpp src/reference/reference_book.cpp)
 target_include_directories(nanobook PUBLIC include)
 nanobook_configure_target(nanobook)
 # Rule 3: the engine never throws. PRIVATE = only the library's own .cpp files;
@@ -86,7 +86,7 @@ if(NANOBOOK_BUILD_TESTS)
     add_executable(nanobook_tests
         tests/test_types.cpp
         tests/test_messages.cpp
-        tests/test_reference_book.cpp
+        tests/test_book.cpp
         tests/test_exchange.cpp
     )
     target_link_libraries(nanobook_tests PRIVATE nanobook GTest::gtest_main)

@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <type_traits>
 
-#include "nanobook/types.hpp"
+#include "nanobook/core/types.hpp"
 
 namespace nanobook {
 

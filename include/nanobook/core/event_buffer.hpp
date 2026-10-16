@@ -5,7 +5,7 @@
 #include <span>
 #include <vector>
 
-#include "nanobook/messages.hpp"
+#include "nanobook/core/messages.hpp"
 
 namespace nanobook {
 

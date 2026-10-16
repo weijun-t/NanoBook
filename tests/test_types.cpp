@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "nanobook/types.hpp"
+#include "nanobook/core/types.hpp"
 
 #include <cstdint>
 #include <limits>

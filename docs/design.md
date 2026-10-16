@@ -340,7 +340,7 @@ Exchange tests. Symbols `A` and `M`. Ids are what the exchange assigns.
 
 ## 11. Hook for phase 2
 
-- A C++20 **concept** (`OrderBook`, in `order_book.hpp`) lists what every book must provide:
+- A C++20 **concept** (`OrderBook`, in `include/nanobook/core/order_book.hpp`) lists what every book must provide:
   construction from a `BookConfig`; `handle()` for `NewOrder`, `Cancel` and `Modify`; and the
   test-only queries `best_bid`, `best_ask`, `level_qty`, `level_orders`, `leaves`, `order_count`,
   `resting_ids` and `invariants_hold`. It is checked at compile time, with no virtual functions

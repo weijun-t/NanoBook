@@ -12,10 +12,10 @@
 
 #include <gtest/gtest.h>
 
-#include "nanobook/event_buffer.hpp"
+#include "nanobook/core/event_buffer.hpp"
 #include "nanobook/exchange.hpp"
-#include "nanobook/messages.hpp"
-#include "nanobook/reference_book.hpp"
+#include "nanobook/core/messages.hpp"
+#include "nanobook/reference/reference_book.hpp"
 
 namespace nanobook {
 
