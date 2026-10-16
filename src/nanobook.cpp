@@ -3,6 +3,7 @@
 #include "nanobook/event_buffer.hpp"
 #include "nanobook/exchange.hpp"
 #include "nanobook/messages.hpp"
+#include "nanobook/order_book.hpp"
 #include "nanobook/reference_book.hpp"
 #include "nanobook/types.hpp"
 

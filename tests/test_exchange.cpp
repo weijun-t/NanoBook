@@ -22,129 +22,140 @@ ExchangeConfig config(std::uint64_t max_orders_per_session = 100) {
                           .books = {kBook, kBook}};
 }
 
-class ExchangeTest : public ::testing::Test {
+// Runs every test below once per type in BookTypes, as the books inside the exchange.
+template <typename Book> class ExchangeTest : public ::testing::Test {
 protected:
-    ExchangeHarness h{config()};
+    ExchangeHarness<Book> h{config()};
 };
 
+template <typename Book> class ExchangeCapacityTest : public ::testing::Test {};
+
 } // namespace
+
+TYPED_TEST_SUITE(ExchangeTest, BookTypes, BookTypeNames);
+TYPED_TEST_SUITE(ExchangeCapacityTest, BookTypes, BookTypeNames);
 
 // ---------------------------------------------------------------------------
 // One counter for the whole exchange
 // ---------------------------------------------------------------------------
 
 // E1
-TEST_F(ExchangeTest, OneCounterForAllSymbols) {
-    EXPECT_EQ(h.send(req_buy(A, 1, 10, 10)), (Events{accepted(1)}));
-    EXPECT_EQ(h.send(req_buy(M, 1, 10, 10)), (Events{accepted(2)}));
-    EXPECT_EQ(h.send(req_buy(A, 1, 10, 9)), (Events{accepted(3)}));
-    EXPECT_EQ(h.exchange.book(A).resting_ids(), (std::vector{OrderId{1}, OrderId{3}}));
-    EXPECT_EQ(h.exchange.book(M).resting_ids(), (std::vector{OrderId{2}}));
-    EXPECT_EQ(h.exchange.next_id(), OrderId{4});
+TYPED_TEST(ExchangeTest, OneCounterForAllSymbols) {
+    EXPECT_EQ(this->h.send(req_buy(A, 1, 10, 10)), (Events{accepted(1)}));
+    EXPECT_EQ(this->h.send(req_buy(M, 1, 10, 10)), (Events{accepted(2)}));
+    EXPECT_EQ(this->h.send(req_buy(A, 1, 10, 9)), (Events{accepted(3)}));
+    EXPECT_EQ(this->h.exchange.book(A).resting_ids(), (std::vector{OrderId{1}, OrderId{3}}));
+    EXPECT_EQ(this->h.exchange.book(M).resting_ids(), (std::vector{OrderId{2}}));
+    EXPECT_EQ(this->h.exchange.next_id(), OrderId{4});
 }
 
 // E2
-TEST_F(ExchangeTest, RejectedOrderUsesUpItsId) {
-    EXPECT_EQ(h.send(req_buy(A, 1, 0, 10)), (Events{rejected(1, RejectReason::InvalidQty)}));
-    EXPECT_EQ(h.send(req_buy(A, 1, 10, 10)), (Events{accepted(2)}));
+TYPED_TEST(ExchangeTest, RejectedOrderUsesUpItsId) {
+    EXPECT_EQ(this->h.send(req_buy(A, 1, 0, 10)), (Events{rejected(1, RejectReason::InvalidQty)}));
+    EXPECT_EQ(this->h.send(req_buy(A, 1, 10, 10)), (Events{accepted(2)}));
 }
 
 // E3
-TEST_F(ExchangeTest, UnlistedSymbolIsRejected) {
-    EXPECT_EQ(h.send(req_buy(Unlisted, 1, 10, 10)),
+TYPED_TEST(ExchangeTest, UnlistedSymbolIsRejected) {
+    EXPECT_EQ(this->h.send(req_buy(Unlisted, 1, 10, 10)),
               (Events{rejected(1, RejectReason::UnknownSymbol)}));
-    EXPECT_EQ(h.exchange.next_id(), OrderId{2}); // id 1 was used up
+    EXPECT_EQ(this->h.exchange.next_id(), OrderId{2}); // id 1 was used up
 }
 
-TEST_F(ExchangeTest, SymbolsAreSeparateBooks) {
-    h.send(req_sell(A, 2, 10, 10));
+TYPED_TEST(ExchangeTest, SymbolsAreSeparateBooks) {
+    this->h.send(req_sell(A, 2, 10, 10));
     // Same price on another symbol: nothing to match against there, so it rests.
-    EXPECT_EQ(h.send(req_buy(M, 1, 10, 10)), (Events{accepted(2)}));
-    EXPECT_EQ(h.exchange.book(A).best_ask(), Price{10});
-    EXPECT_EQ(h.exchange.book(M).best_bid(), Price{10});
+    EXPECT_EQ(this->h.send(req_buy(M, 1, 10, 10)), (Events{accepted(2)}));
+    EXPECT_EQ(this->h.exchange.book(A).best_ask(), Price{10});
+    EXPECT_EQ(this->h.exchange.book(M).best_bid(), Price{10});
 }
 
-TEST_F(ExchangeTest, MatchingWorksThroughTheExchange) {
-    h.send(req_sell(A, 2, 100, 10));                                                      // id 1
-    EXPECT_EQ(h.send(req_buy(A, 1, 40, 10)), (Events{accepted(2), trade(2, 1, 40, 10)})); // id 2
-    EXPECT_EQ(h.exchange.book(A).leaves(OrderId{1}), Qty{60});
+TYPED_TEST(ExchangeTest, MatchingWorksThroughTheExchange) {
+    this->h.send(req_sell(A, 2, 100, 10)); // id 1
+    EXPECT_EQ(this->h.send(req_buy(A, 1, 40, 10)),
+              (Events{accepted(2), trade(2, 1, 40, 10)})); // id 2
+    EXPECT_EQ(this->h.exchange.book(A).leaves(OrderId{1}), Qty{60});
 }
 
 // ---------------------------------------------------------------------------
 // Cancel and Modify: exact reasons (design §3.1)
 // ---------------------------------------------------------------------------
 
-TEST_F(ExchangeTest, CancelAndModifyOfRestingOrderWork) {
-    h.send(req_buy(A, 1, 100, 10)); // id 1
-    EXPECT_EQ(h.send(req_modify(A, 1, 60, 10)), (Events{replaced(1, 60, 10)}));
-    EXPECT_EQ(h.send(req_cancel(A, 1)), (Events{canceled(1, 60, CancelReason::Requested)}));
+TYPED_TEST(ExchangeTest, CancelAndModifyOfRestingOrderWork) {
+    this->h.send(req_buy(A, 1, 100, 10)); // id 1
+    EXPECT_EQ(this->h.send(req_modify(A, 1, 60, 10)), (Events{replaced(1, 60, 10)}));
+    EXPECT_EQ(this->h.send(req_cancel(A, 1)), (Events{canceled(1, 60, CancelReason::Requested)}));
 }
 
 // E4
-TEST_F(ExchangeTest, NeverIssuedIdIsUnknown) {
+TYPED_TEST(ExchangeTest, NeverIssuedIdIsUnknown) {
     for (int i = 0; i < 7; ++i) {
-        h.send(req_buy(A, 1, 10, 10)); // ids 1-7
+        this->h.send(req_buy(A, 1, 10, 10)); // ids 1-7
     }
-    EXPECT_EQ(h.send(req_cancel(A, 8)), (Events{rejected(8, RejectReason::UnknownOrder)}));
-    EXPECT_EQ(h.send(req_cancel(A, 0)), (Events{rejected(0, RejectReason::UnknownOrder)}));
-    EXPECT_EQ(h.send(req_modify(A, 8, 5, 10)), (Events{rejected(8, RejectReason::UnknownOrder)}));
+    EXPECT_EQ(this->h.send(req_cancel(A, 8)), (Events{rejected(8, RejectReason::UnknownOrder)}));
+    EXPECT_EQ(this->h.send(req_cancel(A, 0)), (Events{rejected(0, RejectReason::UnknownOrder)}));
+    EXPECT_EQ(this->h.send(req_modify(A, 8, 5, 10)),
+              (Events{rejected(8, RejectReason::UnknownOrder)}));
 }
 
 // E5
-TEST_F(ExchangeTest, CancelOfFinishedOrderIsTooLate) {
-    h.send(req_sell(A, 2, 100, 10)); // id 1
-    h.send(req_buy(A, 1, 100, 10));  // id 2: fills id 1 completely
-    EXPECT_EQ(h.send(req_cancel(A, 1)), (Events{rejected(1, RejectReason::TooLateToCancel)}));
+TYPED_TEST(ExchangeTest, CancelOfFinishedOrderIsTooLate) {
+    this->h.send(req_sell(A, 2, 100, 10)); // id 1
+    this->h.send(req_buy(A, 1, 100, 10));  // id 2: fills id 1 completely
+    EXPECT_EQ(this->h.send(req_cancel(A, 1)), (Events{rejected(1, RejectReason::TooLateToCancel)}));
 }
 
-TEST_F(ExchangeTest, CancelTwiceIsTooLate) {
-    h.send(req_buy(A, 1, 100, 10)); // id 1
-    h.send(req_cancel(A, 1));
-    EXPECT_EQ(h.send(req_cancel(A, 1)), (Events{rejected(1, RejectReason::TooLateToCancel)}));
+TYPED_TEST(ExchangeTest, CancelTwiceIsTooLate) {
+    this->h.send(req_buy(A, 1, 100, 10)); // id 1
+    this->h.send(req_cancel(A, 1));
+    EXPECT_EQ(this->h.send(req_cancel(A, 1)), (Events{rejected(1, RejectReason::TooLateToCancel)}));
 }
 
-TEST_F(ExchangeTest, CancelOfFinishedIocIsTooLate) {
-    h.send(request(A, OrderType::IOC, Side::Buy, 1, 100, 10)); // id 1: New, then Canceled
-    EXPECT_EQ(h.send(req_cancel(A, 1)), (Events{rejected(1, RejectReason::TooLateToCancel)}));
+TYPED_TEST(ExchangeTest, CancelOfFinishedIocIsTooLate) {
+    this->h.send(request(A, OrderType::IOC, Side::Buy, 1, 100, 10)); // id 1: New, then Canceled
+    EXPECT_EQ(this->h.send(req_cancel(A, 1)), (Events{rejected(1, RejectReason::TooLateToCancel)}));
 }
 
 // E6
-TEST_F(ExchangeTest, CancelOnWrongSymbolIsUnknownAndHarmless) {
-    h.send(req_buy(A, 1, 100, 10)); // id 1, in A
-    EXPECT_EQ(h.send(req_cancel(M, 1)), (Events{rejected(1, RejectReason::UnknownOrder)}));
-    EXPECT_EQ(h.exchange.book(A).leaves(OrderId{1}), Qty{100}); // untouched
+TYPED_TEST(ExchangeTest, CancelOnWrongSymbolIsUnknownAndHarmless) {
+    this->h.send(req_buy(A, 1, 100, 10)); // id 1, in A
+    EXPECT_EQ(this->h.send(req_cancel(M, 1)), (Events{rejected(1, RejectReason::UnknownOrder)}));
+    EXPECT_EQ(this->h.exchange.book(A).leaves(OrderId{1}), Qty{100}); // untouched
 }
 
 // E7
-TEST_F(ExchangeTest, CancelOfRejectedOrderIsUnknown) {
-    h.send(req_buy(A, 1, 0, 10)); // id 1: rejected, never entered a book
-    EXPECT_EQ(h.send(req_cancel(A, 1)), (Events{rejected(1, RejectReason::UnknownOrder)}));
+TYPED_TEST(ExchangeTest, CancelOfRejectedOrderIsUnknown) {
+    this->h.send(req_buy(A, 1, 0, 10)); // id 1: rejected, never entered a book
+    EXPECT_EQ(this->h.send(req_cancel(A, 1)), (Events{rejected(1, RejectReason::UnknownOrder)}));
 }
 
-TEST_F(ExchangeTest, CancelOfUnlistedSymbolIdIsUnknown) {
-    h.send(req_buy(Unlisted, 1, 10, 10)); // id 1: rejected UnknownSymbol
-    EXPECT_EQ(h.send(req_cancel(A, 1)), (Events{rejected(1, RejectReason::UnknownOrder)}));
+TYPED_TEST(ExchangeTest, CancelOfUnlistedSymbolIdIsUnknown) {
+    this->h.send(req_buy(Unlisted, 1, 10, 10)); // id 1: rejected UnknownSymbol
+    EXPECT_EQ(this->h.send(req_cancel(A, 1)), (Events{rejected(1, RejectReason::UnknownOrder)}));
 }
 
-TEST_F(ExchangeTest, CancelOrModifyOnUnlistedSymbol) {
-    h.send(req_buy(A, 1, 10, 10)); // id 1
-    EXPECT_EQ(h.send(req_cancel(Unlisted, 1)), (Events{rejected(1, RejectReason::UnknownSymbol)}));
-    EXPECT_EQ(h.send(req_modify(Unlisted, 1, 5, 10)),
+TYPED_TEST(ExchangeTest, CancelOrModifyOnUnlistedSymbol) {
+    this->h.send(req_buy(A, 1, 10, 10)); // id 1
+    EXPECT_EQ(this->h.send(req_cancel(Unlisted, 1)),
+              (Events{rejected(1, RejectReason::UnknownSymbol)}));
+    EXPECT_EQ(this->h.send(req_modify(Unlisted, 1, 5, 10)),
               (Events{rejected(1, RejectReason::UnknownSymbol)}));
 }
 
 // E9
-TEST_F(ExchangeTest, ModifyOfFinishedOrderIsTooLate) {
-    h.send(req_sell(A, 2, 100, 10)); // id 1
-    h.send(req_buy(A, 1, 100, 10));  // id 2: fills id 1 completely
-    EXPECT_EQ(h.send(req_modify(A, 1, 50, 10)),
+TYPED_TEST(ExchangeTest, ModifyOfFinishedOrderIsTooLate) {
+    this->h.send(req_sell(A, 2, 100, 10)); // id 1
+    this->h.send(req_buy(A, 1, 100, 10));  // id 2: fills id 1 completely
+    EXPECT_EQ(this->h.send(req_modify(A, 1, 50, 10)),
               (Events{rejected(1, RejectReason::TooLateToCancel)}));
 }
 
-TEST_F(ExchangeTest, BookLevelModifyRejectsPassThroughUnchanged) {
-    h.send(req_buy(A, 1, 100, 10)); // id 1
-    EXPECT_EQ(h.send(req_modify(A, 1, 0, 10)), (Events{rejected(1, RejectReason::UseCancel)}));
-    EXPECT_EQ(h.send(req_modify(A, 1, 100, 10)), (Events{rejected(1, RejectReason::NoChange)}));
+TYPED_TEST(ExchangeTest, BookLevelModifyRejectsPassThroughUnchanged) {
+    this->h.send(req_buy(A, 1, 100, 10)); // id 1
+    EXPECT_EQ(this->h.send(req_modify(A, 1, 0, 10)),
+              (Events{rejected(1, RejectReason::UseCancel)}));
+    EXPECT_EQ(this->h.send(req_modify(A, 1, 100, 10)),
+              (Events{rejected(1, RejectReason::NoChange)}));
 }
 
 // ---------------------------------------------------------------------------
@@ -152,8 +163,8 @@ TEST_F(ExchangeTest, BookLevelModifyRejectsPassThroughUnchanged) {
 // ---------------------------------------------------------------------------
 
 // E8
-TEST(ExchangeCapacity, IdsRunOut) {
-    ExchangeHarness h{config(2)};
+TYPED_TEST(ExchangeCapacityTest, IdsRunOut) {
+    ExchangeHarness<TypeParam> h{config(2)};
     EXPECT_EQ(h.send(req_buy(A, 1, 10, 10)), (Events{accepted(1)}));
     EXPECT_EQ(h.send(req_buy(M, 1, 10, 10)), (Events{accepted(2)}));
     EXPECT_EQ(h.send(req_buy(A, 1, 10, 10)), (Events{rejected(0, RejectReason::IdsExhausted)}));

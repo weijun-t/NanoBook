@@ -10,6 +10,7 @@
 
 #include "nanobook/event_buffer.hpp"
 #include "nanobook/messages.hpp"
+#include "nanobook/order_book.hpp"
 #include "nanobook/types.hpp"
 
 namespace nanobook {
@@ -97,5 +98,8 @@ private:
     OrderId last_id_{}; // id of the previous NewOrder; ids must increase
     std::uint64_t next_seq_{0};
 };
+
+// Proves at compile time that the reference book meets the contract (design §11).
+static_assert(OrderBook<ReferenceBook>);
 
 } // namespace nanobook

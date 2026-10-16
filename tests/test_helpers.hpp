@@ -5,6 +5,8 @@
 
 #include <cstdint>
 #include <ostream>
+#include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -216,9 +218,25 @@ inline Modify req_modify(SymbolId symbol, std::uint64_t id, std::int64_t new_tot
 
 // ---- driver --------------------------------------------------------------
 
+// Every book type the tests run against (design §11). Each typed test runs once per type.
+// Phase 2: add the fast book here, e.g. ::testing::Types<ReferenceBook, FastBook>.
+using BookTypes = ::testing::Types<ReferenceBook>;
+
+// Gives each type a readable name in test output: "BookTest/ReferenceBook.Name" instead of
+// "BookTest/0.Name".
+struct BookTypeNames {
+    template <typename T> static std::string GetName(int /*index*/) {
+        if constexpr (std::is_same_v<T, ReferenceBook>) {
+            return "ReferenceBook";
+        } else {
+            return "UnnamedBook";
+        }
+    }
+};
+
 // Owns a book plus a correctly sized event buffer. send() runs one input, checks the design §9
 // invariants, and returns that input's events as a vector for easy comparison.
-struct Harness {
+template <OrderBook Book> struct Harness {
     explicit Harness(BookConfig config) : book(config), out(config.max_events_per_input()) {
     }
 
@@ -228,12 +246,12 @@ struct Harness {
         return {out.view().begin(), out.view().end()};
     }
 
-    ReferenceBook book;
+    Book book;
     EventBuffer out;
 };
 
-// The same, for a whole exchange of reference books.
-struct ExchangeHarness {
+// The same, for a whole exchange of books.
+template <OrderBook Book> struct ExchangeHarness {
     explicit ExchangeHarness(ExchangeConfig config)
         : exchange(std::move(config)), out(exchange.max_events_per_input()) {
     }
@@ -244,7 +262,7 @@ struct ExchangeHarness {
         return {out.view().begin(), out.view().end()};
     }
 
-    Exchange<ReferenceBook> exchange;
+    Exchange<Book> exchange;
     EventBuffer out;
 };
 

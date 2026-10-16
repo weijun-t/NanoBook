@@ -340,11 +340,14 @@ Exchange tests. Symbols `A` and `M`. Ids are what the exchange assigns.
 
 ## 11. Hook for phase 2
 
-- A C++20 **concept** (`OrderBook`) lists the operations both books must provide: submit an input,
-  read the events, query best bid/ask and depth. No virtual functions (rule 4).
-- The unit tests are written once as GoogleTest `TYPED_TEST`s and run against every type that
-  satisfies the concept. In phase 2 the fast book is added to the type list, and every test above
-  runs on it unchanged.
+- A C++20 **concept** (`OrderBook`, in `order_book.hpp`) lists what every book must provide:
+  construction from a `BookConfig`; `handle()` for `NewOrder`, `Cancel` and `Modify`; and the
+  test-only queries `best_bid`, `best_ask`, `level_qty`, `level_orders`, `leaves`, `order_count`,
+  `resting_ids` and `invariants_hold`. It is checked at compile time, with no virtual functions
+  (rule 4). `Exchange<Book>` only accepts types that meet it.
+- The unit tests are written once as GoogleTest `TYPED_TEST`s over `BookTypes` (in
+  `tests/test_helpers.hpp`). In phase 2 the fast book is added to that list, and every book and
+  exchange test runs on it unchanged.
 - The differential fuzzer feeds both books the same random inputs and compares their event lists
   element by element.
 - The exchange is `Exchange<Book>`, so the exchange tests (E1–E9) can also run over the fast book.

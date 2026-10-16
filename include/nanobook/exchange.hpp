@@ -10,6 +10,7 @@
 
 #include "nanobook/event_buffer.hpp"
 #include "nanobook/messages.hpp"
+#include "nanobook/order_book.hpp"
 #include "nanobook/types.hpp"
 
 namespace nanobook {
@@ -42,9 +43,8 @@ struct ExchangeConfig {
 // book that accepted it (design §3.1). Single-threaded, like the books.
 //
 // A template over the book type, so the phase 2 fast book plugs in without virtual functions
-// (rule 4). Book must provide: a constructor taking BookConfig; handle() for NewOrder, Cancel
-// and Modify; and, for invariant checks, invariants_hold() and resting_ids().
-template <typename Book> class Exchange {
+// (rule 4). `OrderBook Book` means: only types that meet the OrderBook concept are allowed.
+template <OrderBook Book> class Exchange {
 public:
     explicit Exchange(ExchangeConfig config)
         : config_(std::move(config)),
