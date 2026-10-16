@@ -5,11 +5,13 @@
 
 #include <cstdint>
 #include <ostream>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
 
 #include "nanobook/event_buffer.hpp"
+#include "nanobook/exchange.hpp"
 #include "nanobook/messages.hpp"
 #include "nanobook/reference_book.hpp"
 
@@ -67,8 +69,10 @@ inline const char *name(RejectReason r) {
         return "InvalidQty";
     case RejectReason::InvalidPrice:
         return "InvalidPrice";
-    case RejectReason::DuplicateId:
-        return "DuplicateId";
+    case RejectReason::UnknownSymbol:
+        return "UnknownSymbol";
+    case RejectReason::IdsExhausted:
+        return "IdsExhausted";
     case RejectReason::BookFull:
         return "BookFull";
     case RejectReason::NoLiquidity:
@@ -151,6 +155,7 @@ inline NewOrder fok_sell(std::uint32_t owner, std::uint64_t id, std::int64_t qty
                          std::int64_t price) {
     return order(OrderType::FOK, Side::Sell, owner, id, qty, price);
 }
+// Book-level Cancel and Modify: a book ignores the symbol, so it is left at 0.
 inline Cancel cancel(std::uint64_t id) {
     return Cancel{.id = OrderId{id}};
 }
@@ -179,6 +184,36 @@ inline Event rejected(std::uint64_t id, RejectReason reason) {
     return Event::make_rejected(OrderId{id}, reason);
 }
 
+// ---- exchange inputs (no id on a request: the exchange assigns it) --------
+
+inline OrderRequest request(SymbolId symbol, OrderType type, Side side, std::uint32_t owner,
+                            std::int64_t qty, std::int64_t price) {
+    return OrderRequest{.owner = OwnerId{owner},
+                        .symbol = symbol,
+                        .side = side,
+                        .type = type,
+                        .price = Price{price},
+                        .qty = Qty{qty}};
+}
+inline OrderRequest req_buy(SymbolId symbol, std::uint32_t owner, std::int64_t qty,
+                            std::int64_t price) {
+    return request(symbol, OrderType::Limit, Side::Buy, owner, qty, price);
+}
+inline OrderRequest req_sell(SymbolId symbol, std::uint32_t owner, std::int64_t qty,
+                             std::int64_t price) {
+    return request(symbol, OrderType::Limit, Side::Sell, owner, qty, price);
+}
+inline Cancel req_cancel(SymbolId symbol, std::uint64_t id) {
+    return Cancel{.symbol = symbol, .id = OrderId{id}};
+}
+inline Modify req_modify(SymbolId symbol, std::uint64_t id, std::int64_t new_total_qty,
+                         std::int64_t new_price) {
+    return Modify{.symbol = symbol,
+                  .id = OrderId{id},
+                  .new_price = Price{new_price},
+                  .new_total_qty = Qty{new_total_qty}};
+}
+
 // ---- driver --------------------------------------------------------------
 
 // Owns a book plus a correctly sized event buffer. send() runs one input, checks the design §9
@@ -194,6 +229,22 @@ struct Harness {
     }
 
     ReferenceBook book;
+    EventBuffer out;
+};
+
+// The same, for a whole exchange of reference books.
+struct ExchangeHarness {
+    explicit ExchangeHarness(ExchangeConfig config)
+        : exchange(std::move(config)), out(exchange.max_events_per_input()) {
+    }
+
+    template <typename Input> std::vector<Event> send(const Input &input) {
+        exchange.handle(input, out);
+        EXPECT_TRUE(exchange.invariants_hold()) << "invariant broken after this input";
+        return {out.view().begin(), out.view().end()};
+    }
+
+    Exchange<ReferenceBook> exchange;
     EventBuffer out;
 };
 

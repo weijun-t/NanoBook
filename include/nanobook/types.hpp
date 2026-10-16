@@ -40,7 +40,8 @@ struct Qty {
     }
 };
 
-// Ordered, because new ids must be strictly increasing (design §12).
+// Assigned by the exchange from one counter for all symbols, starting at 1; 0 means "no id"
+// (design §2). Ordered, because "was this id ever issued?" needs <.
 struct OrderId {
     std::uint64_t value{};
 
@@ -54,10 +55,19 @@ struct OwnerId {
     friend constexpr bool operator==(OwnerId, OwnerId) = default;
 };
 
+// Which stock. Symbols are numbered 0 ... n-1, so the exchange finds a book with one array index
+// (design §2, §3.1). Only ever compared for equality.
+struct SymbolId {
+    std::uint16_t value{};
+
+    friend constexpr bool operator==(SymbolId, SymbolId) = default;
+};
+
 static_assert(sizeof(Price) == 8 && std::is_trivially_copyable_v<Price>);
 static_assert(sizeof(Qty) == 8 && std::is_trivially_copyable_v<Qty>);
 static_assert(sizeof(OrderId) == 8 && std::is_trivially_copyable_v<OrderId>);
 static_assert(sizeof(OwnerId) == 4 && std::is_trivially_copyable_v<OwnerId>);
+static_assert(sizeof(SymbolId) == 2 && std::is_trivially_copyable_v<SymbolId>);
 
 // The whole point of strong types: none of them converts to another.
 static_assert(!std::is_convertible_v<Qty, Price> && !std::is_convertible_v<Price, Qty>);

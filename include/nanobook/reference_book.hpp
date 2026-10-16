@@ -19,6 +19,10 @@ namespace nanobook {
 // std::map from order id to where the order sits. It allocates freely. The phase 2 fast book
 // must produce exactly the same events for the same inputs.
 //
+// A book trusts the ids it is given: the Exchange (exchange.hpp) assigns them, always increasing
+// (design §3.1). A book only knows its resting orders, so it answers UnknownOrder for any id that
+// isn't resting; the exchange refines that to TooLateToCancel when it can.
+//
 // Supports every input in the design: Limit, Market, IOC and FOK orders, Cancel and Modify,
 // with self-match prevention.
 class ReferenceBook {
@@ -38,6 +42,7 @@ public:
     [[nodiscard]] std::vector<OrderId> level_orders(Side side, Price price) const; // front first
     [[nodiscard]] std::optional<Qty> leaves(OrderId id) const; // remaining qty, if resting
     [[nodiscard]] std::size_t order_count() const;             // resting orders
+    [[nodiscard]] std::vector<OrderId> resting_ids() const;    // ascending; for invariant checks
     [[nodiscard]] bool invariants_hold() const;                // design §9
 
 private:
@@ -69,7 +74,6 @@ private:
 
     [[nodiscard]] std::optional<RejectReason> validate(const NewOrder &order) const;
     [[nodiscard]] bool crosses_book(Side side, Price limit) const;
-    [[nodiscard]] RejectReason unknown_or_too_late(OrderId id) const;
     [[nodiscard]] std::optional<RejectReason> validate(const Modify &modify,
                                                        const Order &current) const;
 
@@ -89,8 +93,8 @@ private:
     BookConfig config_;
     Bids bids_;
     Asks asks_;
-    Lookup orders_;                     // resting orders only
-    std::optional<OrderId> highest_id_; // highest accepted id; empty until the first order
+    Lookup orders_;     // resting orders only
+    OrderId last_id_{}; // id of the previous NewOrder; ids must increase
     std::uint64_t next_seq_{0};
 };
 

@@ -136,40 +136,32 @@ TEST_F(ReferenceBookTest, CancelOfNeverSentIdIsUnknown) {
     EXPECT_EQ(h.send(cancel(9)), (Events{rejected(9, RejectReason::UnknownOrder)}));
 }
 
-// #8
-TEST_F(ReferenceBookTest, CancelOfFilledOrderIsTooLate) {
+// #8. A book only knows resting orders, so a finished order is UnknownOrder here. The exchange
+// refines this to TooLateToCancel (test_exchange.cpp, E5).
+TEST_F(ReferenceBookTest, CancelOfFilledOrderIsUnknownToTheBook) {
     h.send(sell(2, 1, 100, 10));
     h.send(buy(1, 2, 100, 10)); // fills order 1 completely
-    EXPECT_EQ(h.send(cancel(1)), (Events{rejected(1, RejectReason::TooLateToCancel)}));
+    EXPECT_EQ(h.send(cancel(1)), (Events{rejected(1, RejectReason::UnknownOrder)}));
 }
 
-TEST_F(ReferenceBookTest, CancelTwiceIsTooLate) {
+TEST_F(ReferenceBookTest, CancelTwiceIsUnknownToTheBook) {
     h.send(sell(2, 1, 100, 10));
     h.send(cancel(1));
-    EXPECT_EQ(h.send(cancel(1)), (Events{rejected(1, RejectReason::TooLateToCancel)}));
-}
-
-// #27
-TEST_F(ReferenceBookTest, CancelAboveHighestIdIsUnknown) {
-    h.send(buy(1, 7, 10, 10));
-    EXPECT_EQ(h.send(cancel(8)), (Events{rejected(8, RejectReason::UnknownOrder)}));
+    EXPECT_EQ(h.send(cancel(1)), (Events{rejected(1, RejectReason::UnknownOrder)}));
 }
 
 // ---------------------------------------------------------------------------
 // Validation
 // ---------------------------------------------------------------------------
 
-// #23
-TEST_F(ReferenceBookTest, SameIdTwiceIsDuplicate) {
-    h.send(buy(1, 1, 100, 10));
-    EXPECT_EQ(h.send(buy(1, 1, 50, 10)), (Events{rejected(1, RejectReason::DuplicateId)}));
-    EXPECT_EQ(h.book.leaves(OrderId{1}), Qty{100}); // original untouched
-}
+// #23 and #26 are gone: the exchange assigns ids, so a duplicate can't reach a book.
 
-// #26
-TEST_F(ReferenceBookTest, DecreasingIdIsDuplicate) {
-    h.send(buy(1, 7, 10, 10));
-    EXPECT_EQ(h.send(buy(1, 5, 10, 10)), (Events{rejected(5, RejectReason::DuplicateId)}));
+TEST_F(ReferenceBookTest, IdsMayHaveGaps) {
+    // Each book sees exchange-wide ids: increasing, with gaps for other symbols' orders.
+    EXPECT_EQ(h.send(buy(1, 1, 10, 10)), (Events{accepted(1)}));
+    EXPECT_EQ(h.send(buy(1, 7, 10, 10)), (Events{accepted(7)}));
+    EXPECT_EQ(h.send(sell(2, 42, 20, 10)),
+              (Events{accepted(42), trade(42, 1, 10, 10), trade(42, 7, 10, 10)}));
 }
 
 // #24
@@ -186,16 +178,8 @@ TEST_F(ReferenceBookTest, PriceOutsideBandIsInvalid) {
     EXPECT_EQ(h.send(buy(1, 3, 10, 1000)), (Events{accepted(3)})); // band edge is inside
 }
 
-TEST_F(ReferenceBookTest, RejectedIdCanBeReused) {
-    h.send(buy(1, 5, 0, 10)); // rejected: does not count as used (design §4)
-    EXPECT_EQ(h.send(buy(1, 5, 10, 10)), (Events{accepted(5)}));
-}
-
 TEST_F(ReferenceBookTest, ChecksRunInContractOrder) {
-    h.send(buy(1, 5, 10, 10));
-    // Duplicate id AND bad qty AND bad price: only the first check (DuplicateId) is reported.
-    EXPECT_EQ(h.send(buy(1, 5, 0, 0)), (Events{rejected(5, RejectReason::DuplicateId)}));
-    // Bad qty AND bad price: InvalidQty comes first.
+    // Bad qty AND bad price: only the first check (InvalidQty) is reported.
     EXPECT_EQ(h.send(buy(1, 6, 0, 0)), (Events{rejected(6, RejectReason::InvalidQty)}));
 }
 
@@ -245,7 +229,7 @@ TEST(ReferenceBookCapacity, CancelFreesASlot) {
 // #9
 TEST_F(ReferenceBookTest, MarketOnEmptyBookIsRejected) {
     EXPECT_EQ(h.send(market_buy(1, 1, 100)), (Events{rejected(1, RejectReason::NoLiquidity)}));
-    EXPECT_EQ(h.send(buy(1, 1, 10, 10)), (Events{accepted(1)})); // rejected id was not used
+    EXPECT_EQ(h.book.order_count(), 0U);
 }
 
 TEST_F(ReferenceBookTest, MarketWithOnlySameSideOrdersIsRejected) {
@@ -553,18 +537,19 @@ TEST_F(ReferenceBookTest, ModifyOfNeverSentIdIsUnknown) {
     EXPECT_EQ(h.send(modify(9, 10, 10)), (Events{rejected(9, RejectReason::UnknownOrder)}));
 }
 
-TEST_F(ReferenceBookTest, ModifyOfFinishedOrderIsTooLate) {
+// A book only knows resting orders; the exchange refines these to TooLateToCancel (E9).
+TEST_F(ReferenceBookTest, ModifyOfFinishedOrderIsUnknownToTheBook) {
     h.send(buy(1, 1, 100, 10));
     h.send(sell(2, 2, 100, 10)); // order 1 fully filled
     h.send(buy(1, 3, 100, 10));
     h.send(cancel(3)); // order 3 canceled
-    EXPECT_EQ(h.send(modify(1, 50, 10)), (Events{rejected(1, RejectReason::TooLateToCancel)}));
-    EXPECT_EQ(h.send(modify(3, 50, 10)), (Events{rejected(3, RejectReason::TooLateToCancel)}));
+    EXPECT_EQ(h.send(modify(1, 50, 10)), (Events{rejected(1, RejectReason::UnknownOrder)}));
+    EXPECT_EQ(h.send(modify(3, 50, 10)), (Events{rejected(3, RejectReason::UnknownOrder)}));
 }
 
-TEST_F(ReferenceBookTest, ModifyOfIocIsTooLate) {
+TEST_F(ReferenceBookTest, ModifyOfIocIsUnknownToTheBook) {
     h.send(ioc_buy(1, 1, 100, 10)); // never rests, finished straight away
-    EXPECT_EQ(h.send(modify(1, 50, 10)), (Events{rejected(1, RejectReason::TooLateToCancel)}));
+    EXPECT_EQ(h.send(modify(1, 50, 10)), (Events{rejected(1, RejectReason::UnknownOrder)}));
 }
 
 TEST_F(ReferenceBookTest, ModifyInvalidQtyAndPrice) {
@@ -649,7 +634,7 @@ TEST(ReferenceBookCapacity, ModifyIsNeverBookFull) {
 // #32
 TEST_F(ReferenceBookTest, QtyAboveMaxIsInvalid) {
     EXPECT_EQ(h.send(buy(1, 1, 1'000'001, 10)), (Events{rejected(1, RejectReason::InvalidQty)}));
-    EXPECT_EQ(h.send(buy(1, 1, 1'000'000, 10)), (Events{accepted(1)})); // exactly max: allowed
+    EXPECT_EQ(h.send(buy(1, 2, 1'000'000, 10)), (Events{accepted(2)})); // exactly max: allowed
 }
 
 TEST_F(ReferenceBookTest, ModifyTotalAboveMaxIsInvalid) {

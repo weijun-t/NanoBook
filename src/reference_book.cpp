@@ -62,12 +62,15 @@ void ReferenceBook::handle(const NewOrder &order, EventBuffer &out) {
     assert(out.capacity() >= config_.max_events_per_input());
     out.clear();
 
+    // The exchange's counter only goes up (design §4), so a smaller id means a broken caller.
+    assert(order.id > last_id_ && "ids reaching a book must increase");
+    last_id_ = order.id;
+
     if (const std::optional<RejectReason> reason = validate(order)) {
         out.push(Event::make_rejected(order.id, *reason));
-        return; // a rejected input changes nothing, not even highest_id_ (design §4)
+        return; // a rejected input changes nothing in the book (design §4)
     }
 
-    highest_id_ = order.id;
     out.push(Event::make_new(order.id));
 
     const Price limit = effective_limit(order);
@@ -112,7 +115,8 @@ void ReferenceBook::handle(const Cancel &cancel, EventBuffer &out) {
 
     const auto found = orders_.find(cancel.id);
     if (found == orders_.end()) {
-        out.push(Event::make_rejected(cancel.id, unknown_or_too_late(cancel.id)));
+        // Not resting here. Whether it finished or never lived here, only the exchange knows.
+        out.push(Event::make_rejected(cancel.id, RejectReason::UnknownOrder));
         return;
     }
 
@@ -128,7 +132,7 @@ void ReferenceBook::handle(const Modify &modify, EventBuffer &out) {
 
     const auto found = orders_.find(modify.id);
     if (found == orders_.end()) {
-        out.push(Event::make_rejected(modify.id, unknown_or_too_late(modify.id))); // steps 1-2
+        out.push(Event::make_rejected(modify.id, RejectReason::UnknownOrder)); // step 2 (book)
         return;
     }
 
@@ -171,9 +175,6 @@ void ReferenceBook::handle(const Modify &modify, EventBuffer &out) {
 // ---------------------------------------------------------------------------
 
 std::optional<RejectReason> ReferenceBook::validate(const NewOrder &order) const {
-    if (highest_id_ && order.id <= *highest_id_) {
-        return RejectReason::DuplicateId;
-    }
     if (order.qty <= Qty{0} || order.qty > config_.max_qty) {
         return RejectReason::InvalidQty;
     }
@@ -228,14 +229,6 @@ bool ReferenceBook::crosses_book(Side side, Price limit) const {
         return !asks_.empty() && acceptable(side, limit, asks_.begin()->first);
     }
     return !bids_.empty() && acceptable(side, limit, bids_.begin()->first);
-}
-
-// Ids are strictly increasing (design §12), so one number tells "never sent" from "finished".
-RejectReason ReferenceBook::unknown_or_too_late(OrderId id) const {
-    if (!highest_id_ || id > *highest_id_) {
-        return RejectReason::UnknownOrder;
-    }
-    return RejectReason::TooLateToCancel;
 }
 
 // ---------------------------------------------------------------------------
@@ -385,6 +378,15 @@ std::optional<Qty> ReferenceBook::leaves(OrderId id) const {
 
 std::size_t ReferenceBook::order_count() const {
     return orders_.size();
+}
+
+std::vector<OrderId> ReferenceBook::resting_ids() const {
+    std::vector<OrderId> ids;
+    ids.reserve(orders_.size());
+    for (const auto &entry : orders_) {
+        ids.push_back(entry.first);
+    }
+    return ids;
 }
 
 // Design §9. Invariants 3 and 6 hold by construction here: this book stores no per-level total

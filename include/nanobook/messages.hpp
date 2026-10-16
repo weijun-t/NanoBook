@@ -11,6 +11,20 @@ namespace nanobook {
 // Inputs (design §3)
 // ---------------------------------------------------------------------------
 
+// What a trader sends to the exchange. No id: the exchange assigns one (design §3.1).
+// Field order matters for size: owner (4) + symbol (2) + side (1) + type (1) fill exactly
+// 8 bytes. With symbol first, padding would make the struct 32 bytes instead of 24.
+struct OrderRequest {
+    OwnerId owner{};
+    SymbolId symbol{};
+    Side side{Side::Buy};
+    OrderType type{OrderType::Limit};
+    Price price{}; // ignored for Market orders
+    Qty qty{};
+};
+
+// What the exchange hands a book: the request plus the id it assigned, minus the symbol
+// (each book is for one symbol already).
 struct NewOrder {
     OrderId id{};
     OwnerId owner{};
@@ -20,17 +34,23 @@ struct NewOrder {
     Qty qty{};
 };
 
+// Cancel and Modify name the symbol, as in FIX (tag 55), so the exchange routes them without
+// reading its id table (design §3). A book ignores `symbol`.
 struct Cancel {
+    SymbolId symbol{};
     OrderId id{};
 };
 
 struct Modify {
+    SymbolId symbol{};
     OrderId id{};
     Price new_price{};
     Qty new_total_qty{}; // total INCLUDING already-filled qty, FIX-style (design §7)
 };
 
+static_assert(sizeof(OrderRequest) == 24 && std::is_trivially_copyable_v<OrderRequest>);
 static_assert(sizeof(NewOrder) == 32 && std::is_trivially_copyable_v<NewOrder>);
+static_assert(sizeof(Cancel) == 16 && std::is_trivially_copyable_v<Cancel>);
 
 // ---------------------------------------------------------------------------
 // Events (design §4)
@@ -45,7 +65,8 @@ enum class RejectReason : std::uint8_t {
     None,
     InvalidQty,
     InvalidPrice,
-    DuplicateId,
+    UnknownSymbol, // exchange: symbol not listed
+    IdsExhausted,  // exchange: every id of the session has been issued (event id is 0)
     BookFull,
     NoLiquidity,
     UnknownOrder,
