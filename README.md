@@ -4,7 +4,7 @@
 
 An ultra-low-latency limit order book and matching engine in modern C++ (C++23), built as a quant developer portfolio project.
 
-> **Status:** Phase 0 complete (build system, tests, sanitizers, CI). Phase 1 (reference book) in progress. Every number in this README that is not marked *target* was measured. The hardware, OS, compiler and flags are listed next to it.
+> **Status:** Phase 0 complete (build system, tests, sanitizers, CI). Phase 1 (reference book) complete. Phase 2 (fast book) in progress. Every number in this README that is not marked *target* was measured. The hardware, OS, compiler and flags are listed next to it.
 
 ---
 
