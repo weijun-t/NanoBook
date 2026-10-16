@@ -174,7 +174,7 @@ std::optional<RejectReason> ReferenceBook::validate(const NewOrder &order) const
     if (highest_id_ && order.id <= *highest_id_) {
         return RejectReason::DuplicateId;
     }
-    if (order.qty <= Qty{0}) {
+    if (order.qty <= Qty{0} || order.qty > config_.max_qty) {
         return RejectReason::InvalidQty;
     }
     if (order.type != OrderType::Market && !config_.in_band(order.price)) {
@@ -208,7 +208,7 @@ std::optional<RejectReason> ReferenceBook::validate(const Modify &modify,
     if (modify.new_total_qty == Qty{0}) {
         return RejectReason::UseCancel; // removal has exactly one path: Cancel
     }
-    if (modify.new_total_qty < Qty{0}) {
+    if (modify.new_total_qty < Qty{0} || modify.new_total_qty > config_.max_qty) {
         return RejectReason::InvalidQty;
     }
     if (!config_.in_band(modify.new_price)) {

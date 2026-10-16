@@ -1,6 +1,9 @@
 #include <gtest/gtest.h>
 #include "test_helpers.hpp"
 
+#include <cstdint>
+#include <limits>
+
 // Test numbers refer to the design §10 table. Notation there: "owner/id qty@price".
 
 using namespace nanobook;
@@ -9,7 +12,7 @@ using Events = std::vector<Event>;
 
 namespace {
 
-constexpr BookConfig kConfig{Price{1}, Price{1000}, 100};
+constexpr BookConfig kConfig{Price{1}, Price{1000}, 100, Qty{1'000'000}};
 
 class ReferenceBookTest : public ::testing::Test {
 protected:
@@ -202,7 +205,7 @@ TEST_F(ReferenceBookTest, ChecksRunInContractOrder) {
 
 // #28
 TEST(ReferenceBookCapacity, FullBookRejectsOrderThatWouldRest) {
-    Harness h{BookConfig{Price{1}, Price{1000}, 2}};
+    Harness h{BookConfig{Price{1}, Price{1000}, 2, Qty{1'000'000}}};
     h.send(sell(2, 1, 10, 10));
     h.send(sell(2, 2, 10, 20));
     EXPECT_EQ(h.send(buy(1, 3, 10, 1)), (Events{rejected(3, RejectReason::BookFull)}));
@@ -211,14 +214,14 @@ TEST(ReferenceBookCapacity, FullBookRejectsOrderThatWouldRest) {
 
 // #29
 TEST(ReferenceBookCapacity, FullBookAcceptsOrderThatFillsCompletely) {
-    Harness h{BookConfig{Price{1}, Price{1000}, 2}};
+    Harness h{BookConfig{Price{1}, Price{1000}, 2, Qty{1'000'000}}};
     h.send(sell(2, 1, 10, 10));
     h.send(sell(2, 2, 10, 20));
     EXPECT_EQ(h.send(buy(1, 3, 10, 10)), (Events{accepted(3), trade(3, 1, 10, 10)}));
 }
 
 TEST(ReferenceBookCapacity, FullBookAcceptsCrossingOrderWithRemainder) {
-    Harness h{BookConfig{Price{1}, Price{1000}, 2}};
+    Harness h{BookConfig{Price{1}, Price{1000}, 2, Qty{1'000'000}}};
     h.send(sell(2, 1, 10, 10));
     h.send(sell(2, 2, 10, 20));
     // Crosses: uses up order 1, which frees its slot, so the remaining 5 can rest.
@@ -228,7 +231,7 @@ TEST(ReferenceBookCapacity, FullBookAcceptsCrossingOrderWithRemainder) {
 }
 
 TEST(ReferenceBookCapacity, CancelFreesASlot) {
-    Harness h{BookConfig{Price{1}, Price{1000}, 1}};
+    Harness h{BookConfig{Price{1}, Price{1000}, 1, Qty{1'000'000}}};
     h.send(buy(1, 1, 10, 10));
     EXPECT_EQ(h.send(buy(1, 2, 10, 10)), (Events{rejected(2, RejectReason::BookFull)}));
     h.send(cancel(1));
@@ -376,7 +379,7 @@ TEST_F(ReferenceBookTest, FokSellAndEmptyBook) {
 // ---------------------------------------------------------------------------
 
 TEST(ReferenceBookCapacity, NonRestingTypesAreNeverBookFull) {
-    Harness h{BookConfig{Price{1}, Price{1000}, 1}};
+    Harness h{BookConfig{Price{1}, Price{1000}, 1, Qty{1'000'000}}};
     h.send(buy(2, 1, 10, 5)); // book is now full
     EXPECT_EQ(h.send(ioc_buy(1, 2, 10, 5)),
               (Events{accepted(2), canceled(2, 10, CancelReason::Unfilled)}));
@@ -470,7 +473,7 @@ TEST_F(ReferenceBookTest, SelfMatchOnSellSide) {
 }
 
 TEST(ReferenceBookCapacity, CrossingOnlyOwnOrderOnFullBookFreesTheSlot) {
-    Harness h{BookConfig{Price{1}, Price{1000}, 1}};
+    Harness h{BookConfig{Price{1}, Price{1000}, 1, Qty{1'000'000}}};
     h.send(sell(1, 1, 10, 10)); // book is full
     EXPECT_EQ(h.send(buy(1, 2, 10, 10)),
               (Events{accepted(2), canceled(1, 10, CancelReason::SelfMatch)}));
@@ -632,9 +635,61 @@ TEST_F(ReferenceBookTest, ModifiedOrderCanBeModifiedAndCanceledAgain) {
 }
 
 TEST(ReferenceBookCapacity, ModifyIsNeverBookFull) {
-    Harness h{BookConfig{Price{1}, Price{1000}, 2}};
+    Harness h{BookConfig{Price{1}, Price{1000}, 2, Qty{1'000'000}}};
     h.send(buy(1, 1, 10, 10));
     h.send(buy(1, 2, 10, 9));                                          // book is full
     EXPECT_EQ(h.send(modify(1, 20, 8)), (Events{replaced(1, 20, 8)})); // frees its own slot first
     EXPECT_EQ(h.book.order_count(), 2U);
+}
+
+// ---------------------------------------------------------------------------
+// Quantity limit (design §12: max_qty keeps every sum inside 64 bits)
+// ---------------------------------------------------------------------------
+
+// #32
+TEST_F(ReferenceBookTest, QtyAboveMaxIsInvalid) {
+    EXPECT_EQ(h.send(buy(1, 1, 1'000'001, 10)), (Events{rejected(1, RejectReason::InvalidQty)}));
+    EXPECT_EQ(h.send(buy(1, 1, 1'000'000, 10)), (Events{accepted(1)})); // exactly max: allowed
+}
+
+TEST_F(ReferenceBookTest, ModifyTotalAboveMaxIsInvalid) {
+    h.send(buy(1, 1, 100, 10));
+    EXPECT_EQ(h.send(modify(1, 1'000'001, 10)), (Events{rejected(1, RejectReason::InvalidQty)}));
+    EXPECT_EQ(h.book.leaves(OrderId{1}), Qty{100});
+}
+
+// The overflow found in review: two huge orders summed past 2^63 inside the FOK look-first count.
+// A config that allows that is now invalid, and with a valid config such orders are rejected.
+TEST(ReferenceBookQtyLimit, HugeQuantitiesCannotOverflow) {
+    constexpr std::int64_t big = std::numeric_limits<std::int64_t>::max() / 2 + 1;
+    EXPECT_FALSE((BookConfig{Price{1}, Price{1000}, 10, Qty{big}}.is_valid()));
+
+    Harness h{kConfig};
+    EXPECT_EQ(h.send(sell(2, 1, big, 10)), (Events{rejected(1, RejectReason::InvalidQty)}));
+}
+
+// ---------------------------------------------------------------------------
+// Found in review: correct already, now locked in by tests
+// ---------------------------------------------------------------------------
+
+TEST_F(ReferenceBookTest, SelfMatchInMiddleOfQueue) {
+    h.send(sell(2, 1, 10, 10));
+    h.send(sell(1, 2, 10, 10)); // own order, between two others
+    h.send(sell(3, 3, 10, 10));
+    EXPECT_EQ(h.send(buy(1, 4, 20, 10)),
+              (Events{accepted(4), trade(4, 1, 10, 10), canceled(2, 10, CancelReason::SelfMatch),
+                      trade(4, 3, 10, 10)}));
+}
+
+// One input can produce max_orders + 2 events (design §12). Build that exact worst case, so the
+// EventBuffer's assert would fire if the formula were ever too small.
+TEST(ReferenceBookCapacity, WorstCaseEventCountFitsBuffer) {
+    constexpr BookConfig cfg{Price{1}, Price{1000}, 50, Qty{1'000'000}};
+    Harness h{cfg};
+    for (std::int64_t i = 1; i <= 50; ++i) {
+        h.send(sell(2, static_cast<std::uint64_t>(i), 1, i)); // 50 orders on 50 levels: full
+    }
+    const Events events = h.send(ioc_buy(1, 51, 1000, 1000)); // New + 50 trades + Canceled
+    EXPECT_EQ(events.size(), cfg.max_events_per_input());
+    EXPECT_EQ(events.back(), canceled(51, 950, CancelReason::Unfilled));
 }

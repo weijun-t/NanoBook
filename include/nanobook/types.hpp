@@ -3,6 +3,7 @@
 #include <compare>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <type_traits>
 
 namespace nanobook {
@@ -71,9 +72,16 @@ struct BookConfig {
     Price min_price{1};          // price band, inclusive
     Price max_price{1};          // price band, inclusive
     std::uint32_t max_orders{0}; // resting orders; uint32_t because pool indices are uint32_t
+    Qty max_qty{0};              // largest total qty of one order (a "fat finger" limit)
 
+    // max_orders * max_qty must fit in Qty: every sum the book computes (a level's qty, the
+    // look-first count) adds up at most max_orders resting orders of at most max_qty each, so
+    // this one check makes signed overflow (undefined behaviour) impossible.
     [[nodiscard]] constexpr bool is_valid() const {
-        return min_price.ticks >= 1 && min_price <= max_price && max_orders > 0;
+        return min_price.ticks >= 1 && min_price <= max_price && max_orders > 0 &&
+               max_qty.value > 0 &&
+               max_qty.value <=
+                   std::numeric_limits<std::int64_t>::max() / static_cast<std::int64_t>(max_orders);
     }
 
     [[nodiscard]] constexpr bool in_band(Price p) const {

@@ -38,7 +38,7 @@ allocates after start-up and keeps its hot data in cache. §12 lists the rules t
 | Type | Underlying | Notes |
 |---|---|---|
 | `Price` | `int64_t` | In **ticks** (e.g. 1 tick = $0.01). Never `double` (rule 2). A limit price must be inside the book's price band `[min_price, max_price]` (§12). |
-| `Qty` | `int64_t` | Signed on purpose, so a negative input can be detected and rejected instead of wrapping to a huge number. Must be > 0. |
+| `Qty` | `int64_t` | Signed on purpose, so a negative input can be detected and rejected instead of wrapping to a huge number. Must be in `[1, max_qty]` (§12). |
 | `OrderId` | `uint64_t` | Chosen by the sender. Must be **strictly increasing** across the session (§12). |
 | `OwnerId` | `uint32_t` | Who sent the order (trader, account or algorithm). Used only for SMP. |
 | `Side` | `enum class : uint8_t` | `Buy`, `Sell` |
@@ -91,7 +91,7 @@ remainder), `FokKill` (FOK could not fill completely).
 
 | Reason | When | FIX equivalent |
 |---|---|---|
-| `InvalidQty` | qty ≤ 0 | OrdRejReason 13 Incorrect quantity |
+| `InvalidQty` | qty ≤ 0, or qty > `max_qty` | OrdRejReason 13 Incorrect quantity |
 | `InvalidPrice` | Limit, IOC or FOK price outside the price band `[min_price, max_price]` | — |
 | `DuplicateId` | New order id ≤ the highest id seen so far (§12) | OrdRejReason 6 Duplicate order |
 | `BookFull` | Accepting the order would exceed `max_orders` resting orders | OrdRejReason 3 Order exceeds limit |
@@ -193,7 +193,7 @@ Rules, checked in this order:
 1. Id above the highest id seen → `Rejected{UnknownOrder}`.
 2. Id at or below it but not resting (filled or cancelled) → `Rejected{TooLateToCancel}`.
 3. `new_total_qty == 0` → `Rejected{UseCancel}`. Removal has exactly one path: Cancel.
-4. `new_total_qty < 0`, or `new_price` outside the price band → `Rejected{InvalidQty}` / `Rejected{InvalidPrice}`.
+4. `new_total_qty < 0` or `> max_qty`, or `new_price` outside the price band → `Rejected{InvalidQty}` / `Rejected{InvalidPrice}`.
 5. `new_total_qty ≤ filled` → `Rejected{TooLateToCancel}`. A modify never causes an overfill.
 6. Same price and same total → `Rejected{NoChange}`. Doing nothing costs nothing, and the trader is
    told that their message had no effect.
@@ -265,6 +265,7 @@ Notation: `B` = buy, `S` = sell, `owner/id qty@price`. "Book:" is the state befo
 | 29 | `max_orders` resting, S 2/1 10@10 | Limit B 1/n 10@10 (fills fully) | `New n`, `Trade n×1 10@10` (never rests, so not full) |
 | 30 | any | Limit B 1/n 10@(max_price + 1) | `Rejected n InvalidPrice` |
 | 31 | any | Limit B 1/n 10@(min_price − 1) | `Rejected n InvalidPrice` |
+| 32 | any | Limit B 1/n (max_qty + 1)@10 | `Rejected n InvalidQty` |
 
 ---
 
@@ -287,8 +288,9 @@ inside without changing any behaviour.
 
 | Rule | What it means | Why it's fast |
 |---|---|---|
-| **Per-book config, set at construction** | `BookConfig { min_price, max_price, max_orders }`. Both books take the same config. Each symbol gets its own (a $5 stock and a $700,000 stock need very different bands). | Everything the fast book needs can be sized **once at start-up**. |
+| **Per-book config, set at construction** | `BookConfig { min_price, max_price, max_orders, max_qty }`. Both books take the same config. Each symbol gets its own (a $5 stock and a $700,000 stock need very different bands). | Everything the fast book needs can be sized **once at start-up**. |
 | **Fixed order capacity `max_orders`** | A full book gives `Rejected{BookFull}` (rule 8). Choose it generously: room for 1M orders is tens of MB. | An order pool of `max_orders` slots, allocated once. Nothing allocates while trading (rule 1). Real engines are sized in advance in the same way. |
+| **Maximum order size `max_qty`** | An order or modify whose (total) qty is above it is `InvalidQty`. A config is only valid if `max_orders × max_qty` fits in 64 bits. | **Correctness, not speed**: every sum the book computes (a level's qty, the look-first count) adds at most `max_orders` orders of at most `max_qty` each, so signed overflow (undefined behaviour) becomes impossible. It costs one comparison per order. Real exchanges have the same limit as a fat-finger check. |
 | **Price band `[min_price, max_price]`** | Prices outside it are `InvalidPrice`. `min_price ≥ 1`. | **Mainly a real exchange rule**: exchanges reject prices outside a band (e.g. US Limit Up-Limit Down, price collars), much like fat-finger checks. The fast book **must work correctly for any band**, including very wide ones. Whether to exploit a narrow band with a tick-indexed array, or to use a sorted vector of levels that needs no band, is a phase 2 **benchmark** decision (README §5). |
 | **Strictly increasing ids** | `DuplicateId` if not increasing. | Finished ids need **one integer** instead of a growing set. ITCH order ids also increase, so phase 4 fits. |
 | **Events go into a caller-provided buffer** | The engine appends to a fixed-capacity array that the caller owns. Worst case per input: `max_orders + 2` events (a sweep that touches every resting order, plus `New` and a closing `Canceled`). | No `vector` growth per input. The buffer is reused, so it stays in cache. |
