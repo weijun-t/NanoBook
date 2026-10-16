@@ -385,3 +385,94 @@ TEST(ReferenceBookCapacity, NonRestingTypesAreNeverBookFull) {
     EXPECT_EQ(h.send(market_buy(1, 4, 10)), (Events{rejected(4, RejectReason::NoLiquidity)}));
     EXPECT_EQ(h.send(market_sell(1, 5, 10)), (Events{accepted(5), trade(5, 1, 10, 5)}));
 }
+
+// ---------------------------------------------------------------------------
+// Self-match prevention (design §6: cancel the owner's own resting order, keep matching)
+// ---------------------------------------------------------------------------
+
+// #14
+TEST_F(ReferenceBookTest, SelfMatchCancelsOwnRestingOrderThenTrades) {
+    h.send(sell(1, 1, 50, 10)); // owner 1's own order, first in the queue
+    h.send(sell(2, 2, 50, 10));
+    EXPECT_EQ(h.send(buy(1, 3, 50, 10)),
+              (Events{accepted(3), canceled(1, 50, CancelReason::SelfMatch), trade(3, 2, 50, 10)}));
+    EXPECT_EQ(h.book.order_count(), 0U);
+}
+
+// #15
+TEST_F(ReferenceBookTest, MarketAgainstOnlyOwnOrdersIsRejectedAndOwnOrdersKept) {
+    h.send(sell(1, 1, 50, 10));
+    EXPECT_EQ(h.send(market_buy(1, 2, 50)), (Events{rejected(2, RejectReason::NoLiquidity)}));
+    EXPECT_EQ(h.book.leaves(OrderId{1}), Qty{50}); // not canceled
+}
+
+// #16
+TEST_F(ReferenceBookTest, FokDoesNotCountOwnOrders) {
+    h.send(sell(1, 1, 50, 10));
+    h.send(sell(2, 2, 50, 10)); // 100 in total, but only 50 from other owners
+    EXPECT_EQ(h.send(fok_buy(1, 3, 100, 10)),
+              (Events{accepted(3), canceled(3, 100, CancelReason::FokKill)}));
+    EXPECT_EQ(h.book.leaves(OrderId{1}), Qty{50}); // killed FOK touches nothing, own order too
+    EXPECT_EQ(h.book.leaves(OrderId{2}), Qty{50});
+}
+
+TEST_F(ReferenceBookTest, FokCancelsOwnOrdersItPassesWhenEnoughOthers) {
+    h.send(sell(1, 1, 50, 10));  // own, better price
+    h.send(sell(2, 2, 100, 11)); // enough from another owner within the limit
+    EXPECT_EQ(
+        h.send(fok_buy(1, 3, 100, 11)),
+        (Events{accepted(3), canceled(1, 50, CancelReason::SelfMatch), trade(3, 2, 100, 11)}));
+}
+
+TEST_F(ReferenceBookTest, MarketCancelsOwnOrdersOnTheWay) {
+    h.send(sell(1, 1, 50, 10));
+    h.send(sell(2, 2, 50, 11));
+    EXPECT_EQ(h.send(market_buy(1, 3, 50)),
+              (Events{accepted(3), canceled(1, 50, CancelReason::SelfMatch), trade(3, 2, 50, 11)}));
+}
+
+TEST_F(ReferenceBookTest, IocAgainstOnlyOwnOrders) {
+    h.send(sell(1, 1, 50, 10));
+    EXPECT_EQ(h.send(ioc_buy(1, 2, 50, 10)),
+              (Events{accepted(2), canceled(1, 50, CancelReason::SelfMatch),
+                      canceled(2, 50, CancelReason::Unfilled)}));
+    EXPECT_EQ(h.book.order_count(), 0U);
+}
+
+TEST_F(ReferenceBookTest, LimitAgainstOnlyOwnOrdersRestsAfterCancelingThem) {
+    h.send(sell(1, 1, 50, 10));
+    EXPECT_EQ(h.send(buy(1, 2, 50, 10)),
+              (Events{accepted(2), canceled(1, 50, CancelReason::SelfMatch)}));
+    EXPECT_EQ(h.book.best_bid(), Price{10}); // order 2 rests; the book is not crossed
+    EXPECT_EQ(h.book.best_ask(), std::nullopt);
+}
+
+TEST_F(ReferenceBookTest, SelfMatchReportsOnlyRemainingQty) {
+    h.send(sell(1, 1, 100, 10));
+    h.send(buy(2, 2, 40, 10)); // another owner takes 40 of order 1
+    EXPECT_EQ(h.send(buy(1, 3, 10, 10)),
+              (Events{accepted(3), canceled(1, 60, CancelReason::SelfMatch)}));
+    EXPECT_EQ(h.book.leaves(OrderId{3}), Qty{10});
+}
+
+TEST_F(ReferenceBookTest, OwnOrdersBeyondTheFillAreUntouched) {
+    h.send(sell(2, 1, 50, 10));
+    h.send(sell(1, 2, 50, 10)); // own order, but behind order 1
+    EXPECT_EQ(h.send(buy(1, 3, 50, 10)), (Events{accepted(3), trade(3, 1, 50, 10)}));
+    EXPECT_EQ(h.book.leaves(OrderId{2}), Qty{50}); // never reached, so not canceled
+}
+
+TEST_F(ReferenceBookTest, SelfMatchOnSellSide) {
+    h.send(buy(1, 1, 50, 10));
+    EXPECT_EQ(h.send(sell(1, 2, 50, 10)),
+              (Events{accepted(2), canceled(1, 50, CancelReason::SelfMatch)}));
+    EXPECT_EQ(h.book.best_ask(), Price{10});
+}
+
+TEST(ReferenceBookCapacity, CrossingOnlyOwnOrderOnFullBookFreesTheSlot) {
+    Harness h{BookConfig{Price{1}, Price{1000}, 1}};
+    h.send(sell(1, 1, 10, 10)); // book is full
+    EXPECT_EQ(h.send(buy(1, 2, 10, 10)),
+              (Events{accepted(2), canceled(1, 10, CancelReason::SelfMatch)}));
+    EXPECT_EQ(h.book.order_count(), 1U); // order 2 took the freed slot
+}

@@ -19,8 +19,8 @@ namespace nanobook {
 // std::map from order id to where the order sits. It allocates freely. The phase 2 fast book
 // must produce exactly the same events for the same inputs.
 //
-// Supported so far: Limit, Market, IOC and FOK orders, and Cancel. Self-match prevention and
-// Modify come in the next commits.
+// Supported so far: Limit, Market, IOC and FOK orders, Cancel, and self-match prevention.
+// Modify comes in the next commit.
 class ReferenceBook {
 public:
     explicit ReferenceBook(BookConfig config);
@@ -71,8 +71,8 @@ private:
     [[nodiscard]] RejectReason unknown_or_too_late(OrderId id) const;
 
     template <typename Levels>
-    Qty match_against(Levels &opposite, OrderId aggressor, Side side, Price limit, Qty remaining,
-                      EventBuffer &out);
+    Qty match_against(Levels &opposite, OrderId aggressor, OwnerId owner, Side side, Price limit,
+                      Qty remaining, EventBuffer &out);
     template <typename Levels> void insert(Levels &levels, const Order &order);
     template <typename Levels> void remove(Levels &levels, const Locator &where);
 

@@ -25,16 +25,20 @@ Price effective_limit(const NewOrder &order) {
                                    : Price{std::numeric_limits<std::int64_t>::min()};
 }
 
-// FOK "look first" (design §5): how much could an order with this side and limit trade right
-// now? Read-only. Stops counting as soon as it reaches `enough`.
+// "Look first" (design §5, §6): how much could an order from `owner` with this side and limit
+// actually trade right now? The owner's own resting orders don't count: self-match prevention
+// would cancel them, not trade them. Read-only. Stops counting as soon as it reaches `enough`.
 template <typename Levels>
-Qty available_qty(const Levels &opposite, Side side, Price limit, Qty enough) {
+Qty available_qty(const Levels &opposite, OwnerId owner, Side side, Price limit, Qty enough) {
     Qty total{};
     for (const auto &[price, queue] : opposite) { // best price first
         if (!acceptable(side, limit, price)) {
             break; // every later level is worse
         }
         for (const auto &resting : queue) {
+            if (resting.owner == owner) {
+                continue;
+            }
             total += resting.leaves();
             if (total >= enough) {
                 return total;
@@ -72,17 +76,18 @@ void ReferenceBook::handle(const NewOrder &order, EventBuffer &out) {
     // untouched, so there is never anything to undo.
     if (order.type == OrderType::FOK) {
         const Qty available = order.side == Side::Buy
-                                  ? available_qty(asks_, order.side, limit, order.qty)
-                                  : available_qty(bids_, order.side, limit, order.qty);
+                                  ? available_qty(asks_, order.owner, order.side, limit, order.qty)
+                                  : available_qty(bids_, order.owner, order.side, limit, order.qty);
         if (available < order.qty) {
             out.push(Event::make_canceled(order.id, order.qty, CancelReason::FokKill));
             return;
         }
     }
 
-    const Qty remaining = order.side == Side::Buy
-                              ? match_against(asks_, order.id, order.side, limit, order.qty, out)
-                              : match_against(bids_, order.id, order.side, limit, order.qty, out);
+    const Qty remaining =
+        order.side == Side::Buy
+            ? match_against(asks_, order.id, order.owner, order.side, limit, order.qty, out)
+            : match_against(bids_, order.id, order.owner, order.side, limit, order.qty, out);
     if (remaining == Qty{0}) {
         return;
     }
@@ -145,11 +150,19 @@ std::optional<RejectReason> ReferenceBook::validate(const NewOrder &order) const
         return RejectReason::InvalidPrice; // a Market order's price is ignored
     }
     const Price limit = effective_limit(order);
-    if (order.type == OrderType::Market && !crosses_book(order.side, limit)) {
-        return RejectReason::NoLiquidity; // nothing at all on the opposite side
+    if (order.type == OrderType::Market) {
+        // Nothing to trade against, counting only other owners' orders. Rejecting up front
+        // leaves the trader's own resting orders untouched (design §6).
+        const Qty available = order.side == Side::Buy
+                                  ? available_qty(asks_, order.owner, order.side, limit, Qty{1})
+                                  : available_qty(bids_, order.owner, order.side, limit, Qty{1});
+        if (available == Qty{0}) {
+            return RejectReason::NoLiquidity;
+        }
     }
     // Only a Limit order can rest, and "full" only matters if it would rest without matching
-    // anything (design §4).
+    // anything (design §4). Crossing only the owner's own orders still frees a slot, because
+    // self-match prevention cancels them.
     if (order.type == OrderType::Limit && orders_.size() >= config_.max_orders &&
         !crosses_book(order.side, limit)) {
         return RejectReason::BookFull;
@@ -177,8 +190,8 @@ RejectReason ReferenceBook::unknown_or_too_late(OrderId id) const {
 // ---------------------------------------------------------------------------
 
 template <typename Levels>
-Qty ReferenceBook::match_against(Levels &opposite, OrderId aggressor, Side side, Price limit,
-                                 Qty remaining, EventBuffer &out) {
+Qty ReferenceBook::match_against(Levels &opposite, OrderId aggressor, OwnerId owner, Side side,
+                                 Price limit, Qty remaining, EventBuffer &out) {
     while (remaining > Qty{0} && !opposite.empty()) {
         const auto level = opposite.begin(); // best opposite price
         if (!acceptable(side, limit, level->first)) {
@@ -191,6 +204,17 @@ Qty ReferenceBook::match_against(Levels &opposite, OrderId aggressor, Side side,
         assert(!queue.empty() && "empty price level left in the book");
         while (remaining > Qty{0} && !queue.empty()) {
             Order &resting = queue.front(); // oldest order at this price
+
+            // Self-match prevention (design §6): never trade with yourself. Cancel the owner's
+            // own resting order (it is stale) and keep matching against the next one.
+            if (resting.owner == owner) {
+                out.push(
+                    Event::make_canceled(resting.id, resting.leaves(), CancelReason::SelfMatch));
+                orders_.erase(resting.id);
+                queue.pop_front();
+                continue;
+            }
+
             const Qty traded = std::min(remaining, resting.leaves());
             out.push(Event::make_trade(aggressor, resting.id, resting.price, traded));
             resting.filled += traded;
