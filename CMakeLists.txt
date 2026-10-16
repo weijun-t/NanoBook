@@ -111,7 +111,7 @@ if(NANOBOOK_BUILD_BENCH)
     )
     FetchContent_MakeAvailable(benchmark)
 
-    add_executable(nanobook_microbench bench/bench_smoke.cpp)
+    add_executable(nanobook_microbench bench/bench_book.cpp bench/alloc_counter.cpp)
     target_link_libraries(nanobook_microbench PRIVATE nanobook benchmark::benchmark_main)
     nanobook_configure_target(nanobook_microbench)
 endif()
