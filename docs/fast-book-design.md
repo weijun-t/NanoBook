@@ -321,7 +321,7 @@ against a deliberately broken copy, which must fail. Both happen before the fast
 on several seeds, locally.
 
 ### 8.4 Zero-allocation test
-- A separate test program links the counting `operator new` from `bench/alloc_counter.cpp`. It's
+- A separate test program links the counting `operator new` from `support/alloc_counter.cpp`. It's
   kept out of the sanitizer builds, so ASan's own allocation tracking stays intact. It runs in the
   Release presets.
 - The test builds a fast book (allocations allowed: that's start-up), warms it up with a seeded
@@ -376,6 +376,7 @@ src/fast/
 tests/fast/
   test_order_pool.cpp, test_intrusive_queue.cpp, test_id_table.cpp, test_levels.cpp
 tests/test_alloc.cpp   zero-allocation test (separate program, Release only)
+support/alloc_counter  counting operator new, shared by tests and benchmarks
 tools/nanobook_fuzz.cpp
 ```
 

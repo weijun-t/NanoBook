@@ -65,7 +65,19 @@ nanobook_configure_target(nanobook)
 target_compile_options(nanobook PRIVATE -fno-exceptions)
 
 # ---------------------------------------------------------------------------
-# 6. Tests (GoogleTest)
+# 6. Allocation counter: replaces the global operator new to count calls. Shared by the
+#    benchmarks and the zero-allocation tests. An OBJECT library, so its object file is always
+#    linked in (a static library could be skipped by the linker). Never in sanitizer builds:
+#    ASan and TSan track allocations themselves.
+# ---------------------------------------------------------------------------
+if(NANOBOOK_BUILD_BENCH OR (NANOBOOK_BUILD_TESTS AND NOT NANOBOOK_SANITIZER))
+    add_library(nanobook_alloc_counter OBJECT support/alloc_counter.cpp)
+    target_include_directories(nanobook_alloc_counter PUBLIC support)
+    nanobook_configure_target(nanobook_alloc_counter)
+endif()
+
+# ---------------------------------------------------------------------------
+# 7. Tests (GoogleTest)
 # ---------------------------------------------------------------------------
 if(NANOBOOK_BUILD_TESTS OR NANOBOOK_BUILD_BENCH)
     include(FetchContent)
@@ -92,10 +104,19 @@ if(NANOBOOK_BUILD_TESTS)
     target_link_libraries(nanobook_tests PRIVATE nanobook GTest::gtest_main)
     nanobook_configure_target(nanobook_tests)
     gtest_discover_tests(nanobook_tests)
+
+    # Zero-allocation tests (README rule 1, fast-book design §8.4): their own program, because
+    # the counting operator new would replace the normal one for every test in the program.
+    if(NOT NANOBOOK_SANITIZER)
+        add_executable(nanobook_alloc_tests tests/test_alloc.cpp)
+        target_link_libraries(nanobook_alloc_tests PRIVATE nanobook nanobook_alloc_counter GTest::gtest_main)
+        nanobook_configure_target(nanobook_alloc_tests)
+        gtest_discover_tests(nanobook_alloc_tests)
+    endif()
 endif()
 
 # ---------------------------------------------------------------------------
-# 7. Microbenchmarks (Google Benchmark). Named "microbench" so the name
+# 8. Microbenchmarks (Google Benchmark). Named "microbench" so the name
 #    nanobook_bench stays free for the rdtsc latency tool in tools/.
 # ---------------------------------------------------------------------------
 if(NANOBOOK_BUILD_BENCH)
@@ -111,7 +132,7 @@ if(NANOBOOK_BUILD_BENCH)
     )
     FetchContent_MakeAvailable(benchmark)
 
-    add_executable(nanobook_microbench bench/bench_book.cpp bench/alloc_counter.cpp)
-    target_link_libraries(nanobook_microbench PRIVATE nanobook benchmark::benchmark_main)
+    add_executable(nanobook_microbench bench/bench_book.cpp)
+    target_link_libraries(nanobook_microbench PRIVATE nanobook nanobook_alloc_counter benchmark::benchmark_main)
     nanobook_configure_target(nanobook_microbench)
 endif()

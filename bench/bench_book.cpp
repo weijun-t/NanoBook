@@ -60,9 +60,7 @@ void run_batches(benchmark::State &state, std::int64_t ops_per_batch, Setup setu
         setup(*book, out);
         state.ResumeTiming();
 
-        const std::uint64_t before = bench::allocations();
-        work(*book, out);
-        allocations += bench::allocations() - before;
+        allocations += support::allocations_during([&] { work(*book, out); });
         benchmark::DoNotOptimize(out.size()); // keep the compiler from discarding the work
     }
 

@@ -75,4 +75,4 @@ jobs:
         run: cmake --preset clang-debug-asan -DNANOBOOK_BUILD_BENCH=ON
 
       - name: Run clang-tidy
-        run: run-clang-tidy-18 -quiet -p build/clang-debug-asan "$PWD/(src|tests|bench|tools)/"
+        run: run-clang-tidy-18 -quiet -p build/clang-debug-asan "$PWD/(src|tests|bench|tools|support)/"

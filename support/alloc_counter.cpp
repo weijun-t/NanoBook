@@ -6,8 +6,9 @@
 #include <new>
 
 // Replacing the global operator new/delete is allowed by the standard: defining these functions
-// in a program makes every `new` in that program call them. Only the benchmark binary links this
-// file. The tests and the engine library keep the normal ones, and so does ASan (it has its own).
+// in a program makes every `new` in that program call them. Only the benchmark program and the
+// zero-allocation test program link this file (CMake target nanobook_alloc_counter). The engine
+// library and the main test program keep the normal ones, and so do sanitizer builds.
 
 namespace {
 
@@ -25,7 +26,7 @@ void *counted_alloc(std::size_t size) {
 
 } // namespace
 
-std::uint64_t nanobook::bench::allocations() {
+std::uint64_t nanobook::support::allocations() {
     return g_allocations.load(std::memory_order_relaxed);
 }
 
