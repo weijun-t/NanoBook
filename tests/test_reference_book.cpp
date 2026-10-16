@@ -234,3 +234,154 @@ TEST(ReferenceBookCapacity, CancelFreesASlot) {
     h.send(cancel(1));
     EXPECT_EQ(h.send(buy(1, 3, 10, 10)), (Events{accepted(3)}));
 }
+
+// ---------------------------------------------------------------------------
+// Market orders (design §5: any price, never rests, Rejected if nothing to trade against)
+// ---------------------------------------------------------------------------
+
+// #9
+TEST_F(ReferenceBookTest, MarketOnEmptyBookIsRejected) {
+    EXPECT_EQ(h.send(market_buy(1, 1, 100)), (Events{rejected(1, RejectReason::NoLiquidity)}));
+    EXPECT_EQ(h.send(buy(1, 1, 10, 10)), (Events{accepted(1)})); // rejected id was not used
+}
+
+TEST_F(ReferenceBookTest, MarketWithOnlySameSideOrdersIsRejected) {
+    h.send(buy(2, 1, 100, 10)); // a bid is no use to a market buy
+    EXPECT_EQ(h.send(market_buy(1, 2, 100)), (Events{rejected(2, RejectReason::NoLiquidity)}));
+}
+
+// #10
+TEST_F(ReferenceBookTest, MarketRemainderIsCanceledNotRested) {
+    h.send(sell(2, 1, 30, 10));
+    EXPECT_EQ(h.send(market_buy(1, 2, 100)),
+              (Events{accepted(2), trade(2, 1, 30, 10), canceled(2, 70, CancelReason::Unfilled)}));
+    EXPECT_EQ(h.book.order_count(), 0U);
+    EXPECT_EQ(h.book.best_bid(), std::nullopt);
+}
+
+TEST_F(ReferenceBookTest, MarketSweepsAnyPrice) {
+    h.send(sell(2, 1, 50, 10));
+    h.send(sell(2, 2, 50, 1000)); // top of the price band: still taken
+    EXPECT_EQ(h.send(market_buy(1, 3, 80)),
+              (Events{accepted(3), trade(3, 1, 50, 10), trade(3, 2, 30, 1000)}));
+    EXPECT_EQ(h.book.leaves(OrderId{2}), Qty{20});
+}
+
+TEST_F(ReferenceBookTest, MarketSellTakesBidsHighestFirst) {
+    h.send(buy(2, 1, 40, 1));
+    h.send(buy(2, 2, 40, 10));
+    EXPECT_EQ(h.send(market_sell(1, 3, 50)),
+              (Events{accepted(3), trade(3, 2, 40, 10), trade(3, 1, 10, 1)}));
+}
+
+TEST_F(ReferenceBookTest, MarketPriceFieldIsIgnored) {
+    h.send(sell(2, 1, 10, 10));
+    NewOrder m = market_buy(1, 2, 10);
+    m.price = Price{-999}; // outside the band, but a Market order has no price
+    EXPECT_EQ(h.send(m), (Events{accepted(2), trade(2, 1, 10, 10)}));
+}
+
+TEST_F(ReferenceBookTest, MarketBadQtyIsReportedBeforeNoLiquidity) {
+    EXPECT_EQ(h.send(market_buy(1, 1, 0)), (Events{rejected(1, RejectReason::InvalidQty)}));
+}
+
+// ---------------------------------------------------------------------------
+// IOC (design §5: like a Limit order, but the remainder is canceled instead of resting)
+// ---------------------------------------------------------------------------
+
+// #11
+TEST_F(ReferenceBookTest, IocOnEmptyBookIsCanceled) {
+    EXPECT_EQ(h.send(ioc_buy(1, 1, 100, 10)),
+              (Events{accepted(1), canceled(1, 100, CancelReason::Unfilled)}));
+    EXPECT_EQ(h.book.order_count(), 0U);
+}
+
+TEST_F(ReferenceBookTest, IocPartialFillCancelsRemainder) {
+    h.send(sell(2, 1, 30, 10));
+    EXPECT_EQ(h.send(ioc_buy(1, 2, 100, 10)),
+              (Events{accepted(2), trade(2, 1, 30, 10), canceled(2, 70, CancelReason::Unfilled)}));
+    EXPECT_EQ(h.book.best_bid(), std::nullopt); // nothing rested
+}
+
+TEST_F(ReferenceBookTest, IocRespectsItsLimitPrice) {
+    h.send(sell(2, 1, 50, 10));
+    h.send(sell(2, 2, 50, 12)); // above the IOC's limit of 11
+    EXPECT_EQ(h.send(ioc_buy(1, 3, 100, 11)),
+              (Events{accepted(3), trade(3, 1, 50, 10), canceled(3, 50, CancelReason::Unfilled)}));
+    EXPECT_EQ(h.book.leaves(OrderId{2}), Qty{50}); // untouched
+}
+
+TEST_F(ReferenceBookTest, IocFullFillHasNoCancel) {
+    h.send(sell(2, 1, 100, 10));
+    EXPECT_EQ(h.send(ioc_buy(1, 2, 100, 10)), (Events{accepted(2), trade(2, 1, 100, 10)}));
+}
+
+TEST_F(ReferenceBookTest, IocSellTakesBids) {
+    h.send(buy(2, 1, 30, 10));
+    EXPECT_EQ(h.send(ioc_sell(1, 2, 50, 10)),
+              (Events{accepted(2), trade(2, 1, 30, 10), canceled(2, 20, CancelReason::Unfilled)}));
+}
+
+TEST_F(ReferenceBookTest, IocPriceOutsideBandIsInvalid) {
+    EXPECT_EQ(h.send(ioc_buy(1, 1, 10, 0)), (Events{rejected(1, RejectReason::InvalidPrice)}));
+}
+
+// ---------------------------------------------------------------------------
+// FOK (design §5: look first, then fill completely or kill; the book is never half-changed)
+// ---------------------------------------------------------------------------
+
+// #12
+TEST_F(ReferenceBookTest, FokWithoutEnoughQtyIsKilledAndBookUnchanged) {
+    h.send(sell(2, 1, 60, 10));
+    EXPECT_EQ(h.send(fok_buy(1, 2, 100, 10)),
+              (Events{accepted(2), canceled(2, 100, CancelReason::FokKill)}));
+    EXPECT_EQ(h.book.leaves(OrderId{1}), Qty{60}); // nothing traded
+}
+
+// #13
+TEST_F(ReferenceBookTest, FokWithExactlyEnoughFillsCompletely) {
+    h.send(sell(2, 1, 60, 10));
+    h.send(sell(2, 2, 40, 10));
+    EXPECT_EQ(h.send(fok_buy(1, 3, 100, 10)),
+              (Events{accepted(3), trade(3, 1, 60, 10), trade(3, 2, 40, 10)}));
+    EXPECT_EQ(h.book.order_count(), 0U);
+}
+
+TEST_F(ReferenceBookTest, FokOnlyCountsAcceptablePrices) {
+    h.send(sell(2, 1, 60, 10));
+    h.send(sell(2, 2, 40, 11)); // enough in total, but 11 is above the FOK's limit
+    EXPECT_EQ(h.send(fok_buy(1, 3, 100, 10)),
+              (Events{accepted(3), canceled(3, 100, CancelReason::FokKill)}));
+    EXPECT_EQ(h.book.leaves(OrderId{1}), Qty{60});
+    EXPECT_EQ(h.book.leaves(OrderId{2}), Qty{40});
+}
+
+TEST_F(ReferenceBookTest, FokFillsAcrossLevelsWithinItsLimit) {
+    h.send(sell(2, 1, 60, 10));
+    h.send(sell(2, 2, 40, 11));
+    EXPECT_EQ(h.send(fok_buy(1, 3, 100, 11)),
+              (Events{accepted(3), trade(3, 1, 60, 10), trade(3, 2, 40, 11)}));
+}
+
+TEST_F(ReferenceBookTest, FokSellAndEmptyBook) {
+    EXPECT_EQ(h.send(fok_sell(1, 1, 10, 10)),
+              (Events{accepted(1), canceled(1, 10, CancelReason::FokKill)}));
+    h.send(buy(2, 2, 15, 10));
+    EXPECT_EQ(h.send(fok_sell(1, 3, 10, 10)), (Events{accepted(3), trade(3, 2, 10, 10)}));
+    EXPECT_EQ(h.book.leaves(OrderId{2}), Qty{5});
+}
+
+// ---------------------------------------------------------------------------
+// Only Limit orders rest, so only Limit orders can be BookFull
+// ---------------------------------------------------------------------------
+
+TEST(ReferenceBookCapacity, NonRestingTypesAreNeverBookFull) {
+    Harness h{BookConfig{Price{1}, Price{1000}, 1}};
+    h.send(buy(2, 1, 10, 5)); // book is now full
+    EXPECT_EQ(h.send(ioc_buy(1, 2, 10, 5)),
+              (Events{accepted(2), canceled(2, 10, CancelReason::Unfilled)}));
+    EXPECT_EQ(h.send(fok_buy(1, 3, 10, 5)),
+              (Events{accepted(3), canceled(3, 10, CancelReason::FokKill)}));
+    EXPECT_EQ(h.send(market_buy(1, 4, 10)), (Events{rejected(4, RejectReason::NoLiquidity)}));
+    EXPECT_EQ(h.send(market_sell(1, 5, 10)), (Events{accepted(5), trade(5, 1, 10, 5)}));
+}

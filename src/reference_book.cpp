@@ -2,8 +2,8 @@
 
 #include <algorithm>
 #include <cassert>
-#include <cstdlib>
 #include <iterator>
+#include <limits>
 
 namespace nanobook {
 
@@ -13,6 +13,35 @@ namespace {
 // A buy accepts asks at or below its limit; a sell accepts bids at or above its limit.
 bool acceptable(Side side, Price limit, Price level) {
     return side == Side::Buy ? level <= limit : level >= limit;
+}
+
+// A Market order has no price, so it accepts every level: give it the most extreme limit.
+// Every other type uses its own price.
+Price effective_limit(const NewOrder &order) {
+    if (order.type != OrderType::Market) {
+        return order.price;
+    }
+    return order.side == Side::Buy ? Price{std::numeric_limits<std::int64_t>::max()}
+                                   : Price{std::numeric_limits<std::int64_t>::min()};
+}
+
+// FOK "look first" (design §5): how much could an order with this side and limit trade right
+// now? Read-only. Stops counting as soon as it reaches `enough`.
+template <typename Levels>
+Qty available_qty(const Levels &opposite, Side side, Price limit, Qty enough) {
+    Qty total{};
+    for (const auto &[price, queue] : opposite) { // best price first
+        if (!acceptable(side, limit, price)) {
+            break; // every later level is worse
+        }
+        for (const auto &resting : queue) {
+            total += resting.leaves();
+            if (total >= enough) {
+                return total;
+            }
+        }
+    }
+    return total;
 }
 
 } // namespace
@@ -29,10 +58,6 @@ void ReferenceBook::handle(const NewOrder &order, EventBuffer &out) {
     assert(out.capacity() >= config_.max_events_per_input());
     out.clear();
 
-    if (order.type != OrderType::Limit) {
-        std::abort(); // Market, IOC and FOK are implemented in the next commit
-    }
-
     if (const std::optional<RejectReason> reason = validate(order)) {
         out.push(Event::make_rejected(order.id, *reason));
         return; // a rejected input changes nothing, not even highest_id_ (design §4)
@@ -41,25 +66,46 @@ void ReferenceBook::handle(const NewOrder &order, EventBuffer &out) {
     highest_id_ = order.id;
     out.push(Event::make_new(order.id));
 
-    // Match against the opposite side, then rest whatever is left (Limit only).
-    const Qty remaining =
-        order.side == Side::Buy
-            ? match_against(asks_, order.id, order.side, order.price, order.qty, out)
-            : match_against(bids_, order.id, order.side, order.price, order.qty, out);
+    const Price limit = effective_limit(order);
 
-    if (remaining > Qty{0}) {
-        const Order resting{.id = order.id,
-                            .owner = order.owner,
-                            .side = order.side,
-                            .price = order.price,
-                            .total = order.qty,
-                            .filled = order.qty - remaining,
-                            .seq = next_seq_++};
-        if (order.side == Side::Buy) {
-            insert(bids_, resting);
-        } else {
-            insert(asks_, resting);
+    // FOK: look first, then act. If it can't fill completely, kill it and leave the book
+    // untouched, so there is never anything to undo.
+    if (order.type == OrderType::FOK) {
+        const Qty available = order.side == Side::Buy
+                                  ? available_qty(asks_, order.side, limit, order.qty)
+                                  : available_qty(bids_, order.side, limit, order.qty);
+        if (available < order.qty) {
+            out.push(Event::make_canceled(order.id, order.qty, CancelReason::FokKill));
+            return;
         }
+    }
+
+    const Qty remaining = order.side == Side::Buy
+                              ? match_against(asks_, order.id, order.side, limit, order.qty, out)
+                              : match_against(bids_, order.id, order.side, limit, order.qty, out);
+    if (remaining == Qty{0}) {
+        return;
+    }
+
+    assert(order.type != OrderType::FOK && "FOK passed the look-first check, so it must fill");
+
+    // Only a Limit order rests. IOC and Market cancel whatever is left (design §5).
+    if (order.type != OrderType::Limit) {
+        out.push(Event::make_canceled(order.id, remaining, CancelReason::Unfilled));
+        return;
+    }
+
+    const Order resting{.id = order.id,
+                        .owner = order.owner,
+                        .side = order.side,
+                        .price = order.price,
+                        .total = order.qty,
+                        .filled = order.qty - remaining,
+                        .seq = next_seq_++};
+    if (order.side == Side::Buy) {
+        insert(bids_, resting);
+    } else {
+        insert(asks_, resting);
     }
 }
 
@@ -95,11 +141,17 @@ std::optional<RejectReason> ReferenceBook::validate(const NewOrder &order) const
     if (order.qty <= Qty{0}) {
         return RejectReason::InvalidQty;
     }
-    if (!config_.in_band(order.price)) {
-        return RejectReason::InvalidPrice;
+    if (order.type != OrderType::Market && !config_.in_band(order.price)) {
+        return RejectReason::InvalidPrice; // a Market order's price is ignored
     }
-    // Full only matters if the order would rest without matching anything (design §4).
-    if (orders_.size() >= config_.max_orders && !crosses_book(order.side, order.price)) {
+    const Price limit = effective_limit(order);
+    if (order.type == OrderType::Market && !crosses_book(order.side, limit)) {
+        return RejectReason::NoLiquidity; // nothing at all on the opposite side
+    }
+    // Only a Limit order can rest, and "full" only matters if it would rest without matching
+    // anything (design §4).
+    if (order.type == OrderType::Limit && orders_.size() >= config_.max_orders &&
+        !crosses_book(order.side, limit)) {
         return RejectReason::BookFull;
     }
     return std::nullopt;

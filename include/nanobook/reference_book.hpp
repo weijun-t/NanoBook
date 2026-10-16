@@ -19,7 +19,7 @@ namespace nanobook {
 // std::map from order id to where the order sits. It allocates freely. The phase 2 fast book
 // must produce exactly the same events for the same inputs.
 //
-// Supported so far: Limit orders and Cancel. Market, IOC, FOK, self-match prevention and
+// Supported so far: Limit, Market, IOC and FOK orders, and Cancel. Self-match prevention and
 // Modify come in the next commits.
 class ReferenceBook {
 public:

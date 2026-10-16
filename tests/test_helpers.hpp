@@ -109,20 +109,47 @@ namespace test {
 
 // ---- inputs --------------------------------------------------------------
 
-inline NewOrder limit(Side side, std::uint32_t owner, std::uint64_t id, std::int64_t qty,
-                      std::int64_t price) {
+inline NewOrder order(OrderType type, Side side, std::uint32_t owner, std::uint64_t id,
+                      std::int64_t qty, std::int64_t price) {
     return NewOrder{.id = OrderId{id},
                     .owner = OwnerId{owner},
                     .side = side,
-                    .type = OrderType::Limit,
+                    .type = type,
                     .price = Price{price},
                     .qty = Qty{qty}};
+}
+inline NewOrder limit(Side side, std::uint32_t owner, std::uint64_t id, std::int64_t qty,
+                      std::int64_t price) {
+    return order(OrderType::Limit, side, owner, id, qty, price);
 }
 inline NewOrder buy(std::uint32_t owner, std::uint64_t id, std::int64_t qty, std::int64_t price) {
     return limit(Side::Buy, owner, id, qty, price);
 }
 inline NewOrder sell(std::uint32_t owner, std::uint64_t id, std::int64_t qty, std::int64_t price) {
     return limit(Side::Sell, owner, id, qty, price);
+}
+// Market orders have no price; the field is set to 0 and ignored (design §3).
+inline NewOrder market_buy(std::uint32_t owner, std::uint64_t id, std::int64_t qty) {
+    return order(OrderType::Market, Side::Buy, owner, id, qty, 0);
+}
+inline NewOrder market_sell(std::uint32_t owner, std::uint64_t id, std::int64_t qty) {
+    return order(OrderType::Market, Side::Sell, owner, id, qty, 0);
+}
+inline NewOrder ioc_buy(std::uint32_t owner, std::uint64_t id, std::int64_t qty,
+                        std::int64_t price) {
+    return order(OrderType::IOC, Side::Buy, owner, id, qty, price);
+}
+inline NewOrder ioc_sell(std::uint32_t owner, std::uint64_t id, std::int64_t qty,
+                         std::int64_t price) {
+    return order(OrderType::IOC, Side::Sell, owner, id, qty, price);
+}
+inline NewOrder fok_buy(std::uint32_t owner, std::uint64_t id, std::int64_t qty,
+                        std::int64_t price) {
+    return order(OrderType::FOK, Side::Buy, owner, id, qty, price);
+}
+inline NewOrder fok_sell(std::uint32_t owner, std::uint64_t id, std::int64_t qty,
+                         std::int64_t price) {
+    return order(OrderType::FOK, Side::Sell, owner, id, qty, price);
 }
 inline Cancel cancel(std::uint64_t id) {
     return Cancel{.id = OrderId{id}};
