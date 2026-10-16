@@ -1,0 +1,417 @@
+# Phase 2 design: the fast book
+
+> **Status:** approved (2026-10-17). Items marked **[MEASURE]** are decided by a benchmark, not in
+> advance (README rule 10). Changes from here on are made by an edit plus a note in the commit message.
+> Decided: price levels (§6): sorted list is the main design, the tick array an experiment, the
+> moving window postponed to phase 6. Reusing the exchange's id table (§5.3) stays an experiment.
+
+The fast book is a **second, separate implementation** of the same contract as the reference book
+(`docs/design.md`). It must produce **exactly the same events, in the same order**, for every
+input. It is not an edited copy of the reference book: it uses different data structures, and the
+reference book stays unchanged as the trusted answer key.
+
+---
+
+## 1. Goal and exit criteria
+
+**Goal:** remove the costs the phase 1 baseline measured (`docs/perf-log.md`, report §8):
+
+| Phase 1 cost | Cause | Phase 2 answer |
+|---|---|---|
+| 2.01 heap allocations per added order | A `std::list` node per order, a `std::map` node per order and per level | An order pool and fixed tables, allocated once at start-up (§3, §5, §6) |
+| Cancel is the slowest operation (137 ns) | Two tree lookups that jump around memory | A flat hash table for id → order (§5), and orders that remember their price (§4) |
+| Sweeps cost ~40 ns per level | A tree erase and a node free per level | Levels in flat arrays, with no per-level allocation (§6) |
+
+**Phase 2 is done when** (README roadmap):
+1. The **differential fuzzer** (§8.3) passes **10 million or more** random operations against the
+   reference book.
+2. The **zero-allocation test** (§8.4) shows **exactly 0** heap allocations while trading.
+
+Speed targets are not exit criteria. The README's *target* for the fast book is tens to low hundreds
+of ns at p50, and phase 3's `rdtsc` harness measures that. Phase 2 records before/after averages
+for every change (rule 22).
+
+---
+
+## 2. What stays the same
+
+| Unchanged | Where |
+|---|---|
+| Every behaviour: inputs, events, check order, matching rules, self-match prevention, modify | `docs/design.md` §3–§7 |
+| Types, messages, `EventBuffer`, the `OrderBook` concept | `include/nanobook/core/` |
+| `Exchange<Book>`: it already accepts any `OrderBook` | `include/nanobook/exchange.hpp` |
+| The 96 typed tests: the fast book joins `BookTypes` | `tests/test_helpers.hpp` |
+| `ReferenceBook`: never changed in phase 2 | `include/nanobook/reference/` |
+
+If writing the fast book reveals a gap in the contract, the fix goes into `design.md` first, then
+into **both** books.
+
+---
+
+## 3. Order pool
+
+**Problem:** the reference book asks the system for memory every time an order arrives. That is
+slow, and how slow varies unpredictably.
+
+**Design:** reserve room for all `max_orders` orders **once, in the constructor**, like a car park
+with numbered spaces.
+- Storage: one `std::vector<Order>` of exactly `max_orders` slots. It is sized once and never resized.
+- Orders are referred to by **slot number** (`uint32_t`), never by pointer. Slot numbers are half the
+  size of a pointer, so more fit in each 64-byte cache line, and they stay valid if the storage
+  ever moved.
+- `kNone = UINT32_MAX` means "no slot".
+- **Free list:** the empty slots are chained together through their own `next` field, so no extra
+  memory is needed. Taking a slot = pop the head of the free list. Freeing a slot = push it back.
+  Both are a few instructions.
+- **Last freed, first reused:** a slot that was just freed is probably still in the CPU cache, so
+  it is the fastest one to reuse.
+- **Full pool = `BookFull`.** The pool holds exactly `max_orders` slots, so "no free slot" is the
+  same condition the contract already rejects (`design.md` §4). There is no new behaviour.
+
+Slot numbers never appear in events, so which slot an order gets has no effect on the output.
+Determinism (rule 11) is unaffected.
+
+---
+
+## 4. Orders and price-level queues
+
+### 4.1 The order slot
+
+| Field | Size | Why it's there |
+|---|---|---|
+| `OrderId id` | 8 | Trade and Canceled events name it |
+| `Qty leaves` | 8 | Remaining qty: read on every match step |
+| `Qty filled` | 8 | Modify's total-quantity rule (`design.md` §7). Total = `leaves + filled`. |
+| `Price price` | 8 | So cancel and modify can find the order's level without searching for it |
+| `uint32_t prev`, `next` | 4 + 4 | Neighbours in the level's queue (§4.2). `next` doubles as the free-list link. |
+| `OwnerId owner` | 4 | Self-match prevention: checked on every match step |
+| `Side side` | 1 | Which side's levels to remove it from |
+| padding | 3 | |
+| **Total** | **48 bytes** | `static_assert`ed (rule 9) |
+
+There's no sequence number: **the queue order is the time priority**. Modify that loses priority
+moves the order to the back of the queue. That is the same behaviour, and invariant 5 becomes
+"the queue's links are consistent".
+
+**[MEASURE] 48 vs 64 bytes.** At 48 bytes, some orders straddle two cache lines. Padding to 64
+means one order = one line, but less data per line overall. Benchmark both (§9).
+
+### 4.2 Intrusive FIFO queue per level
+
+**Problem:** `std::list` puts each order in a separate box, allocated on arrival and freed on exit.
+
+**Design:** "intrusive" means the links live **inside the order slot** (`prev`, `next`), so there is
+no separate box. A level only stores the ends of its queue:
+
+| Level field | Size | Meaning |
+|---|---|---|
+| `Price price` | 8 | |
+| `Qty total` | 8 | Sum of `leaves` in the queue, kept up to date. Invariant 3 becomes a real check. |
+| `uint32_t head`, `tail` | 4 + 4 | Oldest and newest order slot |
+| `uint32_t count` | 4 | Number of orders, for checks and queries |
+| padding | 4 | |
+| **Total** | **32 bytes** | `static_assert`ed |
+
+Operations, all a few instructions with no memory request:
+- **Push back** (a new order, or a modify that loses priority): link after `tail`.
+- **Unlink anywhere** (cancel, self-match cancel): connect `prev` and `next` to each other.
+- **Pop front** (an order fully filled while matching): move `head` to `next`.
+
+---
+
+## 5. Order id lookup
+
+**Problem:** a cancel says "order #7". The book needs **which slot holds order #7**. Ids are large and
+spread out (exchange-wide, with gaps), while slots are small and packed (0 … `max_orders`−1), so a
+translation table is needed. The reference book uses a tree: about 14 steps, each somewhere else in
+memory.
+
+### 5.1 Chosen: a flat hash table, built in
+
+- **One array, allocated once**, with a power-of-two number of entries **≥ 2 × `max_orders`**. It is
+  never more than half full, so searches stay short.
+- **Entry:** `{ OrderId id; uint32_t slot; }`. That's 16 bytes with padding. `id == 0` means
+  "empty". The exchange never issues id 0, and a book asserts that its ids increase from 0, so 0 can
+  never be a real order.
+- **Where an id goes:** a fixed scramble formula turns the id into an array position: multiply by
+  the constant 11400714819323198485 (2⁶⁴ divided by the golden ratio) and keep the top bits.
+  Exchange ids arrive in near-sequential runs, and a straight `id % size` would pile neighbours
+  into neighbouring entries. The multiply spreads them out, and it costs one multiplication.
+- **Collisions:** if that entry is taken, try the next one (and wrap at the end). With the table at
+  most half full, a search usually takes 1–2 steps.
+- **Removing without leaving holes:** simply emptying an entry would make a later search stop early
+  at the gap and miss an order that had been pushed further along. Instead, after removing, entries
+  further along that belong earlier are **shifted back** into the hole ("backward-shift deletion").
+  The table never fills up with "deleted" markers, even after a whole day of cancels.
+- **Memory:** 2 × `max_orders` (rounded up to a power of two) × 16 bytes. For 1M orders, that's 32 MB.
+
+The table gets its **own unit tests**, especially for removal: removing from the middle of a
+collision run, and wrapping around the end of the array.
+
+**[MEASURE]** A 12-byte packed entry, or storing only the slot and reading the id from the pool to
+compare. Both are smaller, but cost an extra read. Benchmark against the 16-byte entry.
+
+### 5.2 Rejected: one entry per possible id
+
+"Entry number = order id" would need one step with no formula. But ids are exchange-wide, so every
+book would need an entry for every id of the whole day: 8,000 symbols × hundreds of millions of
+entries. It's not possible.
+
+### 5.3 Experiment, not the plan: reuse the exchange's id table
+
+The exchange already has one entry per id. Widening it to also store the slot number gives a
+one-step lookup. Against it:
+- Memory grows from 2 to about 8 bytes per order of the day (100M orders: 800 MB).
+- It reverses the exchange design: cancels avoid reading that table (`design.md` §3.1, cold path),
+  because it is huge and old entries are rarely in cache.
+- A book would no longer work on its own, which changes the contract and complicates book-level
+  tests and the fuzzer.
+
+Only worth trying after §5.1 is measured, and only with a before/after table.
+
+---
+
+## 6. Price levels
+
+**Problem:** the reference book keeps levels in a tree, one allocation per level, scattered in
+memory.
+
+**Decision (2026-10-17):** the contract stays as it is: the fast book works for **any** price band
+(`design.md` §12). So:
+- the **sorted list** (§6.1) is the main design: `FastBook` uses it;
+- a **plain tick array** (§6.2) is built as a **benchmark experiment**, to measure how much faster a
+  tick array could be;
+- a **moving window** (§6.3) is postponed to phase 6, and only built if those numbers justify it.
+
+The fast book is a template over its level structure, so both variants run the same tests, fuzzer
+and benchmarks with identical code:
+
+```
+BasicFastBook<SortedLevels>    // main design
+BasicFastBook<TickLevels>      // experiment: narrow bands only
+using FastBook = BasicFastBook<SortedLevels>;
+```
+
+### 6.1 Main design: a sorted list of only the prices that have orders
+
+One `std::vector<Level>` per side, with capacity reserved for `max_orders` levels at start-up (there
+can never be more levels than resting orders), so it never grows while trading.
+- **Memory grows with the number of levels in use, not with the band**, so any band works: a $5
+  stock and BRK.A cost the same.
+- **Best price at the END of the array.** Most activity is near the best price, and inserting or
+  removing near the end only shifts a few entries, like adding a book at the end of a shelf
+  instead of the front.
+- **Finding a level** (a new order, a cancel, a modify): **hybrid search**.
+  - Start from the best price and check one by one for the first `K` levels. Orders cluster near
+    the best price, so this usually finds it in a few steps, all in neighbouring memory.
+  - Past `K` levels, switch to **binary search** (halve the range each step, like a dictionary).
+  - **[MEASURE]** `K` (e.g. 8, 16, 32), against plain linear and plain binary search.
+- Orders store their **price, not a level position**, because positions shift whenever a level is
+  inserted or removed.
+
+### 6.2 Experiment: a plain tick array (one slot per possible price)
+
+Like numbered lockers: the level for price `p` is entry `p − min_price`. **Finding a level needs no
+search at all**, and cancel goes straight to it using the order's stored price.
+- One array per side, with `max_price − min_price + 1` entries of 32 bytes, allocated once.
+- **Finding the best price:** a **bitmap** with one bit per price, set when the level has orders.
+  The next non-empty price is found 64 prices at a time with `std::countr_zero` ("count the zeros
+  before the first set bit"). A second, smaller bitmap marks which 64-price blocks are non-empty,
+  so even a sparse book skips empty stretches quickly.
+- **Memory grows with the band width, not with the orders** (32 bytes per slot):
+
+| Stock | Band | Slots per side | Memory per side |
+|---|---|---|---|
+| $100, 1¢ steps, ±10% | $90–$110 | 2,000 | 64 KB |
+| $1,000, 1¢ steps, ±50% | $500–$1,500 | 100,000 | 3.2 MB |
+| BRK.A ≈ $700,000, 1¢ steps, ±10% | $630k–$770k | 14,000,000 | 450 MB |
+
+- **Narrow bands only.** `TickLevels` accepts bands of at most 65,536 ticks (2 MB per side) and
+  asserts this at construction. All test, fuzzer and benchmark configs stay inside that, so the
+  experiment is fully tested. It is **never** the default `FastBook` in phase 2.
+- **What it answers:** on the same inputs, how much faster is a tick array than the sorted list
+  (§9)? That number decides whether §6.3 is worth building.
+
+### 6.3 Later, only if the numbers justify it: a moving window (phase 6)
+
+A tick array covering only a slice of prices around the current best (say 4,096 slots), with
+prices outside the slice kept in a sorted list. When the best price drifts near the edge, the
+window **slides**: levels leaving the window move to the sorted list, levels entering move out of
+it.
+
+```
+     far below        ┌──── window: tick array, no search ────┐       far above
+  [sorted list] ◄──── │  ... $99.98 $99.99 $100.00 $100.01 ... │ ────► [sorted list]
+                      └────────────────────────────────────────┘
+```
+
+- **Why it's attractive:** almost all activity is near the best price, so almost everything gets
+  tick-array speed, for any band (including BRK.A).
+- **Why it waits:**
+  1. **Sliding causes rare, large pauses.** One slide can move hundreds of levels at once. The
+     average stays low, but the slowest operations get much slower. That is the tail latency the
+     README warns about (§4), and it can only be measured in phase 3.
+  2. **A level can live in two places**, so there are more code paths and boundary bugs (an order
+     exactly at the window edge, a slide during a sweep).
+  3. **It may not be needed.** If §6.2 is not clearly faster than §6.1, the window adds complexity
+     for nothing.
+- **Condition to build it:** the tick array (§6.2) is clearly faster than the sorted list on the
+  realistic benchmarks (mixed stream, aged book, large book). If so, it gets its own design section,
+  its own fuzzer runs (including inputs that force slides), and a phase 3 tail-latency check.
+
+---
+
+## 7. Matching
+
+The algorithm is `design.md` §5–§7, unchanged. Only the storage it walks is different:
+- Best opposite level from the level structure (§6); queue from `head`.
+- For each resting order: same owner → `Canceled{SelfMatch}`, unlink, free the slot, continue.
+  Otherwise trade `min(remaining, leaves)` at the level's price, update `leaves`, `filled` and the
+  level's `total`, and on 0 pop it, remove it from the id table and free the slot.
+- Empty level → remove it (A: clear its bitmap bit; B: erase from the vector).
+- FOK's look-first count walks the queues the same way and skips own orders. It can't use the level's
+  `total` directly, because that includes own orders. **[MEASURE]** later: whether it's worth also
+  caching per-level totals that exclude self-match candidates (probably not).
+
+---
+
+## 8. Proving it correct
+
+### 8.1 Typed tests
+`FastBook` and the tick-array experiment (§6.2) are both added to `BookTypes`, so all 96 book and
+exchange tests run on it unchanged.
+
+### 8.2 Unit tests for each building block
+| Part | Edge cases that must be covered |
+|---|---|
+| Order pool + free list | Take every slot; full pool; free and retake; last freed is first reused |
+| Intrusive queue | Push to empty; unlink the only item, the head, the tail, the middle; pop until empty |
+| Flat hash table | Insert, find, remove; a collision run; removing from the middle of a run; wrapping at the array end; ids that differ by the table size |
+| Tick levels | Band edges; finding the next price across empty 64-price blocks; the last level emptied |
+| Sorted levels | Insert at the best end, the deep end, the middle; hybrid search on both sides of `K` |
+
+### 8.3 Differential fuzzer: `tools/nanobook_fuzz`
+**Idea:** the reference book is trusted, so the right answer doesn't have to be known in advance.
+Feed both books the same random inputs and compare.
+
+1. **Seed** a random generator from `--seed S`, so the same seed always replays the same run.
+2. **Generate** an input: a new order (any type, side, owner), a cancel or a modify. Ids increase
+   with random gaps, like exchange ids.
+3. **Feed it to both books** (each with its own `EventBuffer`) and compare the events element by
+   element.
+4. **Every N inputs**, also compare the books' state: best bid and ask, `level_qty` and
+   `level_orders` for the top levels, `order_count`, `resting_ids`, and both books' invariants.
+   Same events with drifted internal state is still a bug.
+5. **On the first difference, stop and print:** the seed, the step number, the input, both event
+   lists, and the last 20 inputs before it.
+
+**Steered, not uniform.** Pure randomness is boring (most cancels would hit ids that never existed).
+The generator deliberately makes interesting cases common:
+- prices clustered near the middle, so orders actually trade, plus some far away
+- cancels and modifies that mostly target orders still resting, some finished, a few never issued
+- 3–5 owners, so self-matches happen often
+- every order type, and modify both up and down, with and without a price change
+- edge values: `max_qty`, band edges, invalid quantities and prices, a full book (small
+  `max_orders` runs)
+
+**Trusting the fuzzer itself:** first run it **reference vs. reference**, which must pass. Then run it
+against a deliberately broken copy, which must fail. Both happen before the fast book exists.
+
+**Runs:** CI does about 100,000 operations on every push (Release preset). The exit check does 10⁷+
+on several seeds, locally.
+
+### 8.4 Zero-allocation test
+- A separate test program links the counting `operator new` from `bench/alloc_counter.cpp`. It's
+  kept out of the sanitizer builds, so ASan's own allocation tracking stays intact. It runs in the
+  Release presets.
+- The test builds a fast book (allocations allowed: that's start-up), warms it up with a seeded
+  random stream, then runs another 100,000 mixed operations and **expects exactly 0** allocations.
+- Before the fast book exists, the tool itself is checked: code with one `new` must count 1, and
+  code with none must count 0.
+
+### 8.5 Invariants for the fast book
+The same `invariants_hold()` contract, made real for the cached data:
+- Every level's `total` and `count` match its queue. Its `head`/`tail`/`prev`/`next` links agree in
+  both directions.
+- Every queued order's `price` and `side` match its level. Its id is in the hash table, pointing
+  back at its slot.
+- Free slots + used slots = `max_orders`. No slot is both free and queued.
+- Tick levels: a bitmap bit is set exactly when its level has orders. Sorted levels: prices
+  strictly ordered, none empty.
+- `resting_ids()` returns ids in ascending order, as the reference book does (it sorts; it's a test
+  query, so that's fine).
+
+---
+
+## 9. Benchmarks
+
+Same harness as phase 1 (`bench/bench_book.cpp`). Each fast-book variant is registered next to
+`ReferenceBook`. Every change records a before/after table in `docs/perf-log.md` (rule 22).
+
+| Benchmark | Status | Why |
+|---|---|---|
+| Add, cancel, match one, sweep 1/10/100, mixed | Exists | Direct comparison with the baseline |
+| **Aged book** | **New** | Run a long random stream first, so the reference book's memory is scattered as it would be after a trading day. Phase 1's fresh-heap numbers flatter `std::map` (report §8.2). |
+| **Large book** (≈100k resting orders) | **New** | Bigger than the CPU's fast caches, so lookups really have to go to memory |
+| Allocations per op | Exists | Must read 0.00 for the fast book |
+
+Decided by these numbers: hash entry size (§5.1), order slot 48 vs 64 bytes (§4.1), hybrid search
+`K` (§6.1), and whether the moving window (§6.3) is worth building: tick array (§6.2) vs. sorted
+list (§6.1).
+
+---
+
+## 10. Files
+
+```
+include/nanobook/fast/
+  order_pool.hpp       pool + free list
+  intrusive_queue.hpp  per-level FIFO links
+  id_table.hpp         flat hash table: OrderId -> slot
+  sorted_levels.hpp    main design (§6.1)
+  tick_levels.hpp      experiment, narrow bands only (§6.2)
+  fast_book.hpp        BasicFastBook<Levels>, FastBook
+src/fast/
+  fast_book.cpp        explicit instantiation of both variants under the engine's flags
+tests/fast/
+  test_order_pool.cpp, test_intrusive_queue.cpp, test_id_table.cpp, test_levels.cpp
+tests/test_alloc.cpp   zero-allocation test (separate program, Release only)
+tools/nanobook_fuzz.cpp
+```
+
+The fast book only includes `core/`. It must never include `reference/`, and vice versa.
+
+---
+
+## 11. Plan, one commit per step
+
+| # | Step | Done when |
+|---|---|---|
+| 0 | This design note | Reviewed and committed (rule 23) |
+| 1 | Zero-allocation test tool | Counts 1 for one `new`, 0 for none |
+| 2 | Differential fuzzer + CI run | Passes reference vs. reference; catches a planted bug |
+| 3 | Pool and intrusive queue, with unit tests | §8.2 cases pass |
+| 4 | Fast book v1: pool + queues, with **temporary simple parts** for the id lookup and levels | All 96 typed tests pass, and the fuzzer passes (allocations not 0 yet: expected) |
+| 5 | Flat hash table (§5.1), with unit tests, replacing the temporary lookup | Fuzzer passes; before/after cancel numbers |
+| 6 | Sorted levels (§6.1, becomes `FastBook`) and the tick-array experiment (§6.2), with unit tests | Both pass everything; benchmarked against each other; result recorded, with the moving-window decision |
+| 7 | Order layout (§4.1) | Before/after numbers |
+| 8 | Exit check + phase 2 report | 10⁷+ fuzz on several seeds; zero-allocation test passes |
+
+**Why step 4 uses temporary parts:** if everything is new at once and the fuzzer fails, the bug could
+be anywhere. Build it correct first, then swap one part at a time. A failure always points at the
+part just changed, and each swap gets its own before/after number.
+
+---
+
+## 12. Out of scope for phase 2
+
+| Idea | Where it belongs |
+|---|---|
+| Price prediction, order-book imbalance models, optimal execution | **Not part of an order book** (that's a trading strategy). Optional "phase 8". |
+| Kernel bypass, DPDK, special network cards, FPGAs | **Not in NanoBook**: there is no network (README §1). An interview talking point only. |
+| Moving-window tick array (§6.3) | Phase 6, only if the tick-array experiment is clearly faster |
+| `[[likely]]`, `__builtin_expect`, manual prefetch | Phase 6, only with before/after numbers (rule 10) |
+| `-march=native`, LTO, PGO | Phase 6 |
+| Threads, ring buffers | Phase 5 |
+| ITCH parsing | Phase 4 |
+| Tail latency (p99, p99.9) | Phase 3 (`rdtsc` harness) |
