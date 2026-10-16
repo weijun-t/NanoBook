@@ -154,6 +154,11 @@ inline NewOrder fok_sell(std::uint32_t owner, std::uint64_t id, std::int64_t qty
 inline Cancel cancel(std::uint64_t id) {
     return Cancel{.id = OrderId{id}};
 }
+// New TOTAL qty, including what already traded (design §7).
+inline Modify modify(std::uint64_t id, std::int64_t new_total_qty, std::int64_t new_price) {
+    return Modify{
+        .id = OrderId{id}, .new_price = Price{new_price}, .new_total_qty = Qty{new_total_qty}};
+}
 
 // ---- expected events -----------------------------------------------------
 
@@ -166,6 +171,9 @@ inline Event trade(std::uint64_t aggressor, std::uint64_t resting, std::int64_t 
 }
 inline Event canceled(std::uint64_t id, std::int64_t qty, CancelReason reason) {
     return Event::make_canceled(OrderId{id}, Qty{qty}, reason);
+}
+inline Event replaced(std::uint64_t id, std::int64_t new_total_qty, std::int64_t new_price) {
+    return Event::make_replaced(OrderId{id}, Price{new_price}, Qty{new_total_qty});
 }
 inline Event rejected(std::uint64_t id, RejectReason reason) {
     return Event::make_rejected(OrderId{id}, reason);

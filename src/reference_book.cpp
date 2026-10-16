@@ -84,10 +84,7 @@ void ReferenceBook::handle(const NewOrder &order, EventBuffer &out) {
         }
     }
 
-    const Qty remaining =
-        order.side == Side::Buy
-            ? match_against(asks_, order.id, order.owner, order.side, limit, order.qty, out)
-            : match_against(bids_, order.id, order.owner, order.side, limit, order.qty, out);
+    const Qty remaining = match(order.id, order.owner, order.side, limit, order.qty, out);
     if (remaining == Qty{0}) {
         return;
     }
@@ -100,18 +97,13 @@ void ReferenceBook::handle(const NewOrder &order, EventBuffer &out) {
         return;
     }
 
-    const Order resting{.id = order.id,
-                        .owner = order.owner,
-                        .side = order.side,
-                        .price = order.price,
-                        .total = order.qty,
-                        .filled = order.qty - remaining,
-                        .seq = next_seq_++};
-    if (order.side == Side::Buy) {
-        insert(bids_, resting);
-    } else {
-        insert(asks_, resting);
-    }
+    rest(Order{.id = order.id,
+               .owner = order.owner,
+               .side = order.side,
+               .price = order.price,
+               .total = order.qty,
+               .filled = order.qty - remaining,
+               .seq = next_seq_++});
 }
 
 void ReferenceBook::handle(const Cancel &cancel, EventBuffer &out) {
@@ -124,15 +116,54 @@ void ReferenceBook::handle(const Cancel &cancel, EventBuffer &out) {
         return;
     }
 
-    const Locator where = found->second;
-    const Qty remaining = where.it->leaves();
-    orders_.erase(found);
-    if (where.side == Side::Buy) {
-        remove(bids_, where);
-    } else {
-        remove(asks_, where);
-    }
+    const Qty remaining = found->second.it->leaves();
+    unlink(found);
     out.push(Event::make_canceled(cancel.id, remaining, CancelReason::Requested));
+}
+
+// Design §7. `new_total_qty` is the new TOTAL size, including what already traded.
+void ReferenceBook::handle(const Modify &modify, EventBuffer &out) {
+    assert(out.capacity() >= config_.max_events_per_input());
+    out.clear();
+
+    const auto found = orders_.find(modify.id);
+    if (found == orders_.end()) {
+        out.push(Event::make_rejected(modify.id, unknown_or_too_late(modify.id))); // steps 1-2
+        return;
+    }
+
+    const Order current = *found->second.it; // a copy: unlink() below destroys the original
+    if (const std::optional<RejectReason> reason = validate(modify, current)) {
+        out.push(Event::make_rejected(modify.id, *reason)); // steps 3-6
+        return;
+    }
+
+    out.push(Event::make_replaced(modify.id, modify.new_price, modify.new_total_qty));
+
+    // Step 7: same price, smaller total. Asking for less hurts nobody behind you, so the order
+    // keeps its place in the queue. Step 5 guarantees something is still left to trade.
+    if (modify.new_price == current.price && modify.new_total_qty < current.total) {
+        found->second.it->total = modify.new_total_qty;
+        return;
+    }
+
+    // Step 8: bigger total or new price. The order loses its place: take it out of the book
+    // (freeing its slot, so this can never be BookFull), then treat it like a new Limit order
+    // at the new price. It matches first if it now crosses, with self-match prevention, and
+    // whatever is left rests at the back of the new price's queue.
+    unlink(found);
+    const Qty to_trade = modify.new_total_qty - current.filled;
+    const Qty remaining =
+        match(current.id, current.owner, current.side, modify.new_price, to_trade, out);
+    if (remaining > Qty{0}) {
+        rest(Order{.id = current.id,
+                   .owner = current.owner,
+                   .side = current.side,
+                   .price = modify.new_price,
+                   .total = modify.new_total_qty,
+                   .filled = modify.new_total_qty - remaining,
+                   .seq = next_seq_++});
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -170,6 +201,28 @@ std::optional<RejectReason> ReferenceBook::validate(const NewOrder &order) const
     return std::nullopt;
 }
 
+// Design §7 steps 3-6, in contract order. Steps 1-2 (unknown or finished) are handled by the
+// caller, because they need the lookup.
+std::optional<RejectReason> ReferenceBook::validate(const Modify &modify,
+                                                    const Order &current) const {
+    if (modify.new_total_qty == Qty{0}) {
+        return RejectReason::UseCancel; // removal has exactly one path: Cancel
+    }
+    if (modify.new_total_qty < Qty{0}) {
+        return RejectReason::InvalidQty;
+    }
+    if (!config_.in_band(modify.new_price)) {
+        return RejectReason::InvalidPrice;
+    }
+    if (modify.new_total_qty <= current.filled) {
+        return RejectReason::TooLateToCancel; // would leave nothing to trade: never overfill
+    }
+    if (modify.new_price == current.price && modify.new_total_qty == current.total) {
+        return RejectReason::NoChange;
+    }
+    return std::nullopt;
+}
+
 bool ReferenceBook::crosses_book(Side side, Price limit) const {
     if (side == Side::Buy) {
         return !asks_.empty() && acceptable(side, limit, asks_.begin()->first);
@@ -188,6 +241,30 @@ RejectReason ReferenceBook::unknown_or_too_late(OrderId id) const {
 // ---------------------------------------------------------------------------
 // Matching (design §5): best price first, oldest first within a price, trade at resting price
 // ---------------------------------------------------------------------------
+
+Qty ReferenceBook::match(OrderId aggressor, OwnerId owner, Side side, Price limit, Qty qty,
+                         EventBuffer &out) {
+    return side == Side::Buy ? match_against(asks_, aggressor, owner, side, limit, qty, out)
+                             : match_against(bids_, aggressor, owner, side, limit, qty, out);
+}
+
+void ReferenceBook::rest(const Order &order) {
+    if (order.side == Side::Buy) {
+        insert(bids_, order);
+    } else {
+        insert(asks_, order);
+    }
+}
+
+void ReferenceBook::unlink(Lookup::iterator found) {
+    const Locator where = found->second;
+    orders_.erase(found);
+    if (where.side == Side::Buy) {
+        remove(bids_, where);
+    } else {
+        remove(asks_, where);
+    }
+}
 
 template <typename Levels>
 Qty ReferenceBook::match_against(Levels &opposite, OrderId aggressor, OwnerId owner, Side side,

@@ -476,3 +476,165 @@ TEST(ReferenceBookCapacity, CrossingOnlyOwnOrderOnFullBookFreesTheSlot) {
               (Events{accepted(2), canceled(1, 10, CancelReason::SelfMatch)}));
     EXPECT_EQ(h.book.order_count(), 1U); // order 2 took the freed slot
 }
+
+// ---------------------------------------------------------------------------
+// Modify (design §7). Helper order: modify(id, new TOTAL qty, new price).
+// ---------------------------------------------------------------------------
+
+// #17
+TEST_F(ReferenceBookTest, ModifyDownKeepsPlaceInQueue) {
+    h.send(buy(1, 1, 100, 10));
+    h.send(buy(2, 2, 100, 10));
+    EXPECT_EQ(h.send(modify(1, 60, 10)), (Events{replaced(1, 60, 10)}));
+    EXPECT_EQ(h.book.level_orders(Side::Buy, Price{10}), (std::vector{OrderId{1}, OrderId{2}}));
+    EXPECT_EQ(h.book.leaves(OrderId{1}), Qty{60});
+}
+
+// #18
+TEST_F(ReferenceBookTest, ModifyUpLosesPlaceInQueue) {
+    h.send(buy(1, 1, 100, 10));
+    h.send(buy(2, 2, 100, 10));
+    EXPECT_EQ(h.send(modify(1, 150, 10)), (Events{replaced(1, 150, 10)}));
+    EXPECT_EQ(h.book.level_orders(Side::Buy, Price{10}), (std::vector{OrderId{2}, OrderId{1}}));
+    EXPECT_EQ(h.book.leaves(OrderId{1}), Qty{150});
+}
+
+// #19: the race from design §7. 30 traded before the modify arrived, so total 50 leaves 20.
+TEST_F(ReferenceBookTest, ModifyTotalCountsWhatAlreadyTraded) {
+    h.send(buy(1, 1, 100, 10));
+    h.send(sell(2, 2, 30, 10)); // 30 of order 1 trade
+    EXPECT_EQ(h.send(modify(1, 50, 10)), (Events{replaced(1, 50, 10)}));
+    EXPECT_EQ(h.book.leaves(OrderId{1}), Qty{20}); // not 50: no overfill
+}
+
+TEST_F(ReferenceBookTest, ModifyUpCountsWhatAlreadyTraded) {
+    h.send(buy(1, 1, 100, 10));
+    h.send(sell(2, 2, 30, 10)); // 30 of order 1 trade
+    EXPECT_EQ(h.send(modify(1, 150, 10)), (Events{replaced(1, 150, 10)}));
+    EXPECT_EQ(h.book.leaves(OrderId{1}), Qty{120}); // 150 total - 30 traded, not 150
+}
+
+// #20
+TEST_F(ReferenceBookTest, ModifyTotalAtOrBelowFilledIsTooLate) {
+    h.send(buy(1, 1, 100, 10));
+    h.send(sell(2, 2, 30, 10));
+    EXPECT_EQ(h.send(modify(1, 30, 10)), (Events{rejected(1, RejectReason::TooLateToCancel)}));
+    EXPECT_EQ(h.send(modify(1, 20, 10)), (Events{rejected(1, RejectReason::TooLateToCancel)}));
+    EXPECT_EQ(h.book.leaves(OrderId{1}), Qty{70}); // unchanged
+}
+
+// #21
+TEST_F(ReferenceBookTest, ModifyToZeroMustUseCancel) {
+    h.send(buy(1, 1, 100, 10));
+    EXPECT_EQ(h.send(modify(1, 0, 10)), (Events{rejected(1, RejectReason::UseCancel)}));
+    EXPECT_EQ(h.book.leaves(OrderId{1}), Qty{100});
+}
+
+// #22
+TEST_F(ReferenceBookTest, ModifyToCrossingPriceTradesImmediately) {
+    h.send(buy(1, 1, 100, 10));
+    h.send(sell(2, 2, 100, 12));
+    EXPECT_EQ(h.send(modify(1, 100, 12)), (Events{replaced(1, 100, 12), trade(1, 2, 100, 12)}));
+    EXPECT_EQ(h.book.order_count(), 0U);
+}
+
+// #25
+TEST_F(ReferenceBookTest, ModifyThatChangesNothingIsRejected) {
+    h.send(buy(1, 1, 100, 10));
+    h.send(buy(2, 2, 100, 10));
+    EXPECT_EQ(h.send(modify(1, 100, 10)), (Events{rejected(1, RejectReason::NoChange)}));
+    EXPECT_EQ(h.book.level_orders(Side::Buy, Price{10}), (std::vector{OrderId{1}, OrderId{2}}));
+}
+
+TEST_F(ReferenceBookTest, ModifyOfNeverSentIdIsUnknown) {
+    EXPECT_EQ(h.send(modify(9, 10, 10)), (Events{rejected(9, RejectReason::UnknownOrder)}));
+}
+
+TEST_F(ReferenceBookTest, ModifyOfFinishedOrderIsTooLate) {
+    h.send(buy(1, 1, 100, 10));
+    h.send(sell(2, 2, 100, 10)); // order 1 fully filled
+    h.send(buy(1, 3, 100, 10));
+    h.send(cancel(3)); // order 3 canceled
+    EXPECT_EQ(h.send(modify(1, 50, 10)), (Events{rejected(1, RejectReason::TooLateToCancel)}));
+    EXPECT_EQ(h.send(modify(3, 50, 10)), (Events{rejected(3, RejectReason::TooLateToCancel)}));
+}
+
+TEST_F(ReferenceBookTest, ModifyOfIocIsTooLate) {
+    h.send(ioc_buy(1, 1, 100, 10)); // never rests, finished straight away
+    EXPECT_EQ(h.send(modify(1, 50, 10)), (Events{rejected(1, RejectReason::TooLateToCancel)}));
+}
+
+TEST_F(ReferenceBookTest, ModifyInvalidQtyAndPrice) {
+    h.send(buy(1, 1, 100, 10));
+    EXPECT_EQ(h.send(modify(1, -5, 10)), (Events{rejected(1, RejectReason::InvalidQty)}));
+    EXPECT_EQ(h.send(modify(1, 50, 0)), (Events{rejected(1, RejectReason::InvalidPrice)}));
+    EXPECT_EQ(h.send(modify(1, 50, 1001)), (Events{rejected(1, RejectReason::InvalidPrice)}));
+}
+
+TEST_F(ReferenceBookTest, ModifyChecksRunInContractOrder) {
+    h.send(buy(1, 1, 100, 10));
+    // Total 0 AND bad price: UseCancel (step 3) comes before InvalidPrice (step 4).
+    EXPECT_EQ(h.send(modify(1, 0, 0)), (Events{rejected(1, RejectReason::UseCancel)}));
+    // Negative total AND bad price: InvalidQty comes before InvalidPrice.
+    EXPECT_EQ(h.send(modify(1, -1, 0)), (Events{rejected(1, RejectReason::InvalidQty)}));
+}
+
+TEST_F(ReferenceBookTest, ModifyPriceLosesPlaceEvenWhenShrinking) {
+    h.send(buy(1, 1, 100, 10));
+    h.send(buy(2, 2, 100, 9));
+    EXPECT_EQ(h.send(modify(1, 50, 9)), (Events{replaced(1, 50, 9)}));
+    EXPECT_EQ(h.book.level_orders(Side::Buy, Price{9}), (std::vector{OrderId{2}, OrderId{1}}));
+    EXPECT_EQ(h.book.best_bid(), Price{9}); // level 10 emptied and is gone
+}
+
+TEST_F(ReferenceBookTest, ModifyCrossingRemainderRestsAtNewPrice) {
+    h.send(buy(1, 1, 100, 10));
+    h.send(sell(2, 2, 40, 12));
+    EXPECT_EQ(h.send(modify(1, 100, 12)), (Events{replaced(1, 100, 12), trade(1, 2, 40, 12)}));
+    EXPECT_EQ(h.book.best_bid(), Price{12});
+    EXPECT_EQ(h.book.leaves(OrderId{1}), Qty{60});
+}
+
+TEST_F(ReferenceBookTest, ModifyCrossingOnlyTradesWhatIsLeft) {
+    h.send(buy(1, 1, 100, 10));
+    h.send(sell(2, 2, 30, 10));  // 30 of order 1 trade
+    h.send(sell(3, 3, 100, 12)); // plenty available at 12
+    // Total 100 with 30 already traded: only 70 more may trade.
+    EXPECT_EQ(h.send(modify(1, 100, 12)), (Events{replaced(1, 100, 12), trade(1, 3, 70, 12)}));
+    EXPECT_EQ(h.book.leaves(OrderId{1}), std::nullopt); // complete
+    EXPECT_EQ(h.book.leaves(OrderId{3}), Qty{30});
+}
+
+TEST_F(ReferenceBookTest, ModifyCrossingOwnOrderTriggersSelfMatch) {
+    h.send(buy(1, 1, 100, 10));
+    h.send(sell(1, 2, 100, 12)); // same owner
+    EXPECT_EQ(h.send(modify(1, 100, 12)),
+              (Events{replaced(1, 100, 12), canceled(2, 100, CancelReason::SelfMatch)}));
+    EXPECT_EQ(h.book.best_bid(), Price{12});
+    EXPECT_EQ(h.book.best_ask(), std::nullopt);
+}
+
+TEST_F(ReferenceBookTest, ModifySellSideKeepsAndLosesPlace) {
+    h.send(sell(1, 1, 100, 10));
+    h.send(sell(2, 2, 100, 10));
+    h.send(modify(1, 40, 10)); // down: keeps place
+    EXPECT_EQ(h.book.level_orders(Side::Sell, Price{10}), (std::vector{OrderId{1}, OrderId{2}}));
+    h.send(modify(1, 80, 10)); // up: loses place
+    EXPECT_EQ(h.book.level_orders(Side::Sell, Price{10}), (std::vector{OrderId{2}, OrderId{1}}));
+}
+
+TEST_F(ReferenceBookTest, ModifiedOrderCanBeModifiedAndCanceledAgain) {
+    h.send(buy(1, 1, 100, 10));
+    h.send(modify(1, 120, 11));
+    h.send(modify(1, 90, 11));
+    EXPECT_EQ(h.send(cancel(1)), (Events{canceled(1, 90, CancelReason::Requested)}));
+    EXPECT_EQ(h.book.order_count(), 0U);
+}
+
+TEST(ReferenceBookCapacity, ModifyIsNeverBookFull) {
+    Harness h{BookConfig{Price{1}, Price{1000}, 2}};
+    h.send(buy(1, 1, 10, 10));
+    h.send(buy(1, 2, 10, 9));                                          // book is full
+    EXPECT_EQ(h.send(modify(1, 20, 8)), (Events{replaced(1, 20, 8)})); // frees its own slot first
+    EXPECT_EQ(h.book.order_count(), 2U);
+}

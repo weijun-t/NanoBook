@@ -19,8 +19,8 @@ namespace nanobook {
 // std::map from order id to where the order sits. It allocates freely. The phase 2 fast book
 // must produce exactly the same events for the same inputs.
 //
-// Supported so far: Limit, Market, IOC and FOK orders, Cancel, and self-match prevention.
-// Modify comes in the next commit.
+// Supports every input in the design: Limit, Market, IOC and FOK orders, Cancel and Modify,
+// with self-match prevention.
 class ReferenceBook {
 public:
     explicit ReferenceBook(BookConfig config);
@@ -29,6 +29,7 @@ public:
     // design §4. `out` must hold at least config.max_events_per_input() events.
     void handle(const NewOrder &order, EventBuffer &out);
     void handle(const Cancel &cancel, EventBuffer &out);
+    void handle(const Modify &modify, EventBuffer &out);
 
     // Read-only queries, for tests and invariant checks.
     [[nodiscard]] std::optional<Price> best_bid() const;
@@ -58,7 +59,7 @@ private:
     using Bids = std::map<Price, Queue, std::greater<>>; // begin() = highest bid = best
     using Asks = std::map<Price, Queue, std::less<>>;    // begin() = lowest ask = best
 
-    // Where a resting order lives, so Cancel can find it without searching.
+    // Where a resting order lives, so Cancel and Modify can find it without searching.
     // std::list iterators stay valid while other orders are added or removed.
     struct Locator {
         Side side{Side::Buy};
@@ -69,6 +70,15 @@ private:
     [[nodiscard]] std::optional<RejectReason> validate(const NewOrder &order) const;
     [[nodiscard]] bool crosses_book(Side side, Price limit) const;
     [[nodiscard]] RejectReason unknown_or_too_late(OrderId id) const;
+    [[nodiscard]] std::optional<RejectReason> validate(const Modify &modify,
+                                                       const Order &current) const;
+
+    using Lookup = std::map<OrderId, Locator>;
+
+    // Side dispatch: each picks bids_ or asks_ and calls the matching template below.
+    Qty match(OrderId aggressor, OwnerId owner, Side side, Price limit, Qty qty, EventBuffer &out);
+    void rest(const Order &order);
+    void unlink(Lookup::iterator found); // removes a resting order from its level and the lookup
 
     template <typename Levels>
     Qty match_against(Levels &opposite, OrderId aggressor, OwnerId owner, Side side, Price limit,
@@ -79,7 +89,7 @@ private:
     BookConfig config_;
     Bids bids_;
     Asks asks_;
-    std::map<OrderId, Locator> orders_; // resting orders only
+    Lookup orders_;                     // resting orders only
     std::optional<OrderId> highest_id_; // highest accepted id; empty until the first order
     std::uint64_t next_seq_{0};
 };
