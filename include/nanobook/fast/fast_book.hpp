@@ -18,14 +18,14 @@
  *   like a new order, and the rest goes to the back of the new price's queue, keeping its slot.
  *
  * Data structures: OrderPool (all order slots, free list); one IntrusiveQueue per price level,
- *   inside Levels; TemporaryIdIndex (id -> slot). Levels is a template parameter, so different
- *   price-level structures can be compared with identical book code (fast-book design §6).
+ *   inside Levels; IdTable (id -> slot, a flat hash table). Levels is a template parameter, so
+ *   different price-level structures can be compared with identical book code (design §6).
  *
- * Trade-offs: Version 1 is "correct first" (design §11, step 4): Levels is MapLevels and the id
- *   index is a std::unordered_map, both temporary and both still allocating. Step 5 swaps in the
- *   flat hash table, step 6 the sorted and tick-array levels. On purpose this file shares no logic
- *   with the reference book: if both used one buggy helper they would agree, and the fuzzer,
- *   which looks for differences, could never notice.
+ * Trade-offs: Built one part at a time (design §11). The id lookup is final (the flat IdTable,
+ *   step 5); the price levels are still the temporary MapLevels, which allocates a std::map node
+ *   per new level, until step 6. On purpose this file shares no logic with the reference book: if
+ *   both used one buggy helper they would agree, and the fuzzer, which looks for differences,
+ *   could never notice.
  */
 
 #pragma once
@@ -42,11 +42,11 @@
 #include "nanobook/core/messages.hpp"
 #include "nanobook/core/order_book.hpp"
 #include "nanobook/core/types.hpp"
+#include "nanobook/fast/id_table.hpp"
 #include "nanobook/fast/intrusive_queue.hpp"
 #include "nanobook/fast/map_levels.hpp"
 #include "nanobook/fast/order.hpp"
 #include "nanobook/fast/order_pool.hpp"
-#include "nanobook/fast/temporary_id_index.hpp"
 
 namespace nanobook::fast {
 
@@ -118,8 +118,8 @@ private:
     BookConfig config_;
     OrderPool pool_;
     Levels levels_;
-    TemporaryIdIndex ids_; // resting orders only
-    OrderId last_id_{};    // ids reaching a book must increase (design §4)
+    IdTable ids_;       // resting orders only
+    OrderId last_id_{}; // ids reaching a book must increase (design §4)
 };
 
 // ---------------------------------------------------------------------------

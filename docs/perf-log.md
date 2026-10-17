@@ -98,3 +98,45 @@ today.
   table instead of a tree, and removing the order is an O(1) unlink instead of freeing a list
   node. It still does one tree lookup, to find the order's level in `MapLevels`; step 6 removes it.
 - **Sweeps improved least.** Each emptied level is still a `std::map` erase, which step 6 removes.
+
+---
+
+## 2026-10-17: Fast book, temporary id index → flat IdTable (phase 2 step 5)
+
+The only change: the fast book's id → slot lookup went from a `std::unordered_map`
+(`TemporaryIdIndex`) to the flat open-addressing `IdTable` (`docs/fast-book-design.md` §5.1). The
+price levels are still the temporary `MapLevels`.
+
+### Method
+To compare inside one session (see the warning in the previous entry), the previous commit
+(`b9211ba`) was built from a separate git worktree, and the two `nanobook_microbench` binaries ran
+**back to back, twice** (before, after, before, after), pinned with `taskset -c 2`, 5 repetitions
+each, `--benchmark_filter=FastBook`. Same machine, compiler and flags as above. Run-to-run variation
+was 0.3–4.7% for every row, and the two rounds agree to within 5%.
+
+### Results (average of the two rounds' medians)
+
+| Benchmark | Before (temporary index) | After (IdTable) | Change | Allocations per op |
+|---|---|---|---|---|
+| Add a resting order | 20.5 ns | 9.7 ns | **2.1× faster** | 1.01 → **0.01** |
+| Cancel | 53.6 ns | 37.5 ns | **1.4× faster** | 0 → 0 |
+| Match one | 12.6 ns | 7.8 ns | **1.6× faster** | 0 → 0 |
+| Sweep 1 level | 30.8 ns | 25.0 ns | 1.2× faster | 0 → 0 |
+| Sweep 10 levels | 280.5 ns | 226.2 ns | 1.2× faster | 0 → 0 |
+| Sweep 100 levels | 2.99 µs | 2.46 µs | 1.2× faster | 0 → 0 |
+| Mixed stream | 38.0 ns | 28.2 ns | **1.3× faster** | 0.66 → **0.05** |
+
+(The machine was in a faster state than for the previous entry: the same v1 binary added an order
+in 20.5 ns here vs. 36.6 ns there. Again: only same-session comparisons.)
+
+### What these numbers say
+- **The per-order allocation is gone.** Adding an order now allocates only when it creates a new
+  price level (the 0.01: a `std::map` node in `MapLevels`). In the mixed stream, 0.05 allocations
+  per operation are left, all of them new levels. Step 6 removes the last ones.
+- **Add got twice as fast** because inserting into the id lookup no longer asks for memory: it
+  writes one 16-byte entry into an array that was allocated at start-up.
+- **Match one and sweeps got faster too**, though they never cancel: every fully filled resting
+  order is removed from the id lookup, and removing from the flat table (a backward shift within
+  one array) is cheaper than freeing a hash-table node.
+- **Cancel improved least (1.4×):** the lookup got cheaper, but cancel still does a `std::map`
+  lookup to find the order's level, which step 6 replaces.

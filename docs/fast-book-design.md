@@ -374,12 +374,11 @@ include/nanobook/fast/
   order.hpp            the 48-byte order slot, kNone and kFreeTag
   order_pool.hpp       pool + free list
   intrusive_queue.hpp  per-level FIFO links
-  id_table.hpp         flat hash table: OrderId -> slot
+  id_table.hpp         flat hash table: OrderId -> slot (replaced the step 4 temporary index)
   sorted_levels.hpp    main design (§6.1)
   tick_levels.hpp      experiment, narrow bands only (§6.2)
   fast_book.hpp        BasicFastBook<Levels>, FastBook
   map_levels.hpp       TEMPORARY (step 4): std::map levels, removed in step 6
-  temporary_id_index.hpp  TEMPORARY (step 4): std::unordered_map, replaced in step 5
 src/fast/
   fast_book.cpp        explicit instantiation of both variants under the engine's flags
 tests/fast/

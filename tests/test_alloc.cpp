@@ -3,8 +3,8 @@
  *
  * What it does: First checks the allocation counter on code whose allocations are known (one new
  *   counts 1, none counts 0). Then points it at engine code: the EventBuffer and the fast book's
- *   order pool and queues must never allocate after construction, and the reference book, which
- *   is allowed to allocate, must be seen allocating.
+ *   order pool, queues and id table must never allocate after construction, and the reference
+ *   book, which is allowed to allocate, must be seen allocating.
  *
  * Why it exists: Phase 2's exit test is "the fast book allocates exactly 0 times while trading".
  *   Testing the counter in both directions means it can't be wrong either way unnoticed.
@@ -16,6 +16,7 @@
 
 #include <gtest/gtest.h>
 #include "alloc_counter.hpp"
+#include "nanobook/fast/id_table.hpp"
 #include "nanobook/fast/intrusive_queue.hpp"
 #include "nanobook/fast/order_pool.hpp"
 #include "test_helpers.hpp"
@@ -139,6 +140,25 @@ TEST(ZeroAlloc, OrderPoolAndQueuesNeverAllocateAfterConstruction) {
     });
     EXPECT_EQ(n, 0U);
     EXPECT_EQ(pool.used(), 0U);
+}
+
+TEST(ZeroAlloc, IdTableNeverAllocatesAfterConstruction) {
+    fast::IdTable table{1000};
+    const std::uint64_t n = allocations_during([&] {
+        std::uint64_t next = 1;
+        for (int round = 0; round < 50; ++round) {
+            const std::uint64_t first = next;
+            for (std::uint32_t i = 0; i < 1000; ++i) {
+                table.insert(OrderId{next++}, i);
+            }
+            for (std::uint64_t id = first; id < next; ++id) {
+                table.erase(OrderId{id});
+            }
+        }
+        keep(&table);
+    });
+    EXPECT_EQ(n, 0U);
+    EXPECT_EQ(table.size(), 0U);
 }
 
 // The reference book is allowed to allocate (it uses std::map and std::list). This proves the tool
