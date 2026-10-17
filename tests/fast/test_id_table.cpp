@@ -28,10 +28,14 @@ using namespace nanobook::fast;
 
 namespace {
 
-// The first `count` ids (from 1 up) whose home position in `table` is `home`.
-std::vector<OrderId> ids_with_home(const IdTable &table, std::size_t home, std::size_t count) {
+constexpr std::size_t kIdsPerHome = 3; // enough for the longest run any test builds
+
+// The first kIdsPerHome ids (from 1 up) whose home position in `table` is `home`. One number in,
+// not two, so a caller can't swap them by mistake (clang-tidy
+// bugprone-easily-swappable-parameters).
+std::vector<OrderId> ids_with_home(const IdTable &table, std::size_t home) {
     std::vector<OrderId> ids;
-    for (std::uint64_t v = 1; ids.size() < count; ++v) {
+    for (std::uint64_t v = 1; ids.size() < kIdsPerHome; ++v) {
         if (table.home(OrderId{v}) == home) {
             ids.push_back(OrderId{v});
         }
@@ -77,7 +81,7 @@ TEST(IdTable, IdZeroIsNeverFoundEvenWhenTheTableHasEntries) {
 
 TEST(IdTable, CollisionRunIsFoundInFull) {
     IdTable table{8}; // 16 entries
-    const std::vector<OrderId> ids = ids_with_home(table, 5, 3);
+    const std::vector<OrderId> ids = ids_with_home(table, 5);
     for (std::uint32_t i = 0; i < 3; ++i) {
         table.insert(ids[i], i);
     }
@@ -89,7 +93,7 @@ TEST(IdTable, CollisionRunIsFoundInFull) {
 
 TEST(IdTable, EraseFromTheMiddleOfARun) {
     IdTable table{8};
-    const std::vector<OrderId> ids = ids_with_home(table, 5, 3);
+    const std::vector<OrderId> ids = ids_with_home(table, 5);
     for (std::uint32_t i = 0; i < 3; ++i) {
         table.insert(ids[i], i);
     }
@@ -102,7 +106,7 @@ TEST(IdTable, EraseFromTheMiddleOfARun) {
 
 TEST(IdTable, EraseTheStartOfARun) {
     IdTable table{8};
-    const std::vector<OrderId> ids = ids_with_home(table, 5, 3);
+    const std::vector<OrderId> ids = ids_with_home(table, 5);
     for (std::uint32_t i = 0; i < 3; ++i) {
         table.insert(ids[i], i);
     }
@@ -115,7 +119,7 @@ TEST(IdTable, EraseTheStartOfARun) {
 TEST(IdTable, RunThatWrapsAroundTheEnd) {
     IdTable table{8};
     const std::size_t last = table.capacity() - 1;
-    const std::vector<OrderId> ids = ids_with_home(table, last, 3); // stored at 15, 0 and 1
+    const std::vector<OrderId> ids = ids_with_home(table, last); // stored at 15, 0 and 1
     for (std::uint32_t i = 0; i < 3; ++i) {
         table.insert(ids[i], i);
     }
@@ -131,9 +135,9 @@ TEST(IdTable, RunThatWrapsAroundTheEnd) {
 // The rule that makes backward shift correct: an entry whose home is AFTER the hole must stay.
 TEST(IdTable, EntryWhoseHomeIsAfterTheHoleStaysPut) {
     IdTable table{8};
-    const OrderId a = ids_with_home(table, 5, 1)[0];
-    const OrderId b = ids_with_home(table, 6, 1)[0];
-    const OrderId c = ids_with_home(table, 5, 2)[1];
+    const OrderId a = ids_with_home(table, 5)[0];
+    const OrderId b = ids_with_home(table, 6)[0];
+    const OrderId c = ids_with_home(table, 5)[1];
     table.insert(a, 0); // at 5 (its home)
     table.insert(b, 1); // at 6 (its home)
     table.insert(c, 2); // home 5 is taken, 6 is taken: at 7

@@ -4,14 +4,15 @@
  * What it does: Runs support/differential_fuzz.hpp for one or more seeds and prints PASS with the
  *   speed, or the first mismatch with the command that replays it. Exit code 0 means every seed
  *   passed, 1 means a mismatch, 2 means bad arguments.
- *     nanobook_fuzz [--ops N] [--seed S] [--seeds K] [--max-orders M]
+ *     nanobook_fuzz [--book sorted|tick] [--ops N] [--seed S] [--seeds K] [--max-orders M]
  *                   [--state-every N] [--invariants-every N]
  *
  * Why it exists: CI runs a short fuzz on every push. Phase 2's exit check (10 million or more
  *   operations on several seeds) runs here, locally.
  *
- * How it works: Book A is the reference book, the trusted answer key. Book B is the fast book, the
- *   book being checked. Seeds S, S+1, ..., S+K-1 run one after another.
+ * How it works: Book A is the reference book, the trusted answer key. Book B is the book being
+ *   checked: FastBook (--book sorted, the default) or the TickFastBook experiment (--book tick).
+ *   Seeds S, S+1, ..., S+K-1 run one after another.
  *
  * Trade-offs: A tool, not the engine: it prints with iostream and measures time with a clock,
  *   both of which the hot path must never do (rule 6).
@@ -31,10 +32,9 @@
 namespace {
 
 using BookA = nanobook::ReferenceBook; // the trusted answer key
-using BookB = nanobook::FastBook;      // the book being checked
 
 constexpr std::string_view kUsage =
-    "usage: nanobook_fuzz [--ops N] [--seed S] [--seeds K] [--max-orders M]\n"
+    "usage: nanobook_fuzz [--book sorted|tick] [--ops N] [--seed S] [--seeds K] [--max-orders M]\n"
     "                     [--state-every N] [--invariants-every N]\n";
 
 // Reads a whole decimal number; false if `text` isn't one.
@@ -49,6 +49,7 @@ template <typename T> bool parse(std::string_view text, T &value) {
 int main(int argc, char **argv) {
     nanobook::fuzz::Options options;
     std::uint64_t seeds = 1;
+    bool tick = false;
 
     for (int i = 1; i < argc; ++i) {
         const std::string_view flag = argv[i];
@@ -58,7 +59,10 @@ int main(int argc, char **argv) {
         }
         const std::string_view value = argv[++i];
         bool ok = false;
-        if (flag == "--ops") {
+        if (flag == "--book") {
+            tick = value == "tick";
+            ok = tick || value == "sorted";
+        } else if (flag == "--ops") {
             ok = parse(value, options.ops);
         } else if (flag == "--seed") {
             ok = parse(value, options.seed);
@@ -81,16 +85,17 @@ int main(int argc, char **argv) {
     for (std::uint64_t s = first_seed; s < first_seed + seeds; ++s) {
         options.seed = s;
         const auto start = std::chrono::steady_clock::now();
-        const auto mismatch = nanobook::fuzz::run<BookA, BookB>(options);
+        const auto mismatch = tick ? nanobook::fuzz::run<BookA, nanobook::TickFastBook>(options)
+                                   : nanobook::fuzz::run<BookA, nanobook::FastBook>(options);
         const std::chrono::duration<double> took = std::chrono::steady_clock::now() - start;
 
         if (mismatch) {
             std::cout << nanobook::fuzz::report(*mismatch);
             return 1;
         }
-        std::cout << "seed " << s << ": PASS, " << options.ops << " ops in " << took.count()
-                  << " s (" << static_cast<double>(options.ops) / took.count() / 1e6
-                  << " M ops/s)\n";
+        std::cout << (tick ? "tick" : "sorted") << " seed " << s << ": PASS, " << options.ops
+                  << " ops in " << took.count() << " s ("
+                  << static_cast<double>(options.ops) / took.count() / 1e6 << " M ops/s)\n";
     }
     return 0;
 }

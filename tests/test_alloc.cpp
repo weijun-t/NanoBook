@@ -2,9 +2,9 @@
  * test_alloc.cpp: zero-allocation tests (README rule 1).
  *
  * What it does: First checks the allocation counter on code whose allocations are known (one new
- *   counts 1, none counts 0). Then points it at engine code: the EventBuffer and the fast book's
- *   order pool, queues and id table must never allocate after construction, and the reference
- *   book, which is allowed to allocate, must be seen allocating.
+ *   counts 1, none counts 0). Then points it at engine code: the EventBuffer, the fast book's
+ *   parts, and the whole fast book (100,000 random operations after a warm-up) must never allocate
+ *   after construction, and the reference book, which may allocate, must be seen allocating.
  *
  * Why it exists: Phase 2's exit test is "the fast book allocates exactly 0 times while trading".
  *   Testing the counter in both directions means it can't be wrong either way unnoticed.
@@ -16,6 +16,8 @@
 
 #include <gtest/gtest.h>
 #include "alloc_counter.hpp"
+#include "differential_fuzz.hpp"
+#include "nanobook/fast/fast_book.hpp"
 #include "nanobook/fast/id_table.hpp"
 #include "nanobook/fast/intrusive_queue.hpp"
 #include "nanobook/fast/order_pool.hpp"
@@ -159,6 +161,34 @@ TEST(ZeroAlloc, IdTableNeverAllocatesAfterConstruction) {
     });
     EXPECT_EQ(n, 0U);
     EXPECT_EQ(table.size(), 0U);
+}
+
+// Phase 2's exit test (README rule 1, fast-book design §8.4): the WHOLE fast book allocates
+// nothing while trading. Build it (allocations allowed: start-up), warm it up with a random
+// stream, then 100,000 more random orders, cancels and modifies must make exactly 0 allocations.
+template <typename Book> std::uint64_t allocations_while_trading(std::uint32_t max_orders) {
+    fuzz::Generator gen{2024, max_orders};
+    Book book{gen.config()};
+    EventBuffer out{gen.config().max_events_per_input()};
+    const auto trade = [&](int count) {
+        for (int i = 0; i < count; ++i) {
+            fuzz::apply(book, gen.next(book), out);
+            gen.observe(out.view());
+        }
+    };
+    trade(20'000); // warm-up
+    const std::uint64_t n = allocations_during([&] { trade(100'000); });
+    EXPECT_TRUE(book.invariants_hold());
+    return n;
+}
+
+TEST(ZeroAlloc, FastBookNeverAllocatesWhileTrading) {
+    EXPECT_EQ(allocations_while_trading<FastBook>(2000), 0U);
+    EXPECT_EQ(allocations_while_trading<FastBook>(16), 0U); // a tiny, often full book
+}
+
+TEST(ZeroAlloc, TickFastBookNeverAllocatesWhileTrading) {
+    EXPECT_EQ(allocations_while_trading<TickFastBook>(2000), 0U);
 }
 
 // The reference book is allowed to allocate (it uses std::map and std::list). This proves the tool

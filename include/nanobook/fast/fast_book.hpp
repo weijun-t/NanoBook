@@ -21,11 +21,11 @@
  *   inside Levels; IdTable (id -> slot, a flat hash table). Levels is a template parameter, so
  *   different price-level structures can be compared with identical book code (design §6).
  *
- * Trade-offs: Built one part at a time (design §11). The id lookup is final (the flat IdTable,
- *   step 5); the price levels are still the temporary MapLevels, which allocates a std::map node
- *   per new level, until step 6. On purpose this file shares no logic with the reference book: if
- *   both used one buggy helper they would agree, and the fuzzer, which looks for differences,
- *   could never notice.
+ * Trade-offs: FastBook uses SortedLevels (works for any price band); TickFastBook uses the
+ *   TickLevels experiment (narrow bands only), kept to measure against it (design §6). After
+ *   construction neither allocates while trading. On purpose this file shares no logic with the
+ *   reference book: if both used one buggy helper they would agree, and the fuzzer, which looks
+ *   for differences, could never notice.
  */
 
 #pragma once
@@ -44,9 +44,11 @@
 #include "nanobook/core/types.hpp"
 #include "nanobook/fast/id_table.hpp"
 #include "nanobook/fast/intrusive_queue.hpp"
-#include "nanobook/fast/map_levels.hpp"
+#include "nanobook/fast/level.hpp"
 #include "nanobook/fast/order.hpp"
 #include "nanobook/fast/order_pool.hpp"
+#include "nanobook/fast/sorted_levels.hpp"
+#include "nanobook/fast/tick_levels.hpp"
 
 namespace nanobook::fast {
 
@@ -462,9 +464,14 @@ template <typename Levels> bool BasicFastBook<Levels>::invariants_hold() const {
 
 namespace nanobook {
 
-// The fast book as tests, the exchange, the fuzzer and the benchmarks use it.
-using FastBook = fast::BasicFastBook<fast::MapLevels>;
+// The fast book as tests, the exchange, the fuzzer and the benchmarks use it: sorted levels with
+// binary search (design §6.1).
+using FastBook = fast::BasicFastBook<fast::SortedLevels>;
+
+// The tick-array experiment (design §6.2): same book, levels in a tick array. Narrow bands only.
+using TickFastBook = fast::BasicFastBook<fast::TickLevels>;
 
 static_assert(OrderBook<FastBook>);
+static_assert(OrderBook<TickFastBook>);
 
 } // namespace nanobook

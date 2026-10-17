@@ -140,3 +140,74 @@ in 20.5 ns here vs. 36.6 ns there. Again: only same-session comparisons.)
   one array) is cheaper than freeing a hash-table node.
 - **Cancel improved least (1.4×):** the lookup got cheaper, but cancel still does a `std::map`
   lookup to find the order's level, which step 6 replaces.
+
+---
+
+## 2026-10-17: Price levels: sorted array and tick array (phase 2 step 6)
+
+The temporary `std::map` levels (`MapLevels`) were replaced by `SortedLevels` (a sorted array per
+side, binary search) in `FastBook`, and the `TickLevels` experiment was added as `TickFastBook`
+(`docs/fast-book-design.md` §6). Two realistic benchmarks were added: an **aged** book (200,000
+steered random inputs untimed, then 50 timed batches of 10,000 on the same book) and a **large**
+book (100,000 resting orders on 10,000 levels; cancel or add 10,000).
+
+### Method
+The previous commit (`3628f9b`, `MapLevels`) was built from a separate git worktree. Both binaries
+ran in **one session, twice**, pinned with `taskset -c 2`, **one process per benchmark** with output
+written line by line, 3 repetitions each. Numbers are the average of the two rounds' medians.
+
+Two problems with the first attempt, both fixed before these numbers:
+- The sweep setup added 10,000 levels worst-first, so every insert shifted every level of the sorted
+  array (about 50 million moves per book). The setup now adds levels best-first; the book built is
+  the same.
+- One whole run was lost: the machine slowed about 5× mid-run, a 30-minute timeout killed the run,
+  and its piped output was still in a buffer. Hence one process per benchmark, line-buffered.
+
+Benchmark band changed from [1, 1000000] to [1, 20000] (narrow enough for `TickLevels`; it doesn't
+affect the other structures, which only store prices that have orders).
+
+### Step 6 alone: `std::map` levels → sorted array (`FastBook`)
+
+| Benchmark | Before (`MapLevels`) | After (`SortedLevels`) | |
+|---|---|---|---|
+| Add | 10.5 ns ⚠ | 11.7 ns | about the same |
+| Cancel | 42.2 ns ⚠ | 38.5 ns | about the same |
+| Match one | 10.0 ns ⚠ | 13.0 ns | inconclusive (the "before" rounds differed by 37%) |
+| Mixed | 28.0 ns | 27.2 ns | about the same |
+| Sweep 1 / 10 / 100 levels | 31.2 / 255.2 / 2525 ns | 18.3 / 137.3 / 1368 ns | **1.7× / 1.9× / 1.8× faster** |
+| Allocations per mixed op | 0.053 | **0** | the last allocations are gone |
+
+⚠ the "before" build's two rounds differed by 13–37% on these rows; the "after" build's by under
+7% everywhere except the aged book (up to 15%). So only the sweeps are a clear speed change. With
+100 levels a `std::map` stays in cache and is already fast; what step 6 buys is the last
+allocations and the sweeps (no tree node freed per emptied level).
+
+### All three books, same binary, same session
+
+| Benchmark | Reference | FastBook | TickFastBook | Fast vs ref | Tick vs Fast |
+|---|---|---|---|---|---|
+| Add | 57.9 ns | 11.7 ns | 12.6 ns | 4.9× | 0.9× |
+| Cancel | 136.0 ns | 38.5 ns | 11.8 ns | 3.5× | **3.3×** |
+| Match one | 30.4 ns | 13.0 ns | 12.1 ns | 2.3× | 1.1× |
+| Mixed | 81.5 ns | 27.2 ns | 18.4 ns | 3.0× | 1.5× |
+| Sweep 1 level | 40.4 ns | 18.3 ns | 16.1 ns | 2.2× | 1.1× |
+| Sweep 10 levels | 383.6 ns | 137.3 ns | 130.7 ns | 2.8× | 1.1× |
+| Sweep 100 levels | 4.12 µs | 1.37 µs | 1.23 µs | 3.0× | 1.1× |
+| Large book: cancel | 517.5 ns | 97.0 ns | 31.8 ns | 5.3× | **3.1×** |
+| Large book: add | 258.9 ns | 71.2 ns | 18.1 ns | 3.6× | **3.9×** |
+| Aged book | 87.3 ns | 35.9 ns | 28.8 ns | 2.4× | 1.2× |
+
+Allocations per op: reference 2.01 (add), 1.26 (mixed), 2.0 (large add), 0.90 (aged); both fast
+books **0** everywhere.
+
+### What these numbers say
+- **FastBook is 2.2–5.3× faster than the reference book on every benchmark, with zero
+  allocations.** The biggest gains are on the large book, where the reference book's scattered tree
+  nodes miss the CPU cache.
+- **The tick array wins wherever a price has to be found**: cancel and the large book, 3–4× faster
+  than the sorted array, because finding a level is one array index instead of a binary search.
+  Where no lookup is needed (adding at a known level, matching, sweeping) the two are within about
+  10%.
+- **Design §6.3's condition is met**: the tick array is clearly faster on the realistic benchmarks
+  (large book 3–4×, mixed 1.5×, aged 1.2×). So a moving-window tick array, which keeps that speed
+  for any price band, is worth building in phase 6. It stays out of phase 2 as planned.

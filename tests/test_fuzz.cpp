@@ -135,6 +135,16 @@ TEST(Fuzz, FastBookAgreesWithReference) {
     }
 }
 
+TEST(Fuzz, TickFastBookAgreesWithReference) {
+    for (std::uint64_t seed = 1; seed <= 8; ++seed) {
+        const auto mismatch =
+            run<ReferenceBook, TickFastBook>(Options{.seed = seed, .ops = 20'000});
+        if (mismatch) {
+            ADD_FAILURE() << report(*mismatch);
+        }
+    }
+}
+
 TEST(Fuzz, FastBookAgreesWithReferenceOnATinyBook) {
     const auto mismatch =
         run<ReferenceBook, FastBook>(Options{.seed = 99, .ops = 20'000, .max_orders = 16});

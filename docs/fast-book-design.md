@@ -201,13 +201,34 @@ can never be more levels than resting orders), so it never grows while trading.
 - **Best price at the END of the array.** Most activity is near the best price, and inserting or
   removing near the end only shifts a few entries, like adding a book at the end of a shelf
   instead of the front.
-- **Finding a level** (a new order, a cancel, a modify): **hybrid search**.
-  - Start from the best price and check one by one for the first `K` levels. Orders cluster near
-    the best price, so this usually finds it in a few steps, all in neighbouring memory.
-  - Past `K` levels, switch to **binary search** (halve the range each step, like a dictionary).
-  - **[MEASURE]** `K` (e.g. 8, 16, 32), against plain linear and plain binary search.
+- **Finding a level** (a new order, a cancel, a modify): **binary search** (halve the range each
+  step, like a dictionary: about 7 looks for 100 levels).
 - Orders store their **price, not a level position**, because positions shift whenever a level is
   inserted or removed.
+
+**Measured and dropped (2026-10-17): the hybrid search.** The plan was to check the `K` levels
+nearest the best one by one before switching to binary search, betting that lookups cluster near the
+best price. Measured on the same machine in one session (`docs/perf-log.md`), with `K` = 0 (binary
+only), 8, 16, 32 and linear-only:
+- Add and cancel spread evenly over 100 levels: binary-only was fastest (add 10.4 ns vs 15.8 ns at
+  `K` = 16; cancel 39.0 ns vs 50.3 ns). Every one-by-one check made it slower.
+- The mixed stream, clustered near the middle: all five within about 9%, inside the noise.
+
+So the one-by-one phase never paid for itself, and plain binary search is simpler. **Revisit with
+real order flow in phase 4** (§13): if real lookups cluster near the best price much more tightly
+than these benchmarks do, a hybrid could win, and it would be re-added only with numbers.
+
+**Known weakness: inserting a level deep in a deep book.** An insert shifts every better level along
+by one, O(levels). It's rare (activity is near the best price), but in a book with thousands of
+levels a single deep insert costs microseconds, a tail-latency spike. Found when a benchmark setup
+that added 10,000 levels worst-first took minutes. **Measure in phase 3** (p99, p99.9). Candidate
+fixes, simplest first, only if the numbers say it matters:
+1. A **circular sorted array**: one pre-allocated ring, cheap to add at either end, a middle insert
+   shifts toward the nearer end (at most half). Not `std::deque`, which allocates a block whenever
+   it grows and gives blocks back when they empty, breaking rule 1.
+2. A **chunked array**: levels in fixed-size blocks from a pool, so an insert only shifts within one
+   block.
+3. The **moving window** (§6.3).
 
 ### 6.2 Experiment: a plain tick array (one slot per possible price)
 
@@ -258,6 +279,11 @@ it.
 - **Condition to build it:** the tick array (§6.2) is clearly faster than the sorted list on the
   realistic benchmarks (mixed stream, aged book, large book). If so, it gets its own design section,
   its own fuzzer runs (including inputs that force slides), and a phase 3 tail-latency check.
+- **Result (2026-10-17): condition met.** On the same machine in one session, the tick array was
+  3–4× faster than the sorted list on the large book (cancel 31.8 vs 97.0 ns, add 18.1 vs 71.2 ns),
+  1.5× on the mixed stream and 1.2× on the aged book (`docs/perf-log.md`). The moving window is
+  therefore planned for **phase 6**, with its own design section first. `FastBook` keeps the sorted
+  list until then, because it is the structure that works for any band today.
 
 ---
 
@@ -288,7 +314,7 @@ exchange tests run on it unchanged.
 | Intrusive queue | Push to empty; unlink the only item, the head, the tail, the middle; pop until empty |
 | Flat hash table | Insert, find, remove; a collision run; removing from the middle of a run; wrapping at the array end; ids that differ by the table size |
 | Tick levels | Band edges; finding the next price across empty 64-price blocks; the last level emptied |
-| Sorted levels | Insert at the best end, the deep end, the middle; hybrid search on both sides of `K` |
+| Sorted levels | Insert at the best end, the deep end, the middle; binary search on both sides |
 
 ### 8.3 Differential fuzzer: `tools/nanobook_fuzz`
 **Idea:** the reference book is trusted, so the right answer doesn't have to be known in advance.
@@ -357,13 +383,13 @@ Same harness as phase 1 (`bench/bench_book.cpp`). Each fast-book variant is regi
 | Benchmark | Status | Why |
 |---|---|---|
 | Add, cancel, match one, sweep 1/10/100, mixed | Exists | Direct comparison with the baseline |
-| **Aged book** | **New** | Run a long random stream first, so the reference book's memory is scattered as it would be after a trading day. Phase 1's fresh-heap numbers flatter `std::map` (report §8.2). |
-| **Large book** (≈100k resting orders) | **New** | Bigger than the CPU's fast caches, so lookups really have to go to memory |
+| **Aged book** (`BM_Aged`) | Added in step 6 | Replays 200,000 steered random inputs untimed, then times 50 batches of 10,000 more on the same book, so memory is scattered as it would be after a trading day. Phase 1's fresh-heap numbers flatter `std::map` (report §8.2). |
+| **Large book** (`BM_LargeCancel`, `BM_LargeAdd`) | Added in step 6 | 100,000 resting orders on 10,000 levels: bigger than the CPU's fast caches, so lookups really have to go to memory |
 | Allocations per op | Exists | Must read 0.00 for the fast book |
 
-Decided by these numbers: hash entry size (§5.1), order slot 48 vs 64 bytes (§4.1), hybrid search
-`K` (§6.1), and whether the moving window (§6.3) is worth building: tick array (§6.2) vs. sorted
-list (§6.1).
+Decided by these numbers: hash entry size (§5.1), order slot 48 vs 64 bytes (§4.1), the search
+inside the sorted list (§6.1: binary search, decided 2026-10-17), and whether the moving window
+(§6.3) is worth building: tick array (§6.2) vs. sorted list (§6.1).
 
 ---
 
@@ -378,7 +404,7 @@ include/nanobook/fast/
   sorted_levels.hpp    main design (§6.1)
   tick_levels.hpp      experiment, narrow bands only (§6.2)
   fast_book.hpp        BasicFastBook<Levels>, FastBook
-  map_levels.hpp       TEMPORARY (step 4): std::map levels, removed in step 6
+  level.hpp            the 32-byte Level (price, total, queue), shared by both level structures
 src/fast/
   fast_book.cpp        explicit instantiation of both variants under the engine's flags
 tests/fast/
@@ -427,3 +453,16 @@ part just changed, and each swap gets its own before/after number.
 | Threads, ring buffers | Phase 5 |
 | ITCH parsing | Phase 4 |
 | Tail latency (p99, p99.9) | Phase 3 (`rdtsc` harness) |
+
+---
+
+## 13. Revisit with real data (phase 4)
+
+Decisions made on synthetic benchmarks that real Nasdaq order flow (the ITCH replay) could change.
+Each is re-measured once phase 4 can feed a real trading day through the books.
+
+| Decision | Made on | What real data could show | If it does |
+|---|---|---|---|
+| Plain binary search in the sorted list; the hybrid dropped (§6.1) | Evenly spread add/cancel and a clustered mixed stream | Lookups clustering near the best price much more tightly than our benchmarks | Re-measure a hybrid (one-by-one checks near the best, then binary search) |
+| Sorted list as the default; tick array an experiment (§6) | Synthetic benchmarks | How wide real price ranges are per stock, and how deep real books get | Decide the moving window (§6.3) |
+| Deep inserts are rare (§6.1 known weakness) | Assumption | How often a brand-new price appears deep in a deep book | Pick a fix from the §6.1 candidate list |
