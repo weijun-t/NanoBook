@@ -1,0 +1,31 @@
+benchmark,book,time_ns,allocs_per_op
+Add,ReferenceBook,57.9,2.01
+Add,FastBook,11.7,0
+Add,TickFastBook,12.6,0
+Cancel,ReferenceBook,136.0,0
+Cancel,FastBook,38.5,0
+Cancel,TickFastBook,11.8,0
+Match one,ReferenceBook,30.4,0
+Match one,FastBook,13.0,0
+Match one,TickFastBook,12.1,0
+Mixed,ReferenceBook,81.5,1.2568
+Mixed,FastBook,27.2,0
+Mixed,TickFastBook,18.4,0
+Sweep 1 level,ReferenceBook,40.4,0
+Sweep 1 level,FastBook,18.3,0
+Sweep 1 level,TickFastBook,16.1,0
+Sweep 10 levels,ReferenceBook,383.6,0
+Sweep 10 levels,FastBook,137.3,0
+Sweep 10 levels,TickFastBook,130.7,0
+Sweep 100 levels,ReferenceBook,4116.2,0
+Sweep 100 levels,FastBook,1368.2,0
+Sweep 100 levels,TickFastBook,1228.8,0
+Large book: cancel,ReferenceBook,517.5,0
+Large book: cancel,FastBook,97.0,0
+Large book: cancel,TickFastBook,31.8,0
+Large book: add,ReferenceBook,258.9,2
+Large book: add,FastBook,71.2,0
+Large book: add,TickFastBook,18.1,0
+Aged book,ReferenceBook,87.3,0.899676
+Aged book,FastBook,35.9,0
+Aged book,TickFastBook,28.8,0

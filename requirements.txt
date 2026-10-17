@@ -4,3 +4,4 @@
 #   Set up once: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
 reportlab==5.0.1   # scripts/md_to_pdf.py: Markdown report -> PDF
+matplotlib==3.11.2  # scripts/plot_phase2.py: the phase 2 report's charts

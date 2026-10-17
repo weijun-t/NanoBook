@@ -1,0 +1,5 @@
+stage,allocs_per_add
+Reference book\n(phase 1),2.01
+Fast book v1\n(step 4),1.01
++ flat IdTable\n(step 5),0.01
++ sorted levels\n(step 6),0.00

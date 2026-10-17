@@ -1,7 +1,7 @@
 """md_to_pdf.py: renders a NanoBook Markdown report as a PDF.
 
-What it does: Reads a Markdown file and writes an A4 PDF with headings, tables, code blocks, lists
-  and page numbers.
+What it does: Reads a Markdown file and writes an A4 PDF with headings, tables, code blocks, lists,
+  images (charts) and page numbers.
   Usage: .venv/bin/python scripts/md_to_pdf.py docs/phase1-report.md docs/phase1-report.pdf
 
 How it works: A line-by-line parser turns the Markdown into reportlab "flowables" (paragraphs,
@@ -9,7 +9,8 @@ How it works: A line-by-line parser turns the Markdown into reportlab "flowables
   proportion to their text, but never narrower than their longest word.
 
 Trade-offs: It only supports the Markdown the reports use: # headings, paragraphs, - and 1. lists,
-  | tables |, ``` code blocks ```, --- rules, **bold** and `code`. It uses the DejaVu fonts,
+  | tables |, ``` code blocks ```, --- rules, ![caption](image.png) on a line of its own (scaled to
+  the page width, path relative to the Markdown file), **bold** and `code`. It uses the DejaVu fonts,
   because reportlab's built-in fonts can't draw characters like "≤". Needs reportlab
   (requirements.txt) and the DejaVu fonts (Ubuntu: fonts-dejavu-core, installed by default).
 """
@@ -27,7 +28,8 @@ from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.platypus import (HRFlowable, ListFlowable, ListItem, Paragraph, Preformatted,
+from reportlab.platypus import (HRFlowable, Image, KeepTogether, ListFlowable, ListItem, Paragraph,
+                                Preformatted,
                                 SimpleDocTemplate, Spacer, Table, TableStyle)
 
 # ---------------------------------------------------------------------------
@@ -74,6 +76,8 @@ CELL_HEAD = ParagraphStyle("cellhead", parent=CELL, fontName="Body-Bold", textCo
 CELL_KEY = ParagraphStyle("cellkey", parent=CELL, fontName="Body-Bold", textColor=BLUE)
 CODE = ParagraphStyle("code", fontName="Mono", fontSize=7.8, leading=10.4,
                       textColor=colors.HexColor("#1d2330"))
+CAPTION = ParagraphStyle("caption", fontName="Body", fontSize=8, leading=10.5,
+                         textColor=GREY_TEXT, spaceBefore=2, spaceAfter=0, alignment=1)
 LIST_ITEM = ParagraphStyle("li", parent=BODY, spaceBefore=1, spaceAfter=1)
 
 # ---------------------------------------------------------------------------
@@ -190,14 +194,25 @@ def bullet_list(items: list[str], ordered: bool) -> ListFlowable:
 # ---------------------------------------------------------------------------
 
 LIST_START = re.compile(r"(- |\d+\. )")
-BLOCK_START = re.compile(r"(#|```|\||- |\d+\. |---)")
+BLOCK_START = re.compile(r"(#|```|\||- |\d+\. |---|!\[)")
+IMAGE = re.compile(r"!\[(.*)\]\((.+)\)\s*$")
+
+
+def image(path: Path, caption: str) -> KeepTogether:
+    """An image scaled to the text width (never enlarged), with its caption underneath."""
+    picture = Image(str(path))
+    scale = min(1.0, TEXT_W / picture.imageWidth)
+    picture.drawWidth = picture.imageWidth * scale
+    picture.drawHeight = picture.imageHeight * scale
+    return KeepTogether([Spacer(1, 4), picture, Paragraph(inline(caption), CAPTION), Spacer(1, 6)])
 
 
 def split_row(line: str) -> list[str]:
     return [c.strip() for c in line.strip().strip("|").split("|")]
 
 
-def parse(md: str) -> list:
+def parse(md: str, base: Path) -> list:
+    """`base`: the folder the Markdown file is in, which image paths are relative to."""
     lines, story, i = md.split("\n"), [], 0
     previous_was_h1 = False
     while i < len(lines):
@@ -211,6 +226,9 @@ def parse(md: str) -> list:
                 i += 1
             story.append(code_block(block))
             story.append(Spacer(1, 4))
+            i += 1
+        elif m := IMAGE.match(line):
+            story.append(image(base / m.group(2), m.group(1)))
             i += 1
         elif line.startswith("### "):
             story.append(Paragraph(inline(line[4:]), H3))
@@ -280,7 +298,7 @@ def main() -> None:
     doc = SimpleDocTemplate(str(dst), pagesize=A4, leftMargin=MARGIN, rightMargin=MARGIN,
                             topMargin=16 * mm, bottomMargin=18 * mm, title=title,
                             author="NanoBook", subject=title)
-    doc.build(parse(md), onFirstPage=footer, onLaterPages=footer)
+    doc.build(parse(md, src.parent), onFirstPage=footer, onLaterPages=footer)
     print(f"wrote {dst}")
 
 

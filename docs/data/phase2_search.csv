@@ -1,0 +1,16 @@
+benchmark,variant,time_ns
+Add a resting order,0 (binary),10.4
+Add a resting order,8 checks,13.5
+Add a resting order,16 checks,15.8
+Add a resting order,32 checks,21.9
+Add a resting order,linear only,32.1
+Cancel,0 (binary),39.0
+Cancel,8 checks,47.8
+Cancel,16 checks,50.3
+Cancel,32 checks,58.6
+Cancel,linear only,40.5
+Mixed stream,0 (binary),27.8
+Mixed stream,8 checks,26.6
+Mixed stream,16 checks,25.5
+Mixed stream,32 checks,26.9
+Mixed stream,linear only,25.9
