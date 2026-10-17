@@ -117,6 +117,8 @@ if(NANOBOOK_BUILD_TESTS)
         tests/test_book.cpp
         tests/test_exchange.cpp
         tests/test_fuzz.cpp
+        tests/fast/test_order_pool.cpp
+        tests/fast/test_intrusive_queue.cpp
     )
     target_link_libraries(nanobook_tests PRIVATE nanobook nanobook_testing GTest::gtest_main)
     nanobook_configure_target(nanobook_tests)

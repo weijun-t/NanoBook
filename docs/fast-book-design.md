@@ -371,6 +371,7 @@ list (§6.1).
 
 ```
 include/nanobook/fast/
+  order.hpp            the 48-byte order slot, kNone and kFreeTag
   order_pool.hpp       pool + free list
   intrusive_queue.hpp  per-level FIFO links
   id_table.hpp         flat hash table: OrderId -> slot

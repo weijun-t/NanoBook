@@ -2,8 +2,9 @@
  * test_alloc.cpp: zero-allocation tests (README rule 1).
  *
  * What it does: First checks the allocation counter on code whose allocations are known (one new
- *   counts 1, none counts 0). Then points it at engine code: the EventBuffer must never allocate,
- *   and the reference book, which is allowed to allocate, must be seen allocating.
+ *   counts 1, none counts 0). Then points it at engine code: the EventBuffer and the fast book's
+ *   order pool and queues must never allocate after construction, and the reference book, which
+ *   is allowed to allocate, must be seen allocating.
  *
  * Why it exists: Phase 2's exit test is "the fast book allocates exactly 0 times while trading".
  *   Testing the counter in both directions means it can't be wrong either way unnoticed.
@@ -15,6 +16,8 @@
 
 #include <gtest/gtest.h>
 #include "alloc_counter.hpp"
+#include "nanobook/fast/intrusive_queue.hpp"
+#include "nanobook/fast/order_pool.hpp"
 #include "test_helpers.hpp"
 
 #include <array>
@@ -111,6 +114,31 @@ TEST(ZeroAlloc, EventBufferNeverAllocatesAfterConstruction) {
         keep(&out);
     });
     EXPECT_EQ(n, 0U);
+}
+
+// The fast book's building blocks (fast-book design §3, §4.2): all memory in the pool's
+// constructor, then nothing, however many orders come and go.
+TEST(ZeroAlloc, OrderPoolAndQueuesNeverAllocateAfterConstruction) {
+    fast::OrderPool pool{1000};
+    std::array<fast::IntrusiveQueue, 4> levels{};
+    const std::uint64_t n = allocations_during([&] {
+        for (int round = 0; round < 50; ++round) {
+            for (std::uint32_t i = 0; i < 1000; ++i) { // fill the pool, spread over 4 queues
+                const std::uint32_t slot = pool.acquire();
+                levels[i % levels.size()].push_back(pool, slot);
+            }
+            for (fast::IntrusiveQueue &q : levels) { // empty every queue from the front
+                while (!q.empty()) {
+                    const std::uint32_t slot = q.front();
+                    q.unlink(pool, slot);
+                    pool.release(slot);
+                }
+            }
+        }
+        keep(&pool);
+    });
+    EXPECT_EQ(n, 0U);
+    EXPECT_EQ(pool.used(), 0U);
 }
 
 // The reference book is allowed to allocate (it uses std::map and std::list). This proves the tool
