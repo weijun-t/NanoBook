@@ -1,8 +1,8 @@
 # ci.yml: continuous integration on GitHub Actions.
 #
 # What it does: On every push and pull request, builds and tests 4 presets (GCC and Clang, Debug
-#   with ASan and UBSan, and Release), runs a short benchmark smoke run, and checks formatting
-#   (clang-format) and code quality (clang-tidy).
+#   with ASan and UBSan, and Release), runs a short differential fuzz and a benchmark smoke run,
+#   and checks formatting (clang-format) and code quality (clang-tidy).
 #
 # Why it exists: Every commit must build and pass its tests on both compilers (rule 21).
 
@@ -45,6 +45,12 @@ jobs:
 
       - name: Configure, build, test
         run: cmake --workflow --preset ${{ matrix.preset }}
+
+      # Differential fuzzer: random inputs through two books, every event compared. 100,000 ops
+      # on each of 3 seeds. The long runs (10 million+) happen locally.
+      - name: Fuzz smoke run
+        if: endsWith(matrix.preset, 'release')
+        run: ./build/${{ matrix.preset }}/nanobook_fuzz --ops 100000 --seeds 3
 
       # Proves the benchmark runs. These numbers come from a shared VM: never publish them.
       - name: Benchmark smoke run

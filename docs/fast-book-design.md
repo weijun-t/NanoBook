@@ -317,8 +317,14 @@ The generator deliberately makes interesting cases common:
 **Trusting the fuzzer itself:** first run it **reference vs. reference**, which must pass. Then run it
 against a deliberately broken copy, which must fail. Both happen before the fast book exists.
 
-**Runs:** CI does about 100,000 operations on every push (Release preset). The exit check does 10⁷+
-on several seeds, locally.
+**Runs:** CI does 100,000 operations on each of 3 seeds on every push (Release presets), and
+`tests/test_fuzz.cpp` runs shorter fuzzes in every preset, including under ASan and UBSan. The
+exit check does 10⁷+ on several seeds, locally.
+
+**Replayable everywhere:** the generator takes its numbers straight from `std::mt19937_64`
+(`rng() % n`), never from `std::uniform_int_distribution`. The standard fixes the generator's output
+exactly, but not how a distribution uses it, so this is what makes a seed replay identically with
+any compiler and standard library.
 
 ### 8.4 Zero-allocation test
 - A separate test program links the counting `operator new` from `support/alloc_counter.cpp`. It's
@@ -376,8 +382,11 @@ src/fast/
 tests/fast/
   test_order_pool.cpp, test_intrusive_queue.cpp, test_id_table.cpp, test_levels.cpp
 tests/test_alloc.cpp   zero-allocation test (separate program, Release only)
+tests/test_fuzz.cpp    proves the fuzzer: no false alarms, catches planted bugs, replayable
 support/alloc_counter  counting operator new, shared by tests and benchmarks
-tools/nanobook_fuzz.cpp
+support/differential_fuzz.hpp  the fuzzer: generator, compare loop, report (header-only)
+include/nanobook/core/names.hpp  enum names, shared by the test helpers and the fuzzer
+tools/nanobook_fuzz.cpp        the fuzzer's command line
 ```
 
 The fast book only includes `core/`. It must never include `reference/`, and vice versa.

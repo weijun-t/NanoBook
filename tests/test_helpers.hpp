@@ -28,6 +28,7 @@
 #include "nanobook/core/event_buffer.hpp"
 #include "nanobook/exchange.hpp"
 #include "nanobook/core/messages.hpp"
+#include "nanobook/core/names.hpp"
 #include "nanobook/reference/reference_book.hpp"
 
 namespace nanobook {
@@ -42,66 +43,6 @@ inline void PrintTo(Qty q, std::ostream *os) {
 }
 inline void PrintTo(OrderId id, std::ostream *os) {
     *os << "OrderId{" << id.value << "}";
-}
-
-inline const char *name(EventType t) {
-    switch (t) {
-    case EventType::New:
-        return "New";
-    case EventType::Trade:
-        return "Trade";
-    case EventType::Canceled:
-        return "Canceled";
-    case EventType::Replaced:
-        return "Replaced";
-    case EventType::Rejected:
-        return "Rejected";
-    }
-    return "?";
-}
-
-inline const char *name(CancelReason r) {
-    switch (r) {
-    case CancelReason::None:
-        return "None";
-    case CancelReason::Requested:
-        return "Requested";
-    case CancelReason::SelfMatch:
-        return "SelfMatch";
-    case CancelReason::Unfilled:
-        return "Unfilled";
-    case CancelReason::FokKill:
-        return "FokKill";
-    }
-    return "?";
-}
-
-inline const char *name(RejectReason r) {
-    switch (r) {
-    case RejectReason::None:
-        return "None";
-    case RejectReason::InvalidQty:
-        return "InvalidQty";
-    case RejectReason::InvalidPrice:
-        return "InvalidPrice";
-    case RejectReason::UnknownSymbol:
-        return "UnknownSymbol";
-    case RejectReason::IdsExhausted:
-        return "IdsExhausted";
-    case RejectReason::BookFull:
-        return "BookFull";
-    case RejectReason::NoLiquidity:
-        return "NoLiquidity";
-    case RejectReason::UnknownOrder:
-        return "UnknownOrder";
-    case RejectReason::TooLateToCancel:
-        return "TooLateToCancel";
-    case RejectReason::UseCancel:
-        return "UseCancel";
-    case RejectReason::NoChange:
-        return "NoChange";
-    }
-    return "?";
 }
 
 inline void PrintTo(const Event &e, std::ostream *os) {

@@ -12,6 +12,7 @@
 #include "nanobook/core/event_buffer.hpp"
 #include "nanobook/exchange.hpp"
 #include "nanobook/core/messages.hpp"
+#include "nanobook/core/names.hpp"
 #include "nanobook/core/order_book.hpp"
 #include "nanobook/reference/reference_book.hpp"
 #include "nanobook/core/types.hpp"

@@ -1,8 +1,9 @@
 # CMakeLists.txt: how NanoBook is built.
 #
 # What it does: Builds the engine library (nanobook), the tests (nanobook_tests, plus
-#   nanobook_alloc_tests in builds without sanitizers) and the benchmarks (nanobook_microbench).
-#   Downloads GoogleTest and Google Benchmark at pinned versions, checked by SHA256.
+#   nanobook_alloc_tests in builds without sanitizers), the differential fuzzer (nanobook_fuzz)
+#   and the benchmarks (nanobook_microbench). Downloads GoogleTest and Google Benchmark at pinned
+#   versions, checked by SHA256.
 #
 # How it works: Options come from CMakePresets.json. Sanitizer flags are global, so third-party code
 #   is built the same way as ours. The strict warnings (-Werror) apply to our code only. The engine
@@ -75,14 +76,19 @@ nanobook_configure_target(nanobook)
 target_compile_options(nanobook PRIVATE -fno-exceptions)
 
 # ---------------------------------------------------------------------------
-# 6. Allocation counter: replaces the global operator new to count calls. Shared by the
-#    benchmarks and the zero-allocation tests. An OBJECT library, so its object file is always
-#    linked in (a static library could be skipped by the linker). Never in sanitizer builds:
-#    ASan and TSan track allocations themselves.
+# 6. Test support (support/): headers shared by tests, tools and benchmarks, such as the
+#    differential fuzzer. An INTERFACE library: it only adds the include directory.
 # ---------------------------------------------------------------------------
+add_library(nanobook_testing INTERFACE)
+target_include_directories(nanobook_testing INTERFACE support)
+
+# Allocation counter: replaces the global operator new to count calls. Shared by the
+# benchmarks and the zero-allocation tests. An OBJECT library, so its object file is always
+# linked in (a static library could be skipped by the linker). Never in sanitizer builds:
+# ASan and TSan track allocations themselves.
 if(NANOBOOK_BUILD_BENCH OR (NANOBOOK_BUILD_TESTS AND NOT NANOBOOK_SANITIZER))
     add_library(nanobook_alloc_counter OBJECT support/alloc_counter.cpp)
-    target_include_directories(nanobook_alloc_counter PUBLIC support)
+    target_link_libraries(nanobook_alloc_counter PUBLIC nanobook_testing)
     nanobook_configure_target(nanobook_alloc_counter)
 endif()
 
@@ -110,8 +116,9 @@ if(NANOBOOK_BUILD_TESTS)
         tests/test_messages.cpp
         tests/test_book.cpp
         tests/test_exchange.cpp
+        tests/test_fuzz.cpp
     )
-    target_link_libraries(nanobook_tests PRIVATE nanobook GTest::gtest_main)
+    target_link_libraries(nanobook_tests PRIVATE nanobook nanobook_testing GTest::gtest_main)
     nanobook_configure_target(nanobook_tests)
     gtest_discover_tests(nanobook_tests)
 
@@ -123,6 +130,12 @@ if(NANOBOOK_BUILD_TESTS)
         nanobook_configure_target(nanobook_alloc_tests)
         gtest_discover_tests(nanobook_alloc_tests)
     endif()
+
+    # Differential fuzzer (fast-book design §8.3). Built in every preset, so it can also run
+    # under the sanitizers.
+    add_executable(nanobook_fuzz tools/nanobook_fuzz.cpp)
+    target_link_libraries(nanobook_fuzz PRIVATE nanobook nanobook_testing)
+    nanobook_configure_target(nanobook_fuzz)
 endif()
 
 # ---------------------------------------------------------------------------
