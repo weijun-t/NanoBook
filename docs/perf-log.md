@@ -211,3 +211,66 @@ books **0** everywhere.
 - **Design §6.3's condition is met**: the tick array is clearly faster on the realistic benchmarks
   (large book 3–4×, mixed 1.5×, aged 1.2×). So a moving-window tick array, which keeps that speed
   for any price band, is worth building in phase 6. It stays out of phase 2 as planned.
+
+---
+
+## 2026-10-18: Order slot 48 bytes vs 64 bytes (phase 2 step 7)
+
+Design §4.1's [MEASURE] item. At 48 bytes (packed), 4 orders fill 3 cache lines, so half of them
+straddle two lines. Padded to 64 bytes, every order is exactly one line, but the pool uses a third
+more memory.
+
+### Method
+The 64-byte variant is this two-line patch to `include/nanobook/fast/order.hpp`, built in a
+temporary git worktree on top of `8473976` (not committed):
+
+```
+-struct Order {
++struct alignas(64) Order {
+-static_assert(sizeof(Order) == 48 && std::is_trivially_copyable_v<Order>);
++static_assert(sizeof(Order) == 64 && std::is_trivially_copyable_v<Order>);
+```
+
+Before timing, the patched build passed all 373 tests and 12 million fuzz operations against the
+reference book (both fast-book variants). Then both builds ran in **one session, twice**, pinned
+with `taskset -c 2`, one process per benchmark, 3 repetitions each, on an idle machine (an earlier
+attempt was stopped and thrown away because the laptop was in use). Numbers are the average of
+the two rounds' medians.
+
+### Results
+| Book | Benchmark | 48 bytes | 64 bytes | 64 vs 48 | Round-to-round noise |
+|---|---|---|---|---|---|
+| FastBook | Add | 11.9 ns | 12.2 ns | +2.0% | 2.2% |
+| FastBook | Cancel | 38.8 ns | 39.6 ns | +2.1% | 2.5% |
+| FastBook | Match one | 13.1 ns | 13.2 ns | +0.2% | 3.1% |
+| FastBook | Mixed | 27.7 ns | 27.4 ns | -1.1% | 0.9% |
+| FastBook | Sweep 1 level | 18.7 ns | 19.1 ns ¹ | +2.1% | 1.7% |
+| FastBook | Sweep 10 levels | 139.7 ns | 146.1 ns | +4.6% | 2.9% |
+| FastBook | Sweep 100 levels | 1.36 µs | 1.42 µs | +3.9% | 2.6% |
+| FastBook | Large book: cancel | 95.0 ns | 94.4 ns | -0.6% | 3.5% |
+| FastBook | Large book: add | 69.3 ns | 71.4 ns | +2.9% | 2.0% |
+| FastBook | Aged book | 33.0 ns | 32.4 ns | -1.8% | 2.0% |
+| TickFastBook | Add | 12.2 ns | 12.7 ns | +3.4% | 4.7% |
+| TickFastBook | Cancel | 12.0 ns | 12.7 ns | +5.7% | 5.1% |
+| TickFastBook | Match one | 12.5 ns | 12.2 ns | -2.0% | 3.7% |
+| TickFastBook | Mixed | 18.0 ns | 17.9 ns | -0.7% | 7.2% |
+| TickFastBook | Sweep 1 level | 15.9 ns | 15.9 ns | +0.3% | 0.8% |
+| TickFastBook | Sweep 10 levels | 130.6 ns | 122.8 ns | -6.0% | 4.0% |
+| TickFastBook | Sweep 100 levels | 1.20 µs | 1.17 µs | -2.3% | 1.4% |
+| TickFastBook | Large book: cancel | 29.1 ns | 30.5 ns | +4.7% | 6.4% |
+| TickFastBook | Large book: add | 17.1 ns | 17.9 ns | +4.5% | 8.0% |
+| TickFastBook | Aged book | 26.8 ns | 25.8 ns | -3.6% | 4.3% |
+
+¹ One round only: that run hit the 5-minute limit in round 2. Cause: a 100-sweep batch is only ~2 µs
+of timed work, so Google Benchmark rebuilt the book hundreds of thousands of times (untimed but
+slow), and the bigger 64-byte book pushed it over the limit. Fixed in this step: sweeps now run a
+fixed 1,000 batches.
+
+### What these numbers say
+- **No consistent winner.** Every difference is within ±6%. Most are inside the round-to-round
+  noise; the three slightly beyond it point opposite ways (64 bytes slower on `FastBook`'s 10- and
+  100-level sweeps, faster on `TickFastBook`'s 10-level sweep).
+- **So the order stays at 48 bytes**: the simpler choice, and a quarter less memory. Even the large
+  book's orders (100,000 × 48 bytes, about 5 MB) fit in this CPU's 30 MB shared L3 cache, where a
+  straddled line costs little; a book too big for L3, and phase 3's tail-latency numbers, are where
+  a difference would show, if anywhere.

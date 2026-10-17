@@ -93,8 +93,14 @@ There's no sequence number: **the queue order is the time priority**. Modify tha
 moves the order to the back of the queue. That is the same behaviour, and invariant 5 becomes
 "the queue's links are consistent".
 
-**[MEASURE] 48 vs 64 bytes.** At 48 bytes, some orders straddle two cache lines. Padding to 64
-means one order = one line, but less data per line overall. Benchmark both (§9).
+**48 vs 64 bytes: measured (2026-10-18), 48 kept.** At 48 bytes, half the orders straddle two
+cache lines; padding to 64 (`alignas(64)`) makes each order exactly one line, but uses a third more
+memory. Measured on the same machine in one session, both fast-book variants, all 10 benchmarks
+(`docs/perf-log.md`): every difference was between −6% and +6%. Most were inside the round-to-round
+noise; the three slightly beyond it point opposite ways (64 bytes 4–5% slower on `FastBook`'s
+10- and 100-level sweeps, 6% faster on `TickFastBook`'s 10-level sweep). No consistent winner, so
+the order stays at 48 bytes: simpler, and a quarter less memory. Worth re-checking only if phase 3's
+tail-latency numbers point at order access.
 
 ### 4.2 Intrusive FIFO queue per level
 
@@ -387,7 +393,8 @@ Same harness as phase 1 (`bench/bench_book.cpp`). Each fast-book variant is regi
 | **Large book** (`BM_LargeCancel`, `BM_LargeAdd`) | Added in step 6 | 100,000 resting orders on 10,000 levels: bigger than the CPU's fast caches, so lookups really have to go to memory |
 | Allocations per op | Exists | Must read 0.00 for the fast book |
 
-Decided by these numbers: hash entry size (§5.1), order slot 48 vs 64 bytes (§4.1), the search
+Decided by these numbers: hash entry size (§5.1), order slot 48 vs 64 bytes (§4.1: 48 kept,
+2026-10-18), the search
 inside the sorted list (§6.1: binary search, decided 2026-10-17), and whether the moving window
 (§6.3) is worth building: tick array (§6.2) vs. sorted list (§6.1).
 

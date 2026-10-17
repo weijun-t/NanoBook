@@ -260,7 +260,8 @@ template <OrderBook Book> void BM_Mixed(benchmark::State &state) {
 
 constexpr std::int64_t kLargeOrders = 100'000;
 constexpr std::int64_t kLargeLevels = 10'000;
-constexpr std::int64_t kTimedBatches = 50; // fixed, so a slow book can't make the run balloon
+constexpr std::int64_t kTimedBatches = 50;   // fixed, so a slow book can't make the run balloon
+constexpr std::int64_t kSweepBatches = 1000; // 100,000 sweeps per measurement
 constexpr BookConfig kLargeConfig{Price{1}, Price{20'000}, 120'000, Qty{1'000'000}};
 
 // 10 buy orders on each of prices 1 ... 10,000. The first pass adds levels in rising price order,
@@ -383,17 +384,20 @@ NANOBOOK_ALL_BOOKS(BM_AddResting);
 NANOBOOK_ALL_BOOKS(BM_Cancel);
 NANOBOOK_ALL_BOOKS(BM_MatchOne);
 NANOBOOK_ALL_BOOKS(BM_Mixed);
-BENCHMARK_TEMPLATE(BM_Sweep, ReferenceBook)
-    ->Arg(1)
-    ->Arg(10)
-    ->Arg(100)
-    ->Unit(benchmark::kMicrosecond);
-BENCHMARK_TEMPLATE(BM_Sweep, FastBook)->Arg(1)->Arg(10)->Arg(100)->Unit(benchmark::kMicrosecond);
-BENCHMARK_TEMPLATE(BM_Sweep, TickFastBook)
-    ->Arg(1)
-    ->Arg(10)
-    ->Arg(100)
-    ->Unit(benchmark::kMicrosecond);
+// Sweeps use a fixed number of timed batches: a batch of 100 one-level sweeps is only ~2 µs of
+// timed work, so letting Google Benchmark choose would mean hundreds of thousands of book rebuilds
+// (untimed but slow), which pushed runs past a 5-minute limit (step 7).
+#define NANOBOOK_SWEEPS(book)                                                                      \
+    BENCHMARK_TEMPLATE(BM_Sweep, book)                                                             \
+        ->Arg(1)                                                                                   \
+        ->Arg(10)                                                                                  \
+        ->Arg(100)                                                                                 \
+        ->Iterations(kSweepBatches)                                                                \
+        ->Unit(benchmark::kMicrosecond)
+
+NANOBOOK_SWEEPS(ReferenceBook);
+NANOBOOK_SWEEPS(FastBook);
+NANOBOOK_SWEEPS(TickFastBook);
 NANOBOOK_ALL_BOOKS_FIXED(BM_LargeCancel);
 NANOBOOK_ALL_BOOKS_FIXED(BM_LargeAdd);
 NANOBOOK_ALL_BOOKS_FIXED(BM_Aged);

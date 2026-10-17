@@ -16,8 +16,9 @@
  * Data structures: A plain struct: four 8-byte fields, two 4-byte links, a 4-byte owner and a
  *   1-byte side, padded to 48 bytes (static_assert, rule 9).
  *
- * Trade-offs: At 48 bytes some orders straddle two 64-byte cache lines. Padding to 64 would avoid
- *   that but fit less per line; fast-book design §4.1 measures both.
+ * Trade-offs: At 48 bytes, half the orders straddle two 64-byte cache lines. Padding to 64 bytes
+ *   (alignas(64)) avoids that but uses a third more memory. Measured both: no clear difference
+ *   (within noise, fast-book design §4.1), so it stays at 48.
  */
 
 #pragma once
