@@ -10,9 +10,8 @@
  * Why it exists: CI runs a short fuzz on every push. Phase 2's exit check (10 million or more
  *   operations on several seeds) runs here, locally.
  *
- * How it works: Book A is the reference book. Book B is the book being checked: also the
- *   reference book today (proving the fuzzer never reports a false difference), the fast book from
- *   phase 2 step 4. Seeds S, S+1, ..., S+K-1 run one after another.
+ * How it works: Book A is the reference book, the trusted answer key. Book B is the fast book, the
+ *   book being checked. Seeds S, S+1, ..., S+K-1 run one after another.
  *
  * Trade-offs: A tool, not the engine: it prints with iostream and measures time with a clock,
  *   both of which the hot path must never do (rule 6).
@@ -26,12 +25,13 @@
 #include <string_view>
 
 #include "differential_fuzz.hpp"
+#include "nanobook/fast/fast_book.hpp"
 #include "nanobook/reference/reference_book.hpp"
 
 namespace {
 
 using BookA = nanobook::ReferenceBook; // the trusted answer key
-using BookB = nanobook::ReferenceBook; // phase 2 step 4: nanobook::FastBook
+using BookB = nanobook::FastBook;      // the book being checked
 
 constexpr std::string_view kUsage =
     "usage: nanobook_fuzz [--ops N] [--seed S] [--seeds K] [--max-orders M]\n"

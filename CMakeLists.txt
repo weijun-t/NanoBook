@@ -68,7 +68,7 @@ endfunction()
 # ---------------------------------------------------------------------------
 # 5. Core library
 # ---------------------------------------------------------------------------
-add_library(nanobook src/nanobook.cpp src/reference/reference_book.cpp)
+add_library(nanobook src/nanobook.cpp src/reference/reference_book.cpp src/fast/fast_book.cpp)
 target_include_directories(nanobook PUBLIC include)
 nanobook_configure_target(nanobook)
 # Rule 3: the engine never throws. PRIVATE = only the library's own .cpp files;

@@ -378,6 +378,8 @@ include/nanobook/fast/
   sorted_levels.hpp    main design (§6.1)
   tick_levels.hpp      experiment, narrow bands only (§6.2)
   fast_book.hpp        BasicFastBook<Levels>, FastBook
+  map_levels.hpp       TEMPORARY (step 4): std::map levels, removed in step 6
+  temporary_id_index.hpp  TEMPORARY (step 4): std::unordered_map, replaced in step 5
 src/fast/
   fast_book.cpp        explicit instantiation of both variants under the engine's flags
 tests/fast/

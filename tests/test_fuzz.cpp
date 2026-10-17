@@ -1,7 +1,8 @@
 /*
  * test_fuzz.cpp: proves the differential fuzzer works, before it is trusted with the fast book.
  *
- * What it does: Four kinds of checks.
+ * What it does: The fast book against the reference book on several seeds, plus four kinds of
+ *   checks on the fuzzer itself.
  *   1. No false alarms: reference vs. reference must always agree.
  *   2. It has teeth: two deliberately broken books must be caught. One emits wrong events (drops
  *      an IOC's closing Canceled). One reports a wrong level quantity while its events are right,
@@ -116,6 +117,27 @@ TEST(Fuzz, ReferenceAgreesWithItself) {
 TEST(Fuzz, ReferenceAgreesWithItselfOnATinyBook) {
     const auto mismatch =
         run<ReferenceBook, ReferenceBook>(Options{.seed = 99, .ops = 20'000, .max_orders = 16});
+    if (mismatch) {
+        ADD_FAILURE() << report(*mismatch);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The real job: the fast book against the reference book
+// ---------------------------------------------------------------------------
+
+TEST(Fuzz, FastBookAgreesWithReference) {
+    for (std::uint64_t seed = 1; seed <= 8; ++seed) { // includes both book sizes (see Generator)
+        const auto mismatch = run<ReferenceBook, FastBook>(Options{.seed = seed, .ops = 20'000});
+        if (mismatch) {
+            ADD_FAILURE() << report(*mismatch);
+        }
+    }
+}
+
+TEST(Fuzz, FastBookAgreesWithReferenceOnATinyBook) {
+    const auto mismatch =
+        run<ReferenceBook, FastBook>(Options{.seed = 99, .ops = 20'000, .max_orders = 16});
     if (mismatch) {
         ADD_FAILURE() << report(*mismatch);
     }

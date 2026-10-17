@@ -56,3 +56,45 @@ The "before" column that the phase 2 fast book must beat (design §13).
   has run for a whole trading day has its nodes scattered across memory, which means more cache
   misses. Tail latency in phase 3, and the full-day ITCH replay in phase 4, will show this better
   than any average.
+
+---
+
+## 2026-10-17: Fast book v1 vs. reference book
+
+Phase 2 step 4 (`docs/fast-book-design.md` §11): order pool, intrusive queues and cached level
+totals, with **temporary** parts still in place: price levels are a `std::map` per side
+(`MapLevels`) and the id lookup is a `std::unordered_map` (`TemporaryIdIndex`). Both are replaced in
+steps 5 and 6, so this is a midpoint, not the result.
+
+### Environment
+Same machine, OS, compiler, flags and command as the 2026-10-16 entry (pinned with `taskset -c 2`,
+median of 5 repetitions). Commit: on top of `5320ddd`. Plugged in; load average about 1.
+
+**Read this first:** today the *unchanged* reference book measured **1.6 to 1.9 times slower** than
+on 2026-10-16 (for example, adding an order: 108.8 ns vs. 58.9 ns), so the machine itself was in a
+different state (WSL2 gives no control over frequency or power). Numbers from different days can't
+be compared. **Only compare the two columns below, which come from the same run.**
+
+### Results
+
+| Benchmark | Reference | Fast v1 | Fast / reference | Allocations per op (ref → fast) |
+|---|---|---|---|---|
+| Add a resting order | 108.8 ns | 36.6 ns | **3.0× faster** | 2.01 → **1.01** |
+| Cancel | 239.2 ns | 99.8 ns | **2.4× faster** | 0 → 0 |
+| Match one | 55.3 ns | 21.9 ns | **2.5× faster** | 0 → 0 |
+| Sweep 1 level | 72.2 ns | 56.5 ns | 1.3× faster | 0 → 0 |
+| Sweep 10 levels | 674.9 ns | 344.3 ns ⚠ | ~2.0× faster | 0 → 0 |
+| Sweep 100 levels | 6.71 µs | 3.66 µs | 1.8× faster | 0 → 0 |
+| Mixed stream | 97.8 ns | 48.5 ns ⚠ | ~2.0× faster | 1.26 → **0.66** |
+
+Run-to-run variation was 1–4% for every row except the two marked ⚠ (19%), which are unreliable
+today.
+
+### What these numbers say
+- **One of the two allocations per added order is gone.** The order now takes a pool slot instead
+  of a `std::list` node. The one left is the `std::unordered_map` node in the temporary id index
+  (plus the 0.01 for a new `std::map` level). Step 5 removes it, step 6 removes the level one.
+- **Cancel got 2.4 times faster** even with both temporary parts still in. The id lookup is a hash
+  table instead of a tree, and removing the order is an O(1) unlink instead of freeing a list
+  node. It still does one tree lookup, to find the order's level in `MapLevels`; step 6 removes it.
+- **Sweeps improved least.** Each emptied level is still a `std::map` erase, which step 6 removes.

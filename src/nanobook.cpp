@@ -16,9 +16,12 @@
 #include "nanobook/core/order_book.hpp"
 #include "nanobook/reference/reference_book.hpp"
 #include "nanobook/core/types.hpp"
+#include "nanobook/fast/fast_book.hpp"
 #include "nanobook/fast/intrusive_queue.hpp"
+#include "nanobook/fast/map_levels.hpp"
 #include "nanobook/fast/order.hpp"
 #include "nanobook/fast/order_pool.hpp"
+#include "nanobook/fast/temporary_id_index.hpp"
 
 // Exchange is a template, so its code is only compiled where it's used. This "explicit
 // instantiation" compiles every member for the reference book here, under the engine's flags.

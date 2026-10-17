@@ -30,6 +30,7 @@
 #include "nanobook/core/event_buffer.hpp"
 #include "nanobook/core/messages.hpp"
 #include "nanobook/core/order_book.hpp"
+#include "nanobook/fast/fast_book.hpp"
 #include "nanobook/reference/reference_book.hpp"
 
 namespace {
@@ -224,13 +225,19 @@ template <OrderBook Book> void BM_Mixed(benchmark::State &state) {
 
 } // namespace
 
-// Phase 2: register the fast book on each line below, e.g. BENCHMARK_TEMPLATE(BM_Cancel, FastBook).
+// Each benchmark runs once per book, so the before (ReferenceBook) and after (FastBook) numbers
+// come from identical code.
 BENCHMARK_TEMPLATE(BM_AddResting, ReferenceBook)->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(BM_AddResting, FastBook)->Unit(benchmark::kMicrosecond);
 BENCHMARK_TEMPLATE(BM_Cancel, ReferenceBook)->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(BM_Cancel, FastBook)->Unit(benchmark::kMicrosecond);
 BENCHMARK_TEMPLATE(BM_MatchOne, ReferenceBook)->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(BM_MatchOne, FastBook)->Unit(benchmark::kMicrosecond);
 BENCHMARK_TEMPLATE(BM_Sweep, ReferenceBook)
     ->Arg(1)
     ->Arg(10)
     ->Arg(100)
     ->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(BM_Sweep, FastBook)->Arg(1)->Arg(10)->Arg(100)->Unit(benchmark::kMicrosecond);
 BENCHMARK_TEMPLATE(BM_Mixed, ReferenceBook)->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(BM_Mixed, FastBook)->Unit(benchmark::kMicrosecond);

@@ -10,8 +10,8 @@
  * Why it exists: So each test reads like its row in the design table, and every test checks the
  *   invariants after every single input without having to ask.
  *
- * How it works: BookTypes lists every book the typed tests run on: ReferenceBook today, and the
- *   fast book is added here in phase 2. The harnesses are templates over the book type.
+ * How it works: BookTypes lists every book the typed tests run on: ReferenceBook and FastBook. Each
+ *   typed test runs once per book. The harnesses are templates over the book type.
  */
 
 #pragma once
@@ -29,6 +29,7 @@
 #include "nanobook/exchange.hpp"
 #include "nanobook/core/messages.hpp"
 #include "nanobook/core/names.hpp"
+#include "nanobook/fast/fast_book.hpp"
 #include "nanobook/reference/reference_book.hpp"
 
 namespace nanobook {
@@ -173,8 +174,7 @@ inline Modify req_modify(SymbolId symbol, std::uint64_t id, std::int64_t new_tot
 // ---- driver --------------------------------------------------------------
 
 // Every book type the tests run against (design §11). Each typed test runs once per type.
-// Phase 2: add the fast book here, e.g. ::testing::Types<ReferenceBook, FastBook>.
-using BookTypes = ::testing::Types<ReferenceBook>;
+using BookTypes = ::testing::Types<ReferenceBook, FastBook>;
 
 // Gives each type a readable name in test output: "BookTest/ReferenceBook.Name" instead of
 // "BookTest/0.Name".
@@ -182,6 +182,8 @@ struct BookTypeNames {
     template <typename T> static std::string GetName(int /*index*/) {
         if constexpr (std::is_same_v<T, ReferenceBook>) {
             return "ReferenceBook";
+        } else if constexpr (std::is_same_v<T, FastBook>) {
+            return "FastBook";
         } else {
             return "UnnamedBook";
         }
