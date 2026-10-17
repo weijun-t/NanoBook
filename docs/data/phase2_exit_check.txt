@@ -1,0 +1,54 @@
+NanoBook phase 2 exit check: 2026-10-18 01:08 +08 on commit 8e60edf
+Machine: Intel(R) Core(TM) i7-14650HX, 6.18.54.1-microsoft-standard-WSL2, g++-14 (Ubuntu 14.2.0-4ubuntu2~24.04.1) 14.2.0
+
+== 1. Differential fuzzer, Release (gcc-release), 10,000,000 operations per seed ==
+$ nanobook_fuzz --book sorted --ops 10000000 --seed 1 --seeds 5
+sorted seed 1: PASS, 10000000 ops in 4.11959 s (2.42743 M ops/s)
+sorted seed 2: PASS, 10000000 ops in 4.07801 s (2.45218 M ops/s)
+sorted seed 3: PASS, 10000000 ops in 4.03931 s (2.47567 M ops/s)
+sorted seed 4: PASS, 10000000 ops in 4.20802 s (2.37642 M ops/s)
+sorted seed 5: PASS, 10000000 ops in 4.0949 s (2.44206 M ops/s)
+exit code: 0
+$ nanobook_fuzz --book sorted --ops 10000000 --seed 101 --seeds 3 --max-orders 16
+sorted seed 101: PASS, 10000000 ops in 1.20899 s (8.27139 M ops/s)
+sorted seed 102: PASS, 10000000 ops in 1.21013 s (8.26358 M ops/s)
+sorted seed 103: PASS, 10000000 ops in 1.20487 s (8.29966 M ops/s)
+exit code: 0
+$ nanobook_fuzz --book tick --ops 10000000 --seed 1 --seeds 5
+tick seed 1: PASS, 10000000 ops in 3.93058 s (2.54416 M ops/s)
+tick seed 2: PASS, 10000000 ops in 3.8802 s (2.57718 M ops/s)
+tick seed 3: PASS, 10000000 ops in 3.85242 s (2.59577 M ops/s)
+tick seed 4: PASS, 10000000 ops in 3.90479 s (2.56096 M ops/s)
+tick seed 5: PASS, 10000000 ops in 4.06176 s (2.46199 M ops/s)
+exit code: 0
+$ nanobook_fuzz --book tick --ops 10000000 --seed 101 --seeds 3 --max-orders 16
+tick seed 101: PASS, 10000000 ops in 1.12964 s (8.85239 M ops/s)
+tick seed 102: PASS, 10000000 ops in 1.13815 s (8.78622 M ops/s)
+tick seed 103: PASS, 10000000 ops in 1.14129 s (8.762 M ops/s)
+exit code: 0
+
+== 2. Differential fuzzer under ASan + UBSan (gcc-debug-asan), 1,000,000 operations ==
+$ nanobook_fuzz --book sorted --ops 1000000 --seed 7
+sorted seed 7: PASS, 1000000 ops in 4.96633 s (0.201356 M ops/s)
+exit code: 0
+$ nanobook_fuzz --book tick --ops 1000000 --seed 7
+tick seed 7: PASS, 1000000 ops in 4.61703 s (0.216589 M ops/s)
+exit code: 0
+
+== 3. Zero-allocation tests (gcc-release, nanobook_alloc_tests) ==
+$ nanobook_alloc_tests
+[==========] Running 11 tests from 2 test suites.
+[       OK ] AllocCounter.CountsOneForOneOperatorNew
+[       OK ] AllocCounter.CountsArrayNew
+[       OK ] AllocCounter.CountsEveryAllocation
+[       OK ] AllocCounter.CountsVectorGrowth
+[       OK ] AllocCounter.CountsZeroWhenNothingIsAllocated
+[       OK ] ZeroAlloc.EventBufferNeverAllocatesAfterConstruction
+[       OK ] ZeroAlloc.OrderPoolAndQueuesNeverAllocateAfterConstruction
+[       OK ] ZeroAlloc.IdTableNeverAllocatesAfterConstruction
+[       OK ] ZeroAlloc.FastBookNeverAllocatesWhileTrading
+[       OK ] ZeroAlloc.TickFastBookNeverAllocatesWhileTrading
+[       OK ] ZeroAlloc.ReferenceBookAllocatesWhenAnOrderRests
+[==========] 11 tests from 2 test suites ran. (22 ms total)
+[  PASSED  ] 11 tests.
+exit code: 0

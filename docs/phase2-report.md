@@ -1,6 +1,6 @@
-# NanoBook: Phase 2 Progress Report
+# NanoBook: Phase 2 Report
 
-**The fast book** · 17 October 2026 · C++23, GCC 14 / Clang 18, Linux · Steps 0–6 of 8 complete
+**The fast book** · 18 October 2026 · C++23, GCC 14 / Clang 18, Linux · Phase 2 complete
 
 ---
 
@@ -12,11 +12,11 @@ cache can do its job. The reference book stays unchanged as the answer key.
 
 | | |
 |---|---|
-| Status | Steps 0–6 of 8 done. Left: order layout (step 7), the exit check and final report (step 8). |
+| Status | **Complete.** All 8 steps done, and both exit criteria met (§5.4). |
 | Allocations per added order | **2.01 → 0** (reference book → fast book) |
 | Zero-allocation test, whole fast book | **Passes**: 100,000 random operations after a warm-up, exactly 0 allocations (exit criterion 2) |
 | Speed (same session) | **2.2–5.3× faster** than the reference book on every benchmark; the tick-array experiment up to 16× on a large book |
-| Correctness | All **96 book and exchange tests** run on both fast-book variants; the differential fuzzer has agreed with the reference book on **tens of millions** of random operations |
+| Correctness | All **96 book and exchange tests** run on both fast-book variants; in the exit check the differential fuzzer agreed with the reference book on **162 million** random operations (exit criterion 1) |
 | Tests | **373** in Release builds (362 with sanitizers), on GCC and Clang |
 | Planted bugs | **12** deliberate bugs across the new code, every one caught |
 
@@ -33,8 +33,8 @@ cache can do its job. The reference book stays unchanged as the answer key.
 | 4 | Fast book v1: correct first, with temporary parts | ✓ Done |
 | 5 | Flat hash table (`IdTable`) replaces the temporary id lookup | ✓ Done |
 | 6 | Price levels: sorted array (main) and tick array (experiment) | ✓ Done |
-| 7 | Order layout: 48 vs 64 bytes per order, measured | Next |
-| 8 | Exit check: 10⁷+ fuzz on several seeds, zero-allocation test, final report | Then |
+| 7 | Order layout: 48 vs 64 bytes per order, measured (48 kept) | ✓ Done |
+| 8 | Exit check: 10⁷+ fuzz on several seeds, zero-allocation test, this report | ✓ Done |
 
 The method throughout: build each part on its own with its own tests, put it into the book while
 everything else stays the same, check it with the fuzzer, then measure before against after in one
@@ -155,7 +155,7 @@ summary:  bit per 64-price block                skips whole empty stretches
 |---|---|---|
 | **Typed tests** | Every book and exchange test runs on `ReferenceBook`, `FastBook` and `TickFastBook` | 96 tests × 3 books |
 | **Unit tests per part** | Pool, queue, hash table, both level structures, each on its own, including mini differential tests against `std::unordered_map` and `std::map` | 50 tests |
-| **Differential fuzzer** | Random steered inputs to the reference book and a fast book; every event compared after every input, the book state every 64 inputs, invariants every 1,024 | Tens of millions of operations, both variants, including under ASan/UBSan |
+| **Differential fuzzer** | Random steered inputs to the reference book and a fast book; every event compared after every input, the book state every 64 inputs, invariants every 1,024 | 162 million operations in the exit check (§5.4), both variants, including under ASan/UBSan |
 | **Zero-allocation tests** | The counting `operator new`, checked in both directions, then the whole fast book: 100,000 operations after warm-up | Exactly 0 allocations |
 
 ### 5.2 The differential fuzzer
@@ -192,6 +192,23 @@ replays identically with any compiler.
 The `filled` bug is the lesson of the phase: one test caught it, and the fuzzer needed 561,789
 inputs. Either safety net alone could have missed it.
 
+### 5.4 The exit check (step 8)
+
+Phase 2's two exit criteria (README roadmap), run on the final code (commit `8e60edf`). The full
+output, with every command, is in `docs/data/phase2_exit_check.txt`.
+
+| Exit criterion | Run | Operations | Result |
+|---|---|---|---|
+| **1. Differential fuzzer passes 10⁷+ operations** | `FastBook`, seeds 1–5, normal book sizes | 5 × 10,000,000 | ✓ PASS |
+| | `FastBook`, seeds 101–103, tiny 16-order book | 3 × 10,000,000 | ✓ PASS |
+| | `TickFastBook`, seeds 1–5, normal book sizes | 5 × 10,000,000 | ✓ PASS |
+| | `TickFastBook`, seeds 101–103, tiny 16-order book | 3 × 10,000,000 | ✓ PASS |
+| | Both books under ASan + UBSan, seed 7 | 2 × 1,000,000 | ✓ PASS, no memory errors |
+| **2. Zero allocations while trading** | `nanobook_alloc_tests`: the counter checked both ways, then the whole `FastBook` and `TickFastBook` (100,000 random operations after a warm-up) | | ✓ 11 of 11 pass, exactly 0 allocations |
+
+**162 million random operations, zero differences from the reference book.** The final code also
+passes all 373 tests on GCC and Clang (362 under the sanitizers), the format check and clang-tidy.
+
 ---
 
 ## 6. Performance
@@ -227,8 +244,8 @@ Allocations per operation: the reference book makes 2.01 per added order (1.26 p
 0.90 in the aged book); **both fast books make 0 everywhere**.
 
 What the table says:
-- **The biggest gains are on the large book** (100,000 orders): too big for the CPU's fast caches,
-  so the reference book's scattered tree nodes cost real memory trips, while the fast book's data
+- **The biggest gains are on the large book** (100,000 orders): too big for the CPU's fastest
+  caches (L1 and L2), so the reference book's scattered tree nodes cost real memory trips, while the fast book's data
   sits in a few compact arrays.
 - **The tick array wins wherever a price has to be found** (cancel, the large book: 3–4× faster
   than the sorted array), because a level is one array index away instead of a binary search.
@@ -260,6 +277,16 @@ cancel and the mixed stream the difference was inside the noise, because a 100-l
 stays in cache. Ratios from different sessions can't be multiplied into one overall number on this
 machine; §6.2 is the like-for-like comparison.
 
+### 6.5 Order slot: 48 bytes packed vs 64 bytes padded (step 7)
+
+At 48 bytes, 4 orders fill 3 cache lines, so half of them straddle two lines; padding to 64
+(`alignas(64)`) makes each order exactly one line but uses a third more memory. Measured in one
+session on an idle machine, both fast books, all 10 benchmarks: every difference was within ±6%,
+mostly inside the noise, and the few beyond it pointed both ways. **No consistent winner, so the
+order stays at 48 bytes** (simpler, a quarter less memory). Even the large book's orders (about
+5 MB) fit in this CPU's 30 MB L3 cache, so a book too big for L3, and phase 3's tail latency, are
+where it could still matter.
+
 ---
 
 ## 7. What phase 2 taught
@@ -276,14 +303,17 @@ machine; §6.2 is the like-for-like comparison.
 | **Measure in one session, one process per benchmark** | The machine slowed 5× mid-run once; buffered output was lost when a run was killed |
 | **A sorted array has a worst case** | A deep insert shifts every better level: a tail-latency risk for phase 3 |
 | **Measure, don't assume** | The hybrid search was a reasonable idea and lost to plain binary search |
+| **Benchmark only on an idle machine** | A run was thrown away when the laptop was in use; correctness checks (fuzzing) don't need it idle |
+| **A tie is a result** | 48 vs 64 bytes: no consistent winner, so the simpler, smaller layout stays |
 
 ---
 
 ## 8. What's next
 
-1. **Step 7, order layout:** 48 vs 64 bytes per order slot, measured.
-2. **Step 8, exit check:** 10⁷+ fuzz operations on several seeds, the zero-allocation test on the
-   final book, and the final phase 2 report.
-3. **Phase 3:** the `rdtsc` harness for tail latency (p99, p99.9), including the sorted array's
-   deep-insert worst case.
-4. **Phase 4:** the revisit list (design §13), measured on a real Nasdaq trading day.
+1. **Phase 3, the benchmark harness:** an `rdtsc` timer for every single operation, histograms, and
+   p50 / p99 / p99.9 latency, including the sorted array's deep-insert worst case. Published numbers
+   need bare-metal Linux (rule 20), not WSL2; dual-booting Ubuntu on this laptop is the cheapest
+   way, pinned to a performance core.
+2. **Phase 4, ITCH:** replay a real Nasdaq trading day, and re-check the revisit list (design §13)
+   with real order flow.
+3. **Phase 6:** the moving-window tick array, now justified by the step 6 numbers (design §6.3).

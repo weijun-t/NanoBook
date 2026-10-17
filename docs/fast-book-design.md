@@ -4,6 +4,8 @@
 > advance (README rule 10). Changes from here on are made by an edit plus a note in the commit message.
 > Decided: price levels (§6): sorted list is the main design, the tick array an experiment, the
 > moving window postponed to phase 6. Reusing the exchange's id table (§5.3) stays an experiment.
+> **Phase 2 complete (2026-10-18):** all §11 steps done; both exit criteria met (fuzzer 162 million
+> operations with no difference, zero allocations while trading). See `docs/phase2-report.md`.
 
 The fast book is a **second, separate implementation** of the same contract as the reference book
 (`docs/design.md`). It must produce **exactly the same events, in the same order**, for every
