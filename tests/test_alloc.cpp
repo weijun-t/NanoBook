@@ -5,7 +5,8 @@
  *   counts 1, none counts 0). Then points it at engine code: the EventBuffer, the fast book's
  *   parts, and the whole fast book (100,000 random operations after a warm-up) must never allocate
  *   after construction, and the reference book, which may allocate, must be seen allocating.
- *   Finally the latency harness's timing loop and recorder must not allocate either (phase 3).
+ *   Finally the latency harness's timing loop and recorder must not allocate either, and no
+ *   scenario may allocate while it times a fast book (phase 3).
  *
  * Why it exists: Phase 2's exit test is "the fast book allocates exactly 0 times while trading".
  *   Testing the counter in both directions means it can't be wrong either way unnoticed.
@@ -19,6 +20,7 @@
 #include "alloc_counter.hpp"
 #include "differential_fuzz.hpp"
 #include "latency_recorder.hpp"
+#include "latency_scenarios.hpp"
 #include "nanobook/fast/fast_book.hpp"
 #include "nanobook/fast/id_table.hpp"
 #include "nanobook/fast/intrusive_queue.hpp"
@@ -222,4 +224,26 @@ TEST(ZeroAlloc, LatencyRecorderNeverAllocatesWhileRecording) {
     EXPECT_EQ(n, 0U);
     EXPECT_EQ(recorder.size() + recorder.dropped(), kOps);
     keep(&sum);
+}
+
+TEST(ZeroAlloc, LatencyScenariosNeverAllocateWhileTimingAFastBook) {
+    constexpr std::size_t kOps = 2'000;
+    const latency::Options options{.ops = kOps, .allocations = &support::allocations};
+    for (const latency::Scenario s : latency::kAllScenarios) {
+        SCOPED_TRACE(latency::scenario_name(s));
+        latency::Recorder recorder{kOps};
+        EXPECT_EQ(latency::run_scenario<FastBook>(s, recorder, options).timed_allocations, 0U);
+        recorder.clear();
+        EXPECT_EQ(latency::run_scenario<TickFastBook>(s, recorder, options).timed_allocations, 0U);
+    }
+}
+
+TEST(ZeroAlloc, LatencyScenariosSeeTheReferenceBookAllocate) {
+    // Proves the count reaches the timed loop: the reference book allocates for every rest.
+    constexpr std::size_t kOps = 2'000;
+    latency::Recorder recorder{kOps};
+    const latency::Options options{.ops = kOps, .allocations = &support::allocations};
+    EXPECT_GE(latency::run_scenario<ReferenceBook>(latency::Scenario::Add, recorder, options)
+                  .timed_allocations,
+              kOps);
 }

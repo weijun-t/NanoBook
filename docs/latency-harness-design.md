@@ -4,6 +4,8 @@
 > commit message. Decided (§13): raw samples, subtract the timer overhead's minimum, 1,000,000
 > samples per scenario, the fuzzer's generator for the mixed stream, dual-boot Ubuntu for the
 > published run. Items marked **[MEASURE]** are decided by a measurement in the step named.
+> Edits (2026-10-18, step 3a): the `other` tag (§5.3); scenarios moved into
+> `support/latency_scenarios.hpp` so tests can check them (§11); step 3 split into 3a and 3b (§12).
 
 Phase 2 proved the fast book correct and measured its **average** speed with Google Benchmark.
 Phase 3 builds the tool that measures **every single operation**, so the report can show the
@@ -179,6 +181,7 @@ and tags the sample:
 | `cancel` | A Cancel that succeeded |
 | `modify` | A Modify that succeeded |
 | `reject` | Anything Rejected (invalid input, too late, unknown order) |
+| `other` | A new order that neither traded nor rested: an IOC or FOK that found nothing (added in step 3) |
 
 The report then gives percentiles **per tag** as well as for the whole stream. Rejects are kept
 apart because they're cheap and would make the typical operation look faster than it is.
@@ -336,12 +339,14 @@ it works. CI numbers are never used (rule 20).
 ```
 support/
   tsc.hpp                  start()/stop(), calibration, overhead measurement
-  latency_recorder.hpp     sample arrays, tags, percentiles, histogram
+  latency_recorder.hpp     sample arrays, tags, percentiles, histogram, the timing loop
+  latency_scenarios.hpp    §6's scenarios and tagging (a header, so tests can check them)
   environment.hpp          collects §8's environment (cold path)
 tools/
-  nanobook_bench.cpp       command line, scenarios, output
+  nanobook_bench.cpp       command line, output
 tests/
   test_latency.cpp         §10's unit tests and the planted slow operation
+  test_latency_scenarios.cpp  each scenario times what it claims; every book sees the same inputs
 scripts/
   plot_latency.py          histogram and percentile curve from the CSV
 ```
@@ -358,7 +363,8 @@ the timed loop. The engine library gains nothing and changes nothing.
 | 0 | This design note | Reviewed and committed (rule 23) |
 | 1 | Timer (`tsc.hpp`): stamps, calibration, overhead, TSC-flag check | Unit tests pass; overhead and rate printed on WSL2; assembly checked |
 | 2 | Recorder (`latency_recorder.hpp`): samples, tags, percentiles, histogram | Unit tests pass, including the planted slow operation |
-| 3 | `nanobook_bench`: scenarios, environment, terminal and CSV output, throughput mode | Every scenario runs on all three books; 0 allocations in the timed loop; CI smoke test green |
+| 3a | `nanobook_bench`: scenarios on all three books, tagging, terminal table | Every scenario times only what it claims (tests); 0 allocations while timing a fast book; CI smoke test green |
+| 3b | Environment block (§8), CSV output, throughput mode | Environment printed and in the CSV; throughput mode runs |
 | 4 | `plot_latency.py` | Both plots drawn from a WSL2 CSV |
 | 5 | First WSL2 run, recorded in `docs/perf-log.md` (not published) | Throughput agrees with Google Benchmark; the deep-insert tail measured |
 | 6 | Bare metal: dual-boot Ubuntu, quiet the machine (§7), run, publish the table and plot in the README | Exit criterion 2; phase 3 report |

@@ -118,6 +118,7 @@ if(NANOBOOK_BUILD_TESTS)
         tests/test_exchange.cpp
         tests/test_fuzz.cpp
         tests/test_latency.cpp
+        tests/test_latency_scenarios.cpp
         tests/fast/test_order_pool.cpp
         tests/fast/test_intrusive_queue.cpp
         tests/fast/test_id_table.cpp
@@ -166,6 +167,6 @@ if(NANOBOOK_BUILD_BENCH)
 
     # The rdtsc latency harness (latency-harness design): times every operation one by one.
     add_executable(nanobook_bench tools/nanobook_bench.cpp)
-    target_link_libraries(nanobook_bench PRIVATE nanobook nanobook_testing)
+    target_link_libraries(nanobook_bench PRIVATE nanobook nanobook_testing nanobook_alloc_counter)
     nanobook_configure_target(nanobook_bench)
 endif()
