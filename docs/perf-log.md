@@ -310,3 +310,130 @@ moved outside.
 - **The max is the machine, not the timer:** an empty pair once took 3 ms, which can only be the
   thread being paused (WSL2's virtual machine, or Windows). That's the noise bare metal with an
   isolated core (design §7) should remove, and why outliers are reported, never hidden.
+
+---
+
+## 2026-10-18: First full latency run (phase 3 step 5)
+
+Every scenario of the latency harness (`docs/latency-harness-design.md` §6) on all three books,
+**1,000,000 samples each**, timed one operation at a time. WSL2, so **not for publishing**
+(rule 20): every file and chart from this run carries the NOT FOR PUBLISHING banner.
+
+### Method
+- Same machine, OS and compiler as above. `gcc-release` build of commit `7dfab0466f00` (clean
+  tree, rebuilt immediately before the run), pinned with `--core 2`, idle laptop.
+- One session, each run its own process: latency round 1, throughput mode, the matching Google
+  Benchmark benchmarks (3 repetitions, median), latency round 2. 16:29–16:31.
+- Numbers below are the **average of the two rounds**. The timer overhead's minimum (28 ticks =
+  11.6 ns) is subtracted from every sample. Counter 2.4192 ticks per ns, drift during each run
+  under 0.03 parts per million.
+- Data: `docs/data/phase3_wsl_round1.csv` (+ `_histogram.csv`), `phase3_wsl_round2.csv`,
+  `phase3_wsl_throughput.csv`, `phase3_wsl_gbench.txt`. Charts: `docs/img/phase3_wsl_percentiles.png`,
+  `docs/img/phase3_wsl_histograms.png` (from round 1).
+- A first run 7 minutes earlier was thrown away: its binary had been built before step 3b was
+  committed (its environment block said `51e4122aa9d0-dirty`). The C++ was the same, and its
+  p50s agree with this run to a median 1.3% (at most 7.6%), but a recorded number must name a
+  clean commit. The run script now refuses uncommitted changes and rebuilds first.
+
+### Latency per operation (average of 2 rounds)
+
+| Scenario | Book | p50 | p90 | p99 | p99.9 | p99.99 | mean |
+|---|---|---|---|---|---|---|---|
+| `add` | ReferenceBook | 65.3 ns | 94.8 ns | 131.7 ns | 223.6 ns | 4.70 µs | 72.3 ns |
+| `add` | FastBook | 20.2 ns | 28.8 ns | 43.4 ns | 96.3 ns | 2.22 µs | 22.6 ns |
+| `add` | TickFastBook | 19.1 ns | 27.7 ns | 38.4 ns | 73.2 ns | 2.28 µs | 21.6 ns |
+| `cancel` | ReferenceBook | 137.2 ns | 165.8 ns | 207.1 ns | 615.5 ns | 6.65 µs | 142.0 ns |
+| `cancel` | FastBook | 44.0 ns | 55.6 ns | 69.8 ns | 179.8 ns | 2.84 µs | 45.6 ns |
+| `cancel` | TickFastBook | 23.5 ns | 31.2 ns | 40.5 ns | 98.8 ns | 2.36 µs | 26.2 ns |
+| `modify` | ReferenceBook | 175.9 ns | 260.5 ns | 319.5 ns | 937.7 ns | 8.16 µs | 174.0 ns |
+| `modify` | FastBook | 46.3 ns | 60.5 ns | 75.2 ns | 104.0 ns | 2.36 µs | 48.0 ns |
+| `modify` | TickFastBook | 23.6 ns | 30.2 ns | 42.4 ns | 99.8 ns | 2.31 µs | 25.3 ns |
+| `match` | ReferenceBook | 30.8 ns | 47.9 ns | 76.7 ns | 151.5 ns | 2.23 µs | 38.9 ns |
+| `match` | FastBook | 15.7 ns | 21.9 ns | 29.4 ns | 71.3 ns | 2.23 µs | 18.1 ns |
+| `match` | TickFastBook | 22.3 ns | 29.1 ns | 39.2 ns | 76.7 ns | 2.33 µs | 25.4 ns |
+| `sweep10 (match)` | ReferenceBook | 407.8 ns | 464.8 ns | 638.2 ns | 3.41 µs | 36.85 µs | 433.6 ns |
+| `sweep10 (match)` | FastBook | 146.8 ns | 164.8 ns | 229.4 ns | 551.2 ns | 8.93 µs | 153.8 ns |
+| `sweep10 (match)` | TickFastBook | 132.7 ns | 169.9 ns | 224.8 ns | 455.5 ns | 9.43 µs | 145.3 ns |
+| `large_cancel (cancel)` | ReferenceBook | 453.9 ns | 633.2 ns | 949.1 ns | 4.91 µs | 39.39 µs | 502.1 ns |
+| `large_cancel (cancel)` | FastBook | 106.2 ns | 146.5 ns | 237.7 ns | 513.6 ns | 9.65 µs | 116.8 ns |
+| `large_cancel (cancel)` | TickFastBook | 53.8 ns | 75.2 ns | 146.6 ns | 288.7 ns | 5.88 µs | 60.0 ns |
+| `large_add (add)` | ReferenceBook | 206.1 ns | 608.0 ns | 922.4 ns | 3.69 µs | 22.75 µs | 307.4 ns |
+| `large_add (add)` | FastBook | 83.0 ns | 112.0 ns | 190.8 ns | 378.6 ns | 8.82 µs | 92.8 ns |
+| `large_add (add)` | TickFastBook | 27.7 ns | 32.0 ns | 96.1 ns | 234.8 ns | 3.41 µs | 32.5 ns |
+| `deep_insert (add)` | ReferenceBook | 150.7 ns | 211.1 ns | 276.1 ns | 949.2 ns | 8.07 µs | 167.8 ns |
+| `deep_insert (add)` | FastBook | **1.41 µs** | **2.79 µs** | **3.68 µs** | **10.49 µs** | **77.98 µs** | **1.54 µs** |
+| `deep_insert (add)` | TickFastBook | 20.3 ns | 29.1 ns | 34.9 ns | 84.9 ns | 2.32 µs | 23.6 ns |
+| `mixed` | ReferenceBook | 65.3 ns | 162.4 ns | 391.0 ns | 1.98 µs | 8.08 µs | 88.3 ns |
+| `mixed` | FastBook | 32.2 ns | 66.1 ns | 143.8 ns | 398.5 ns | 5.11 µs | 40.6 ns |
+| `mixed` | TickFastBook | 28.5 ns | 57.2 ns | 135.2 ns | 388.8 ns | 3.08 µs | 36.1 ns |
+
+`mixed` is the whole stream ("all" tags); per-tag rows are in the CSV. No sample was dropped
+(the thread never changed core), and **both fast books made 0 allocations while timed**, in
+every scenario. The reference book allocates 2.0 per add, 3.0 per deep insert.
+
+### How stable is each percentile on WSL2? (round 1 vs round 2)
+
+| | p50 | p90 | p99 | p99.9 | p99.99 | max | mean |
+|---|---|---|---|---|---|---|---|
+| Median difference over the 27 runs | 1.7% | 2.7% | 4.8% | 14.5% | 15.7% | 88% | 4.3% |
+| Largest difference | 13% | 30% | 32% | 72% | 114% | 189% | 15% |
+
+### Throughput mode vs Google Benchmark (same session)
+
+| Scenario (Google Benchmark name) | Book | Throughput mode | Google Benchmark | Difference |
+|---|---|---|---|---|
+| `add` (`BM_AddResting`) | ReferenceBook | 55.7 ns | 57.9 ns | -4% |
+| `add` (`BM_AddResting`) | FastBook | 10.7 ns | 11.8 ns | -9% |
+| `add` (`BM_AddResting`) | TickFastBook | 11.1 ns | 12.7 ns | -12% |
+| `cancel` (`BM_Cancel`) | ReferenceBook | 142.2 ns | 136.8 ns | +4% |
+| `cancel` (`BM_Cancel`) | FastBook | 37.8 ns | 39.2 ns | -4% |
+| `cancel` (`BM_Cancel`) | TickFastBook | 10.4 ns | 11.8 ns | -12% |
+| `match` (`BM_MatchOne`) | ReferenceBook | 30.3 ns | 30.0 ns | +1% |
+| `match` (`BM_MatchOne`) | FastBook | 9.3 ns | 13.1 ns | -29% |
+| `match` (`BM_MatchOne`) | TickFastBook | 12.5 ns | 12.1 ns | +3% |
+| `sweep10` (`BM_Sweep`) | ReferenceBook | 444.6 ns | 378.9 ns | +17% |
+| `sweep10` (`BM_Sweep`) | FastBook | 160.5 ns | 137.8 ns | +17% |
+| `sweep10` (`BM_Sweep`) | TickFastBook | 141.5 ns | 141.4 ns | +0% |
+| `large_cancel` (`BM_LargeCancel`) | ReferenceBook | 485.9 ns | 465.1 ns | +4% |
+| `large_cancel` (`BM_LargeCancel`) | FastBook | 95.9 ns | 96.2 ns | -0% |
+| `large_cancel` (`BM_LargeCancel`) | TickFastBook | 27.1 ns | 29.0 ns | -7% |
+| `large_add` (`BM_LargeAdd`) | ReferenceBook | 266.1 ns | 235.4 ns | +13% |
+| `large_add` (`BM_LargeAdd`) | FastBook | 68.2 ns | 68.6 ns | -1% |
+| `large_add` (`BM_LargeAdd`) | TickFastBook | 16.2 ns | 16.3 ns | -1% |
+| `mixed` (`BM_Aged`) | ReferenceBook | 82.4 ns | 82.6 ns | -0% |
+| `mixed` (`BM_Aged`) | FastBook | 29.0 ns | 34.2 ns | -15% |
+| `mixed` (`BM_Aged`) | TickFastBook | 26.2 ns | 28.0 ns | -6% |
+
+### What these numbers say
+- **p50 to p99 are trustworthy even on WSL2** (rounds agree to a few %); **p99.9 and beyond
+  are mostly the machine.** Almost every simple operation, on every book, has its p99.99 at
+  2.2–2.4 µs, including the 19 ns tick-array add: about 1 operation in 10,000 is interrupted
+  for ~2 µs whatever it is doing. That floor, and the max (tens of µs to ms, different every
+  round), is WSL2/Windows, and is what bare metal with an isolated core (design §7) should
+  remove. Only bare-metal tails can be published or compared.
+- **The deep-insert weakness, measured** (phase 2 report §5.5): adding a new price at a random
+  depth of a 5,000–10,000-level book costs the sorted array **1.41 µs at p50 and 3.68 µs at
+  p99**, against 151 ns / 276 ns for the `std::map` reference book and 20 ns / 35 ns for the tick
+  array. Every such insert copies, on average, about 120 KB of levels. In every other scenario
+  FastBook beats the reference book at every percentile up to p99.9 (2–5× at p50). Whether
+  deep inserts are common in real order flow is phase 4's question; the fixes are phase 6's.
+- **The fast books' tails are tighter, not only their medians:** at p99, FastBook is 2.7–4.8×
+  below the reference book on cancel, modify, the large book and the mixed stream.
+- **The tick array's advantage is lookups** (cancel 23.5 vs 44.0 ns, large-book add 27.7 vs
+  83.0 ns at p50), as phase 2's averages showed; on `match` it is slower than FastBook
+  (22.3 vs 15.7 ns), also seen in phase 2 (12.1 vs 13.0 ns there, within noise).
+- **Per-operation timing costs about 6–10 ns on top of the work**: FastBook add is 10.7 ns per
+  operation in throughput mode but 20.2 ns at p50 one by one (after subtracting the timer's own
+  11.6 ns). That's the fences stopping the CPU from overlapping one operation with the next
+  (design §3.4). It applies equally to every book, so comparisons stand, but single-operation
+  numbers under ~30 ns overstate the cost of an operation in a stream.
+- **Throughput mode agrees with Google Benchmark** within ±15% on 17 of 21 rows, 11 of them
+  within ±5%. Partly explained differences: `sweep10` (+17% for the reference book and
+  FastBook) uses a 10,000-level book in the harness against 1,000 levels in `BM_Sweep`; `mixed`
+  vs `BM_Aged` (FastBook −15%) replay the same seeded stream, but Google Benchmark times its
+  first 500,000 inputs and the harness 1,000,000, so the books differ over the second half.
+  **Not explained: FastBook `match`,
+  9.3 ns here vs 13.1 ns in Google Benchmark (−29%), in both runs today**, while the reference
+  and tick books agree to 1–3%. Same inputs and book; a code-layout or inlining difference
+  between the two binaries is the likely cause. To check with `perf` on bare metal (phase 6
+  tooling), not by guessing.
