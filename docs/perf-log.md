@@ -277,3 +277,36 @@ fixed 1,000 batches.
   book's orders (100,000 × 48 bytes, about 5 MB) fit in this CPU's 30 MB shared L3 cache, where a
   straddled line costs little; a book too big for L3, and phase 3's tail-latency numbers, are where
   a difference would show, if anywhere.
+
+---
+
+## 2026-10-18: The latency harness's timer (phase 3 step 1)
+
+What the rdtsc timer itself measures on this machine (`docs/latency-harness-design.md` §3–§4),
+before it times anything else. Same machine, OS and compiler as above; `gcc-release` and
+`clang-release` builds; command `./build/gcc-release/nanobook_bench --core 2` (and unpinned).
+
+| | Result |
+|---|---|
+| CPU flags | `constant_tsc`, `nonstop_tsc`, `rdtscp`, `tsc_known_freq` all present |
+| Counter rate | **2.4192 ticks per ns** (a 2.419 GHz counter), every run |
+| Spread between the 5 calibration rounds | 0.12–0.25 parts per million |
+| Drift from start to end of a run | 0.035 parts per million |
+| Timer overhead (empty start/stop pair), min | **26–28 ticks = 10.7–11.6 ns** |
+| Timer overhead, median | **31 ticks = 12.8 ns** |
+| Timer overhead, max | 12 µs to 3 ms, different every run |
+
+**Assembly check** (GCC 14 `-O3`, a timed `FastBook::handle(Cancel)` call): `rdtscp`, `lfence`,
+`call ...handle...`, `rdtscp`, `lfence`. The call stays between the two stamps and nothing from it
+moved outside.
+
+### What these numbers say
+- **The counter is an excellent clock here.** Rounds agree to well under one part per million,
+  and it doesn't drift during a run.
+- **The timer costs about as much as the fast book's simplest operations** (adding an order
+  averaged 11.7 ns in phase 2). So subtracting the overhead's minimum (design §13 Q2) is
+  essential, and per-operation numbers near 10 ns are close to what this timer can resolve.
+  Throughput mode (design §6.3) is the cross-check for those.
+- **The max is the machine, not the timer:** an empty pair once took 3 ms, which can only be the
+  thread being paused (WSL2's virtual machine, or Windows). That's the noise bare metal with an
+  isolated core (design §7) should remove, and why outliers are reported, never hidden.

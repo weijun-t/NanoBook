@@ -1,9 +1,9 @@
 # CMakeLists.txt: how NanoBook is built.
 #
 # What it does: Builds the engine library (nanobook), the tests (nanobook_tests, plus
-#   nanobook_alloc_tests in builds without sanitizers), the differential fuzzer (nanobook_fuzz)
-#   and the benchmarks (nanobook_microbench). Downloads GoogleTest and Google Benchmark at pinned
-#   versions, checked by SHA256.
+#   nanobook_alloc_tests in builds without sanitizers), the differential fuzzer (nanobook_fuzz),
+#   the benchmarks (nanobook_microbench) and the rdtsc latency harness (nanobook_bench). Downloads
+#   GoogleTest and Google Benchmark at pinned versions, checked by SHA256.
 #
 # How it works: Options come from CMakePresets.json. Sanitizer flags are global, so third-party code
 #   is built the same way as ours. The strict warnings (-Werror) apply to our code only. The engine
@@ -117,6 +117,7 @@ if(NANOBOOK_BUILD_TESTS)
         tests/test_book.cpp
         tests/test_exchange.cpp
         tests/test_fuzz.cpp
+        tests/test_latency.cpp
         tests/fast/test_order_pool.cpp
         tests/fast/test_intrusive_queue.cpp
         tests/fast/test_id_table.cpp
@@ -162,4 +163,9 @@ if(NANOBOOK_BUILD_BENCH)
     add_executable(nanobook_microbench bench/bench_book.cpp)
     target_link_libraries(nanobook_microbench PRIVATE nanobook nanobook_alloc_counter benchmark::benchmark_main)
     nanobook_configure_target(nanobook_microbench)
+
+    # The rdtsc latency harness (latency-harness design): times every operation one by one.
+    add_executable(nanobook_bench tools/nanobook_bench.cpp)
+    target_link_libraries(nanobook_bench PRIVATE nanobook nanobook_testing)
+    nanobook_configure_target(nanobook_bench)
 endif()

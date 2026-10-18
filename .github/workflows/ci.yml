@@ -1,8 +1,8 @@
 # ci.yml: continuous integration on GitHub Actions.
 #
 # What it does: On every push and pull request, builds and tests 4 presets (GCC and Clang, Debug
-#   with ASan and UBSan, and Release), runs a short differential fuzz and a benchmark smoke run,
-#   and checks formatting (clang-format) and code quality (clang-tidy).
+#   with ASan and UBSan, and Release), runs a short differential fuzz and smoke runs of both
+#   benchmark tools, and checks formatting (clang-format) and code quality (clang-tidy).
 #
 # Why it exists: Every commit must build and pass its tests on both compilers (rule 21).
 
@@ -56,6 +56,11 @@ jobs:
       - name: Benchmark smoke run
         if: endsWith(matrix.preset, 'release')
         run: ./build/${{ matrix.preset }}/nanobook_microbench --benchmark_min_time=0.01s
+
+      # Proves the latency harness's timer works on this machine (counter flags, calibration).
+      - name: Latency harness smoke run
+        if: endsWith(matrix.preset, 'release')
+        run: ./build/${{ matrix.preset }}/nanobook_bench
 
   # Fails if any file differs from .clang-format.
   format:
