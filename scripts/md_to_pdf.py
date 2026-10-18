@@ -87,15 +87,19 @@ LIST_ITEM = ParagraphStyle("li", parent=BODY, spaceBefore=1, spaceAfter=1)
 
 def inline(text: str) -> str:
     """Escape &, <, > first (reportlab parses the result as markup), then add tags.
-    Code spans are handled first, so ** inside code stays literal."""
-    out = []
-    for part in re.split(r"(`[^`]+`)", text):
-        if len(part) > 1 and part.startswith("`") and part.endswith("`"):
-            out.append(f'<font name="Mono" size="8" backColor="{INLINE_CODE_BG}">'
-                       f"{escape(part[1:-1])}</font>")
-        else:
-            out.append(re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", escape(part)))
-    return "".join(out)
+    Code spans are set aside as numbered placeholders first, so ** inside code stays literal,
+    while **bold** can still contain code spans."""
+    codes: list[str] = []
+
+    def set_aside(m: re.Match) -> str:
+        codes.append(m.group(1))
+        return f"\x00{len(codes) - 1}\x00"
+
+    text = escape(re.sub(r"`([^`]+)`", set_aside, text))
+    text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+    return re.sub(r"\x00(\d+)\x00",
+                  lambda m: f'<font name="Mono" size="8" backColor="{INLINE_CODE_BG}">'
+                            f"{escape(codes[int(m.group(1))])}</font>", text)
 
 
 # ---------------------------------------------------------------------------

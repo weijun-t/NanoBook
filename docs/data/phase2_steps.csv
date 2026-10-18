@@ -1,0 +1,13 @@
+step,benchmark,before_ns,after_ns,clear
+Step 4: reference book -> fast book v1,Add,108.8,36.6,yes
+Step 4: reference book -> fast book v1,Cancel,239.2,99.8,yes
+Step 4: reference book -> fast book v1,Mixed,97.8,48.5,yes
+Step 4: reference book -> fast book v1,Sweep 10 levels,674.9,344.3,yes
+Step 5: temporary id index -> flat IdTable,Add,20.5,9.7,yes
+Step 5: temporary id index -> flat IdTable,Cancel,53.6,37.5,yes
+Step 5: temporary id index -> flat IdTable,Mixed,38.0,28.2,yes
+Step 5: temporary id index -> flat IdTable,Sweep 10 levels,280.5,226.2,yes
+Step 6: std::map levels -> sorted array,Add,10.5,11.7,no
+Step 6: std::map levels -> sorted array,Cancel,42.2,38.5,no
+Step 6: std::map levels -> sorted array,Mixed,28.0,27.2,no
+Step 6: std::map levels -> sorted array,Sweep 10 levels,255.2,137.3,yes

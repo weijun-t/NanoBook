@@ -1,0 +1,6 @@
+build,session,time_ns
+Reference book (code unchanged),16 Oct\nphase 1 baseline,58.9
+Reference book (code unchanged),17 Oct\nstep 4 session,108.8
+Reference book (code unchanged),17 Oct\nstep 6 session,57.9
+Fast book v1 (same commit),17 Oct\nstep 4 session,36.6
+Fast book v1 (same commit),17 Oct\nstep 5 session,20.5

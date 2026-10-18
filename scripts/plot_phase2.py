@@ -1,10 +1,13 @@
 """plot_phase2.py: draws the phase 2 report's charts from the recorded benchmark numbers.
 
-What it does: Reads the CSV files in docs/data/ and writes four PNG charts to docs/img/:
+What it does: Reads the CSV files in docs/data/ and writes seven PNG charts to docs/img/:
   phase2_times.png    time per operation, one small panel per benchmark, three books each
   phase2_speedup.png  how many times faster than the reference book, per benchmark
   phase2_allocs.png   heap allocations per added order, at each step of phase 2
   phase2_search.png   the search experiment inside the sorted levels (hybrid vs binary)
+  phase2_steps.png    the speed-up each step gave over the one before (steps 4, 5, 6)
+  phase2_layout.png   the order slot experiment: 64 bytes vs 48 bytes, with each row's noise
+  phase2_drift.png    the same code timed in different sessions: why every comparison is same-session
   Usage: .venv/bin/python scripts/plot_phase2.py
 
 Why it exists: README §7.5: the plots read only CSV and never touch the engine, so they can be
@@ -187,12 +190,101 @@ def plot_search() -> None:
     plt.close(fig)
 
 
+def plot_steps() -> None:
+    """One panel per step: before/after speed-up per benchmark. A hatched bar with a "≈" label is
+    a change that was not clearly bigger than the run-to-run noise."""
+    rows = read("phase2_steps.csv")
+    steps = list(dict.fromkeys(r["step"] for r in rows))
+    fig, axes = plt.subplots(1, len(steps), figsize=(10, 3.4), sharey=True)
+    colour = BOOK_COLOURS["FastBook"]
+    for ax, step in zip(axes, steps):
+        items = [r for r in rows if r["step"] == step]
+        xs = range(len(items))
+        vals = [float(r["before_ns"]) / float(r["after_ns"]) for r in items]
+        clear = [r["clear"] == "yes" for r in items]
+        for x, v, c in zip(xs, vals, clear):
+            ax.bar(x, v, width=0.72, color=colour if c else SURFACE, edgecolor=colour,
+                   hatch=None if c else "///", linewidth=1.2 if not c else 2)
+            ax.text(x, v + 0.08, f"{v:.1f}×" if c else f"≈{v:.1f}×", ha="center", va="bottom",
+                    fontsize=7.5, color=INK,
+                    bbox={"facecolor": SURFACE, "edgecolor": "none", "pad": 0.6})
+        ax.axhline(1.0, color=INK_2, linewidth=1)
+        ax.set_xticks(list(xs), [r["benchmark"].replace(" ", "\n", 1) for r in items])
+        ax.set_title(step.replace(": ", ":\n", 1), loc="left", fontsize=8.5)
+        ax.set_yticks([])
+        tidy(ax)
+    axes[0].set_ylabel("Speed-up over the step before")
+    axes[0].set_ylim(0, max(float(r["before_ns"]) / float(r["after_ns"]) for r in rows) * 1.12)
+    fig.text(0.5, 0.01, "Times faster than before the step (1× = no change). Hatched ≈: inside the "
+             "run-to-run noise. Each step was measured in its own session.", ha="center",
+             fontsize=8, color=MUTED)
+    fig.tight_layout(rect=(0, 0.06, 1, 1))
+    fig.savefig(OUT / "phase2_steps.png", dpi=200)
+    plt.close(fig)
+
+
+def plot_layout() -> None:
+    """64-byte vs 48-byte order slots: % change per benchmark, with that row's noise shaded."""
+    rows = read("phase2_layout.csv")
+    books = ["FastBook", "TickFastBook"]
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4.0), sharey=True)
+    for ax, book in zip(axes, books):
+        items = [r for r in rows if r["book"] == book]
+        ys = list(range(len(items)))
+        for y, r in zip(ys, items):
+            noise = float(r["noise_pct"])
+            ax.barh(y, 2 * noise, left=-noise, height=0.8, color=GRID, linewidth=0)  # noise band
+        vals = [float(r["change_pct"]) for r in items]
+        ax.barh(ys, vals, height=0.45, color=BOOK_COLOURS[book], edgecolor=SURFACE, linewidth=1)
+        for y, v in zip(ys, vals):
+            ax.text(v + (0.3 if v >= 0 else -0.3), y, f"{v:+.1f}%", va="center",
+                    ha="left" if v >= 0 else "right", fontsize=7.5, color=INK)
+        ax.axvline(0, color=INK_2, linewidth=1)
+        ax.set_xlim(-10, 10)
+        ax.set_yticks(ys, [r["benchmark"] for r in items])
+        ax.set_title(book, loc="left")
+        for side in ("top", "right", "left"):
+            ax.spines[side].set_visible(False)
+        ax.tick_params(length=0)
+        ax.set_xlabel("64 bytes vs 48 bytes  (← 64 faster  |  64 slower →)")
+    axes[0].invert_yaxis()  # once: the axes share y, so a second call would flip it back
+    fig.text(0.5, 0.01, "Grey band: that benchmark's run-to-run noise. A bar inside its band is not a "
+             "real difference.", ha="center", fontsize=8, color=MUTED)
+    fig.tight_layout(rect=(0, 0.05, 1, 1))
+    fig.savefig(OUT / "phase2_layout.png", dpi=200)
+    plt.close(fig)
+
+
+def plot_drift() -> None:
+    """The same code, timed on different sessions of this laptop: one panel per build."""
+    rows = read("phase2_drift.csv")
+    builds = list(dict.fromkeys(r["build"] for r in rows))
+    colours = {builds[0]: BOOK_COLOURS["ReferenceBook"], builds[1]: BOOK_COLOURS["FastBook"]}
+    fig, axes = plt.subplots(1, 2, figsize=(10, 3.0), gridspec_kw={"width_ratios": [3, 2]})
+    for ax, build in zip(axes, builds):
+        items = [r for r in rows if r["build"] == build]
+        vals = [float(r["time_ns"]) for r in items]
+        bars(ax, [r["session"].replace("\\n", "\n") for r in items], vals,
+             [colours[build]] * len(vals), fmt_ns)
+        ax.set_title(build, loc="left")
+        ax.set_yticks([])
+        tidy(ax)
+    fig.text(0.5, 0.01, "Time to add a resting order (lower is better). Same code in each panel; "
+             "only the session changed.", ha="center", fontsize=8, color=MUTED)
+    fig.tight_layout(rect=(0, 0.06, 1, 1))
+    fig.savefig(OUT / "phase2_drift.png", dpi=200)
+    plt.close(fig)
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     plot_times()
     plot_speedup()
     plot_allocs()
     plot_search()
+    plot_steps()
+    plot_layout()
+    plot_drift()
     print("wrote", ", ".join(sorted(p.name for p in OUT.glob("phase2_*.png"))))
 
 

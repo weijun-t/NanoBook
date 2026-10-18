@@ -98,9 +98,10 @@ moves the order to the back of the queue. That is the same behaviour, and invari
 **48 vs 64 bytes: measured (2026-10-18), 48 kept.** At 48 bytes, half the orders straddle two
 cache lines; padding to 64 (`alignas(64)`) makes each order exactly one line, but uses a third more
 memory. Measured on the same machine in one session, both fast-book variants, all 10 benchmarks
-(`docs/perf-log.md`): every difference was between −6% and +6%. Most were inside the round-to-round
-noise; the three slightly beyond it point opposite ways (64 bytes 4–5% slower on `FastBook`'s
-10- and 100-level sweeps, 6% faster on `TickFastBook`'s 10-level sweep). No consistent winner, so
+(`docs/perf-log.md`): every difference was between −6% and +6%. 12 of the 20 were inside the
+round-to-round noise; the 8 beyond it are small and point both ways (on `FastBook` mostly towards
+64 bytes being slower, e.g. 4–5% on the 10- and 100-level sweeps; on `TickFastBook` mixed, e.g.
+6% faster on the 10-level sweep). 64 bytes never clearly won, so
 the order stays at 48 bytes: simpler, and a quarter less memory. Worth re-checking only if phase 3's
 tail-latency numbers point at order access.
 

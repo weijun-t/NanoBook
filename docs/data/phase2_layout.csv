@@ -1,0 +1,21 @@
+book,benchmark,ns_48,ns_64,change_pct,noise_pct
+FastBook,Add,11.9,12.2,2.0,2.2
+FastBook,Cancel,38.8,39.6,2.1,2.5
+FastBook,Match one,13.1,13.2,0.2,3.1
+FastBook,Mixed,27.7,27.4,-1.1,0.9
+FastBook,Sweep 1 level,18.7,19.1,2.1,1.7
+FastBook,Sweep 10 levels,139.7,146.1,4.6,2.9
+FastBook,Sweep 100 levels,1362.7,1415.3,3.9,2.6
+FastBook,Large book: cancel,95.0,94.4,-0.6,3.5
+FastBook,Large book: add,69.3,71.4,2.9,2.0
+FastBook,Aged book,33.0,32.4,-1.8,2.0
+TickFastBook,Add,12.2,12.7,3.4,4.7
+TickFastBook,Cancel,12.0,12.7,5.7,5.1
+TickFastBook,Match one,12.5,12.2,-2.0,3.7
+TickFastBook,Mixed,18.0,17.9,-0.7,7.2
+TickFastBook,Sweep 1 level,15.9,15.9,0.3,0.8
+TickFastBook,Sweep 10 levels,130.6,122.8,-6.0,4.0
+TickFastBook,Sweep 100 levels,1198.5,1170.7,-2.3,1.4
+TickFastBook,Large book: cancel,29.1,30.5,4.7,6.4
+TickFastBook,Large book: add,17.1,17.9,4.5,8.0
+TickFastBook,Aged book,26.8,25.8,-3.6,4.3

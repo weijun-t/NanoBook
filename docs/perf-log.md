@@ -267,9 +267,12 @@ slow), and the bigger 64-byte book pushed it over the limit. Fixed in this step:
 fixed 1,000 batches.
 
 ### What these numbers say
-- **No consistent winner.** Every difference is within ±6%. Most are inside the round-to-round
-  noise; the three slightly beyond it point opposite ways (64 bytes slower on `FastBook`'s 10- and
-  100-level sweeps, faster on `TickFastBook`'s 10-level sweep).
+- **No consistent winner.** Every difference is within ±6%. 12 of the 20 rows are inside the
+  round-to-round noise. The 8 beyond it are small and split 5 to 3: on `FastBook` 4 of 5 say
+  64 bytes is slower (sweeps 1/10/100, large-book add; only mixed goes the other way), on
+  `TickFastBook` they disagree (cancel slower, sweeps 10 and 100 faster). The 10-level sweep points
+  opposite ways on the two books. (Corrected 2026-10-18: an earlier version said "three" rows
+  were beyond the noise.)
 - **So the order stays at 48 bytes**: the simpler choice, and a quarter less memory. Even the large
   book's orders (100,000 × 48 bytes, about 5 MB) fit in this CPU's 30 MB shared L3 cache, where a
   straddled line costs little; a book too big for L3, and phase 3's tail-latency numbers, are where
