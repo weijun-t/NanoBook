@@ -61,7 +61,9 @@ jobs:
       # tagging, 0 allocations while timing the fast books). Shared VM: never publish its numbers.
       - name: Latency harness smoke run
         if: endsWith(matrix.preset, 'release')
-        run: ./build/${{ matrix.preset }}/nanobook_bench --ops 20000
+        run: |
+          ./build/${{ matrix.preset }}/nanobook_bench --ops 20000 --csv "$RUNNER_TEMP/latency.csv"
+          ./build/${{ matrix.preset }}/nanobook_bench --ops 20000 --throughput
 
   # Fails if any file differs from .clang-format.
   format:

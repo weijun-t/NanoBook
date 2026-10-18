@@ -4,7 +4,8 @@
  * What it does: Checks classify() on hand-made event lists, that the shuffle is a seeded
  *   permutation, that each scenario records exactly the requested number of samples and times only
  *   the kind of operation it claims (every sample carries the expected tag), that the mixed stream
- *   contains every kind of operation, and that every book sees exactly the same mixed inputs.
+ *   contains every kind of operation, that every book sees exactly the same mixed inputs, and that
+ *   throughput mode times the requested number of operations without recording samples.
  *
  * Why it exists: A scenario that quietly timed the wrong thing (a cancel that is really rejected, a
  *   "deep insert" that lands on an existing level) would give believable but wrong numbers. The
@@ -166,4 +167,17 @@ TEST(Scenarios, EveryBookSeesTheSameMixedInputs) {
     }
     EXPECT_TRUE(std::ranges::equal(ref.tags(), fast.tags()));
     EXPECT_TRUE(std::ranges::equal(ref.tags(), tick.tags()));
+}
+
+TEST(Scenarios, ThroughputModeTimesWholeBatches) {
+    constexpr std::size_t kOps = 15'000; // a batch of 10,000 and one of 5,000
+    for (const Scenario s : {Scenario::Add, Scenario::Mixed}) {
+        SCOPED_TRACE(scenario_name(s));
+        Recorder r{1};
+        const ScenarioResult result =
+            run_scenario<FastBook>(s, r, Options{.ops = kOps, .throughput = true});
+        EXPECT_EQ(result.throughput_ops, kOps);
+        EXPECT_GT(result.throughput_ticks, 0U);
+        EXPECT_EQ(r.size(), 0U); // nothing recorded one by one
+    }
 }

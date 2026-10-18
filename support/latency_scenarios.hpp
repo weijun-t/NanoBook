@@ -19,7 +19,11 @@
  *   - mixed replays the fuzzer's steered stream (support/differential_fuzz.hpp), generated once
  *     with a reference book steering it, so every book sees exactly the same inputs: 200,000
  *     inputs untimed (an "aged" book, as in phase 2's BM_Aged), then `ops` timed.
- *   - Every input is built before timing starts; only book.handle() is between the stamps.
+ *   - Every input is built before timing starts; only book.handle() is between the stamps. (A book
+ *     clears the event buffer itself at the start of every input: the OrderBook contract.)
+ *   - Throughput mode (Options::throughput) runs the same operations with one pair of stamps
+ *     around each whole batch instead of one per operation, so the CPU can overlap operations
+ *     as it normally does; ScenarioResult then holds the total ticks and operations (design §6.3).
  *   - If Options::allocations is set (a function returning the program's allocation count), the
  *     allocations made during timed batches are counted, to check rule 1 (design §10).
  *
@@ -153,13 +157,16 @@ inline std::optional<Scenario> parse_scenario(std::string_view name) {
 }
 
 struct Options {
-    std::size_t ops{1'000'000}; // samples to record
+    std::size_t ops{1'000'000}; // samples to record (in throughput mode: operations to time)
     std::uint64_t seed{42};
     std::uint64_t (*allocations)() = nullptr; // if set: count allocations during timed batches
+    bool throughput{false}; // time whole batches instead of each operation (design §6.3)
 };
 
 struct ScenarioResult {
     std::uint64_t timed_allocations{0}; // allocations while timed operations ran (0 if not counted)
+    std::uint64_t throughput_ticks{0};  // throughput mode: total ticks of the timed batches
+    std::uint64_t throughput_ops{0};    // throughput mode: operations in them
 };
 
 // Fisher–Yates shuffle with rng() % n: the same order for a seed with any standard library.
@@ -207,13 +214,11 @@ ScenarioResult run_batches(Recorder &recorder, const Options &o, const BookConfi
     const auto fresh_book = [&] {
         book = std::make_unique<Book>(config); // the previous book is destroyed here, untimed
         setup(*book, out);
-        out.clear();
     };
 
     fresh_book(); // warm-up batch, not recorded
     for (std::size_t i = 0; i < batch; ++i) {
         op(*book, out, i);
-        out.clear();
     }
 
     ScenarioResult result;
@@ -222,13 +227,19 @@ ScenarioResult run_batches(Recorder &recorder, const Options &o, const BookConfi
         const std::size_t n = std::min(batch, remaining);
         fresh_book();
         const std::uint64_t before = count_allocations(o);
-        time_each(
-            recorder, n, [&](std::size_t i) { op(*book, out, i); },
-            [&](std::size_t) {
-                const Tag tag = classify(out.view());
-                out.clear();
-                return tag;
-            });
+        if (o.throughput) { // one pair of stamps around the whole batch
+            const Stamp t0 = start();
+            for (std::size_t i = 0; i < n; ++i) {
+                op(*book, out, i);
+            }
+            const Stamp t1 = stop();
+            result.throughput_ticks += t1.ticks - t0.ticks;
+            result.throughput_ops += n;
+        } else {
+            time_each(
+                recorder, n, [&](std::size_t i) { op(*book, out, i); },
+                [&](std::size_t) { return classify(out.view()); });
+        }
         result.timed_allocations += count_allocations(o) - before;
         remaining -= n;
     }
@@ -250,7 +261,6 @@ template <OrderBook Book> void rest_small(Book &book, EventBuffer &out) {
     for (std::size_t i = 0; i < kBatch; ++i) {
         book.handle(limit(Side::Buy, 1, i + 1, 100, 1000 - static_cast<std::int64_t>(i % 100)),
                     out);
-        out.clear();
     }
 }
 
@@ -260,7 +270,6 @@ template <OrderBook Book> void rest_large(Book &book, EventBuffer &out) {
     for (std::size_t i = 0; i < kLargeOrders; ++i) {
         book.handle(limit(Side::Buy, 1, i + 1, 10, 1 + static_cast<std::int64_t>(i % kLargeLevels)),
                     out);
-        out.clear();
     }
 }
 
@@ -277,7 +286,6 @@ template <OrderBook Book> ScenarioResult run_mixed(Recorder &recorder, const Opt
             const fuzz::Input in = gen.next(shadow);
             fuzz::apply(shadow, in, shadow_out);
             gen.observe(shadow_out.view());
-            shadow_out.clear();
             inputs.push_back(in);
         }
     }
@@ -286,17 +294,25 @@ template <OrderBook Book> ScenarioResult run_mixed(Recorder &recorder, const Opt
     EventBuffer out{config.max_events_per_input()};
     for (std::size_t i = 0; i < kMixedWarmup; ++i) { // the "aged" part, untimed
         fuzz::apply(book, inputs[i], out);
-        out.clear();
     }
+    ScenarioResult result;
     const std::uint64_t before = count_allocations(o);
-    time_each(
-        recorder, o.ops, [&](std::size_t i) { fuzz::apply(book, inputs[kMixedWarmup + i], out); },
-        [&](std::size_t) {
-            const Tag tag = classify(out.view());
-            out.clear();
-            return tag;
-        });
-    return ScenarioResult{.timed_allocations = count_allocations(o) - before};
+    if (o.throughput) { // one pair of stamps around the whole stream
+        const Stamp t0 = start();
+        for (std::size_t i = 0; i < o.ops; ++i) {
+            fuzz::apply(book, inputs[kMixedWarmup + i], out);
+        }
+        const Stamp t1 = stop();
+        result.throughput_ticks = t1.ticks - t0.ticks;
+        result.throughput_ops = o.ops;
+    } else {
+        time_each(
+            recorder, o.ops,
+            [&](std::size_t i) { fuzz::apply(book, inputs[kMixedWarmup + i], out); },
+            [&](std::size_t) { return classify(out.view()); });
+    }
+    result.timed_allocations = count_allocations(o) - before;
+    return result;
 }
 
 } // namespace detail
@@ -344,7 +360,6 @@ ScenarioResult run_scenario(Scenario s, Recorder &recorder, const Options &o) {
             [](Book &book, EventBuffer &out) {
                 for (std::size_t i = 0; i < kBatch; ++i) {
                     book.handle(limit(Side::Sell, 2, i + 1, 1, 500), out);
-                    out.clear();
                 }
             },
             [](Book &book, EventBuffer &out, std::size_t i) {
@@ -361,7 +376,6 @@ ScenarioResult run_scenario(Scenario s, Recorder &recorder, const Options &o) {
                     book.handle(
                         limit(Side::Sell, 2, i + 1, 1, static_cast<std::int64_t>(kLevels - i)),
                         out);
-                    out.clear();
                 }
             },
             [](Book &book, EventBuffer &out, std::size_t i) {
@@ -403,7 +417,6 @@ ScenarioResult run_scenario(Scenario s, Recorder &recorder, const Options &o) {
                 for (std::size_t i = 0; i < kDeepLevels; ++i) {
                     book.handle(
                         limit(Side::Buy, 1, i + 1, 10, 2 * static_cast<std::int64_t>(i + 1)), out);
-                    out.clear();
                 }
             },
             [&order](Book &book, EventBuffer &out, std::size_t i) {

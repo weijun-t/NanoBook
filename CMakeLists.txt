@@ -7,7 +7,8 @@
 #
 # How it works: Options come from CMakePresets.json. Sanitizer flags are global, so third-party code
 #   is built the same way as ours. The strict warnings (-Werror) apply to our code only. The engine
-#   library is built with -fno-exceptions.
+#   library is built with -fno-exceptions. The git commit is written into a generated header on
+#   every build (cmake/git_commit.cmake), for the latency harness's environment block.
 
 cmake_minimum_required(VERSION 3.25) # CMakePresets.json version 6 needs 3.25
 project(nanobook LANGUAGES CXX)
@@ -92,6 +93,37 @@ if(NANOBOOK_BUILD_BENCH OR (NANOBOOK_BUILD_TESTS AND NOT NANOBOOK_SANITIZER))
     nanobook_configure_target(nanobook_alloc_counter)
 endif()
 
+# The git commit for the latency harness's environment block (latency-harness design §8):
+# written once now (so a configure-only run, like CI's clang-tidy job, has the header) and again
+# on every build by the target below, so it never goes stale. Build type and flags likewise.
+if(NANOBOOK_BUILD_TESTS OR NANOBOOK_BUILD_BENCH)
+    set(NANOBOOK_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
+    set(NANOBOOK_GIT_HEADER "${NANOBOOK_GENERATED_DIR}/nanobook_git.hpp")
+    file(MAKE_DIRECTORY "${NANOBOOK_GENERATED_DIR}")
+    set(NANOBOOK_GIT_COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_SOURCE_DIR} -DOUT=${NANOBOOK_GIT_HEADER}
+        -P ${CMAKE_SOURCE_DIR}/cmake/git_commit.cmake)
+    execute_process(COMMAND ${NANOBOOK_GIT_COMMAND})
+    add_custom_target(nanobook_git_commit COMMAND ${NANOBOOK_GIT_COMMAND}
+        BYPRODUCTS "${NANOBOOK_GIT_HEADER}" COMMENT "Recording the git commit")
+
+    string(TOUPPER "${CMAKE_BUILD_TYPE}" NANOBOOK_BUILD_TYPE_UPPER)
+    set(NANOBOOK_FLAGS_TEXT
+        "-std=c++${CMAKE_CXX_STANDARD} ${CMAKE_CXX_FLAGS} ${CMAKE_CXX_FLAGS_${NANOBOOK_BUILD_TYPE_UPPER}}")
+    if(NANOBOOK_NATIVE_OPTIMIZATION)
+        string(APPEND NANOBOOK_FLAGS_TEXT " -march=native")
+    endif()
+    string(REGEX REPLACE " +" " " NANOBOOK_FLAGS_TEXT "${NANOBOOK_FLAGS_TEXT}")
+    string(STRIP "${NANOBOOK_FLAGS_TEXT}" NANOBOOK_FLAGS_TEXT)
+
+    # Lets `target` include support/environment.hpp.
+    function(nanobook_uses_environment target)
+        add_dependencies(${target} nanobook_git_commit)
+        target_include_directories(${target} PRIVATE "${NANOBOOK_GENERATED_DIR}")
+        target_compile_definitions(${target} PRIVATE
+            NANOBOOK_BUILD_TYPE="${CMAKE_BUILD_TYPE}" NANOBOOK_CXX_FLAGS="${NANOBOOK_FLAGS_TEXT}")
+    endfunction()
+endif()
+
 # ---------------------------------------------------------------------------
 # 7. Tests (GoogleTest)
 # ---------------------------------------------------------------------------
@@ -126,6 +158,7 @@ if(NANOBOOK_BUILD_TESTS)
     )
     target_link_libraries(nanobook_tests PRIVATE nanobook nanobook_testing GTest::gtest_main)
     nanobook_configure_target(nanobook_tests)
+    nanobook_uses_environment(nanobook_tests)
     gtest_discover_tests(nanobook_tests)
 
     # Zero-allocation tests (README rule 1, fast-book design §8.4): their own program, because
@@ -169,4 +202,5 @@ if(NANOBOOK_BUILD_BENCH)
     add_executable(nanobook_bench tools/nanobook_bench.cpp)
     target_link_libraries(nanobook_bench PRIVATE nanobook nanobook_testing nanobook_alloc_counter)
     nanobook_configure_target(nanobook_bench)
+    nanobook_uses_environment(nanobook_bench)
 endif()

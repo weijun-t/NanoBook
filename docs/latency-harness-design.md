@@ -6,6 +6,7 @@
 > published run. Items marked **[MEASURE]** are decided by a measurement in the step named.
 > Edits (2026-10-18, step 3a): the `other` tag (§5.3); scenarios moved into
 > `support/latency_scenarios.hpp` so tests can check them (§11); step 3 split into 3a and 3b (§12).
+> Step 3b: the CSV output is two files, summary and histogram (§9).
 
 Phase 2 proved the fast book correct and measured its **average** speed with Google Benchmark.
 Phase 3 builds the tool that measures **every single operation**, so the report can show the
@@ -300,10 +301,12 @@ tag      count      min    p50    p90    p99    p99.9   p99.99   max
 cancel   1000000    …      …      …      …      …       …        …
 ```
 
-**CSV** (`--csv out.csv`): one row per (scenario, book, tag) with every percentile, plus the
-histogram buckets, plus the environment as comment lines at the top. `--raw` also writes every
-sample (large; for one-off investigation only). All printing and file writing happens **after**
-the timed loop (README §7.4).
+**CSV** (`--csv out.csv`): two files, each starting with the environment as `#` comment lines.
+`out.csv` has one row per (mode, scenario, book, tag) with every percentile; `out_histogram.csv`
+has the histogram buckets (two kinds of rows in one file would be awkward to load). `--raw
+FILE.csv` writes every sample in the order it was taken (large; for one-off investigation, such
+as whether slow samples repeat at a fixed interval). All printing and file writing happens
+**after** the timed loop (README §7.4).
 
 **Plot:** `scripts/plot_latency.py` reads only the CSV (README §7.5):
 1. a histogram per scenario with a log-scale time axis, the three books overlaid;

@@ -235,6 +235,9 @@ TEST(ZeroAlloc, LatencyScenariosNeverAllocateWhileTimingAFastBook) {
         EXPECT_EQ(latency::run_scenario<FastBook>(s, recorder, options).timed_allocations, 0U);
         recorder.clear();
         EXPECT_EQ(latency::run_scenario<TickFastBook>(s, recorder, options).timed_allocations, 0U);
+        latency::Options throughput = options;
+        throughput.throughput = true;
+        EXPECT_EQ(latency::run_scenario<FastBook>(s, recorder, throughput).timed_allocations, 0U);
     }
 }
 

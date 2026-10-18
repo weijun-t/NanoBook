@@ -6,7 +6,8 @@
  *   stable tick rate, and that the timer's own cost is measured sensibly. Then the recorder
  *   (support/latency_recorder.hpp): samples kept in order with their tags, bad samples dropped or
  *   clamped and counted, nearest-rank percentiles on known data, overhead subtraction, the
- *   histogram's buckets, and a planted slow operation the tail percentiles must catch.
+ *   histogram's buckets, and a planted slow operation the tail percentiles must catch. Last, the
+ *   environment parsers (support/environment.hpp) on made-up /proc and /sys contents.
  *
  * Why it exists: A wrong harness gives confident wrong numbers (latency-harness design §10), so
  *   its parts are tested like the engine's. The planted slow operation is the harness's version of
@@ -26,6 +27,7 @@
 #include <string_view>
 #include <vector>
 
+#include "environment.hpp"
 #include "latency_recorder.hpp"
 #include "tsc.hpp"
 
@@ -305,4 +307,54 @@ TEST(TimeEach, SeesAPlantedSlowOperation) {
     const auto slow =
         std::ranges::count_if(sorted, [&](std::uint64_t t) { return to_ns(t, rate) >= 1'000.0; });
     EXPECT_GE(static_cast<std::uint64_t>(slow) + r.dropped(), kOps / kEvery);
+}
+
+// ---------------------------------------------------------------------------
+// Environment (design §8)
+// ---------------------------------------------------------------------------
+
+TEST(Environment, ReadsCpuinfoFields) {
+    constexpr std::string_view kCpuinfo = "processor\t: 0\n"
+                                          "model name\t: Intel(R) Core(TM) i7-14650HX\n"
+                                          "flags\t\t: fpu tsc\n"
+                                          "\n"
+                                          "processor\t: 1\n"
+                                          "model name\t: Intel(R) Core(TM) i7-14650HX\n";
+    EXPECT_EQ(cpuinfo_value(kCpuinfo, "model name"), "Intel(R) Core(TM) i7-14650HX");
+    EXPECT_EQ(cpuinfo_value(kCpuinfo, "flags"), "fpu tsc");
+    EXPECT_EQ(cpuinfo_value(kCpuinfo, "cache size"), ""); // absent
+    EXPECT_EQ(count_processors(kCpuinfo), 2);
+}
+
+TEST(Environment, ReadsTheOsName) {
+    EXPECT_EQ(os_pretty_name("NAME=\"Ubuntu\"\nPRETTY_NAME=\"Ubuntu 24.04.5 LTS\"\n"),
+              "Ubuntu 24.04.5 LTS");
+    EXPECT_EQ(os_pretty_name("PRETTY_NAME=Debian\n"), "Debian"); // quotes are optional
+    EXPECT_EQ(os_pretty_name("NAME=x\n"), "");
+}
+
+TEST(Environment, RecognisesWsl) {
+    EXPECT_TRUE(is_wsl("6.18.54.1-microsoft-standard-WSL2"));
+    EXPECT_TRUE(is_wsl("4.4.0-19041-Microsoft")); // WSL1 spells it with a capital M
+    EXPECT_FALSE(is_wsl("6.8.0-45-generic"));     // ordinary Ubuntu
+}
+
+TEST(Environment, ReadsTheTurboSetting) {
+    EXPECT_EQ(turbo_from_no_turbo("1\n"), "off");
+    EXPECT_EQ(turbo_from_no_turbo("0\n"), "on");
+    EXPECT_EQ(turbo_from_no_turbo(""), "unknown"); // the file doesn't exist (e.g. WSL2)
+}
+
+TEST(Environment, TrimsWhitespace) {
+    EXPECT_EQ(trim("  performance\n"), "performance");
+    EXPECT_EQ(trim("\n"), "");
+}
+
+TEST(Environment, CollectsEveryField) {
+    const Environment env = collect_environment(-1);
+    for (const auto &[key, value] : env.lines()) {
+        SCOPED_TRACE(key);
+        EXPECT_FALSE(value.empty()); // "unknown" at worst, never empty
+    }
+    EXPECT_EQ(env.publishable(), env.virtual_machine == "no");
 }
