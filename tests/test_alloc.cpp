@@ -5,6 +5,7 @@
  *   counts 1, none counts 0). Then points it at engine code: the EventBuffer, the fast book's
  *   parts, and the whole fast book (100,000 random operations after a warm-up) must never allocate
  *   after construction, and the reference book, which may allocate, must be seen allocating.
+ *   Finally the latency harness's timing loop and recorder must not allocate either (phase 3).
  *
  * Why it exists: Phase 2's exit test is "the fast book allocates exactly 0 times while trading".
  *   Testing the counter in both directions means it can't be wrong either way unnoticed.
@@ -17,6 +18,7 @@
 #include <gtest/gtest.h>
 #include "alloc_counter.hpp"
 #include "differential_fuzz.hpp"
+#include "latency_recorder.hpp"
 #include "nanobook/fast/fast_book.hpp"
 #include "nanobook/fast/id_table.hpp"
 #include "nanobook/fast/intrusive_queue.hpp"
@@ -24,6 +26,7 @@
 #include "test_helpers.hpp"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <new>
@@ -201,4 +204,22 @@ TEST(ZeroAlloc, ReferenceBookAllocatesWhenAnOrderRests) {
 
     const std::uint64_t n = allocations_during([&] { book.handle(buy(1, 1, 10, 10), out); });
     EXPECT_GT(n, 0U); // a new price level and a new order: 3 tree/list nodes today
+}
+
+// ---------------------------------------------------------------------------
+// The latency harness (phase 3): its timing loop must obey rule 1 too
+// ---------------------------------------------------------------------------
+
+TEST(ZeroAlloc, LatencyRecorderNeverAllocatesWhileRecording) {
+    constexpr std::size_t kOps = 100'000;
+    latency::Recorder recorder{kOps}; // allocates here, before timing
+    std::uint64_t sum = 0;
+    const std::uint64_t n = allocations_during([&] {
+        latency::time_each(
+            recorder, kOps, [&](std::size_t i) { sum += i; },
+            [](std::size_t) { return latency::Tag::Other; });
+    });
+    EXPECT_EQ(n, 0U);
+    EXPECT_EQ(recorder.size() + recorder.dropped(), kOps);
+    keep(&sum);
 }
