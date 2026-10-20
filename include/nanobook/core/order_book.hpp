@@ -4,7 +4,7 @@
  * What it does: Lists what a book must provide: construction from a BookConfig, handle() for
  *   NewOrder, Cancel and Modify, and test-only queries (best bid and ask, level quantity, ...).
  *   FeedBook adds what copying another exchange's book needs (phase 4): apply() for the four feed
- *   inputs, and structure_holds().
+ *   inputs, structure_holds(), and depth() to compare two copies level by level.
  *
  * Why it exists: There will be two books, reference and fast, that must be interchangeable.
  *   Exchange<Book>, the typed tests and the benchmarks are written once, against this concept,
@@ -24,6 +24,7 @@
 #include <concepts>
 #include <cstddef>
 #include <optional>
+#include <utility>
 #include <vector>
 
 #include "nanobook/core/event_buffer.hpp"
@@ -60,12 +61,14 @@ concept OrderBook =
 template <typename B>
 concept FeedBook =
     OrderBook<B> && requires(B &book, const B &cbook, const FeedAdd &add, const FeedReduce &reduce,
-                             const FeedRemove &remove, const FeedReplace &replace) {
+                             const FeedRemove &remove, const FeedReplace &replace, Side side) {
         { book.apply(add) } -> std::same_as<FeedResult>;
         { book.apply(reduce) } -> std::same_as<FeedResult>;
         { book.apply(remove) } -> std::same_as<FeedResult>;
         { book.apply(replace) } -> std::same_as<FeedResult>;
         { cbook.structure_holds() } -> std::same_as<bool>;
+        // Levels best first, so two copies can be compared level by level (ITCH design §8.2).
+        { cbook.depth(side, std::size_t{}) } -> std::same_as<std::vector<std::pair<Price, Qty>>>;
     };
 
 } // namespace nanobook

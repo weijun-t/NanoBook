@@ -159,6 +159,7 @@ if(NANOBOOK_BUILD_TESTS)
         tests/fast/test_levels.cpp
         tests/itch/test_parser.cpp
         tests/itch/test_book_builder.cpp
+        tests/itch/test_replay_comparison.cpp
     )
     target_link_libraries(nanobook_tests PRIVATE nanobook nanobook_testing GTest::gtest_main)
     nanobook_configure_target(nanobook_tests)
@@ -183,7 +184,7 @@ if(NANOBOOK_BUILD_TESTS)
     # ITCH day replay (ITCH design §10). Built in every preset so CI compiles it; running it
     # needs a day file, which isn't in the repo.
     add_executable(nanobook_replay tools/nanobook_replay.cpp)
-    target_link_libraries(nanobook_replay PRIVATE nanobook)
+    target_link_libraries(nanobook_replay PRIVATE nanobook nanobook_testing)
     nanobook_configure_target(nanobook_replay)
 endif()
 

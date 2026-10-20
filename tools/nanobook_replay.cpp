@@ -5,10 +5,11 @@
  *   replays the whole day into FastBook books through the book builder, and prints: messages by
  *   type, the result of every order message (Ok, UnknownOrder, ...), crossed books, the biggest
  *   books, and the top levels of one stock. Exit code 0 means the day replayed (anomalies are
- *   reported, not fatal), 1 a bad file, a broken book structure or a book crossed while its
- *   stock was trading (design §8.1), 2 bad arguments.
+ *   reported, not fatal), 1 a bad file, a broken book structure, a book crossed while its
+ *   stock was trading (design §8.1) or (--differential) a difference between the reference and
+ *   fast books, 2 bad arguments.
  *     nanobook_replay FILE [--symbol AAPL] [--depth N] [--until HH:MM:SS] [--check]
- *                     [--structure-every N]
+ *                     [--structure-every N] [--differential]
  *
  * Why it exists: Phase 4's exit criteria (ITCH design §1): a full day replays and the
  *   consistency checks pass. This is the minimal version (step 4b); step 6 adds pre-faulted
@@ -17,7 +18,11 @@
  * How it works: mmap the file read-only, then three steps, each timed with the system clock:
  *   counting (day_stats.hpp), building the books (sizing.hpp), replaying (book_builder.hpp).
  *   --check watches every order message for a crossed book; --structure-every N also checks a
- *   book's structure every N order messages. --until stops the replay at a time of day, so the
+ *   book's structure every N order messages. --differential also replays into the reference book
+ *   and compares the two copies as it goes (design §8.2, support/itch_replay_comparison.hpp): a
+ *   quick check after every order message, the touched stock in full every million order
+ *   messages, every stock in full at each System Event and at the end. --until stops the replay
+ *   at a time of day, so the
  *   books can be seen mid-day (at the end of the day Nasdaq has deleted every order). Pages are
  * read from disk as needed, so the times include the disk: they are not benchmarks (that's step 6).
  *
@@ -54,6 +59,9 @@
 #include "nanobook/itch/day_stats.hpp"
 #include "nanobook/itch/parser.hpp"
 #include "nanobook/itch/sizing.hpp"
+#include "nanobook/reference/reference_book.hpp"
+
+#include "itch_replay_comparison.hpp" // support/: test and tool code
 
 namespace {
 
@@ -63,7 +71,7 @@ using Clock = std::chrono::steady_clock;
 
 constexpr std::string_view kUsage =
     "usage: nanobook_replay FILE [--symbol AAPL] [--depth N] [--until HH:MM:SS] [--check]\n"
-    "                       [--structure-every N]\n";
+    "                       [--structure-every N] [--differential]\n";
 
 struct Options {
     std::string file;
@@ -72,6 +80,7 @@ struct Options {
     std::uint64_t until{~std::uint64_t{0}}; // nanoseconds since midnight; default: the whole day
     bool check{false};
     std::uint64_t structure_every{0};
+    bool differential{false}; // also replay into the reference book and compare (design §8.2)
 };
 
 // Reads a whole decimal number; false if `text` isn't one.
@@ -101,6 +110,10 @@ std::optional<Options> parse_args(int argc, char **argv) {
         const std::string_view arg = argv[i];
         if (arg == "--check") {
             o.check = true;
+            continue;
+        }
+        if (arg == "--differential") {
+            o.differential = true;
             continue;
         }
         if (!arg.starts_with("--")) {
@@ -353,19 +366,10 @@ void print_peaks(const DayCounter &counter) {
     }
 }
 
-// The best `depth` levels of each side, walking price by price ($0.0001) from the best one.
-void print_depth(const FastBook &book, const BookConfig &config, std::size_t depth) {
+// The best `depth` levels of each side.
+void print_depth(const FastBook &book, std::size_t depth) {
     for (const Side side : {Side::Sell, Side::Buy}) {
-        std::vector<std::pair<Price, Qty>> levels;
-        const std::optional<Price> best = side == Side::Buy ? book.best_bid() : book.best_ask();
-        const std::int64_t step = side == Side::Buy ? -1 : 1;
-        for (Price p = best.value_or(Price{0}); best && levels.size() < depth && config.in_band(p);
-             p = Price{p.ticks + step}) {
-            const Qty qty = book.level_qty(side, p);
-            if (qty > Qty{0}) {
-                levels.emplace_back(p, qty);
-            }
-        }
+        std::vector<std::pair<Price, Qty>> levels = book.depth(side, depth);
         if (side == Side::Sell) {
             std::ranges::reverse(levels); // asks above bids, best in the middle
         }
@@ -425,17 +429,45 @@ int main(int argc, char **argv) {
     std::cout << "Building books: " << seconds_since(start) << " s (room for " << room
               << " resting orders in all)\n";
 
-    // 3. The replay.
+    // 3. The replay, into the fast books alone or (--differential) into the reference books too.
     start = Clock::now();
-    Until<BookBuilder<FastBook>> until{builder, o.until};
-    if (!parsed_whole(parse(bytes, until), bytes.size(), "replay")) {
-        return 1;
-    }
-    std::cout << "Replay:         " << seconds_since(start) << " s"
-              << (o.check ? ", checks on" : "") << "\n";
-    if (until.dropped() != 0) {
-        std::cout << "Stopped at " << time_of_day(o.until) << ": " << until.dropped()
-                  << " later messages not replayed\n";
+    const auto replay = [&](auto &handler) {
+        Until until{handler, o.until};
+        if (!parsed_whole(parse(bytes, until), bytes.size(), "replay")) {
+            return false;
+        }
+        if (until.dropped() != 0) {
+            std::cout << "Stopped at " << time_of_day(o.until) << ": " << until.dropped()
+                      << " later messages not replayed\n";
+        }
+        return true;
+    };
+    std::uint64_t mismatches = 0;
+    if (o.differential) {
+        BookBuilder<ReferenceBook> reference{
+            configs, BuilderOptions{.check = o.check, .structure_every = o.structure_every}};
+        ReplayComparison comparison{reference, builder, 1'000'000};
+        if (!replay(comparison)) {
+            return 1;
+        }
+        comparison.finish();
+        mismatches = comparison.mismatches();
+        std::cout << "Replay:         " << seconds_since(start) << " s, reference and fast books"
+                  << (o.check ? ", checks on" : "") << "\n"
+                  << "Comparison:     " << comparison.quick_checks() << " quick checks, "
+                  << comparison.full_checks() << " full book checks, " << mismatches
+                  << " mismatches\n";
+        if (const auto &first = comparison.first_mismatch()) {
+            std::cout << "  first at message " << first->message << " ("
+                      << time_of_day(first->timestamp) << "), locate " << first->locate << ": "
+                      << first->what << "\n";
+        }
+    } else {
+        if (!replay(builder)) {
+            return 1;
+        }
+        std::cout << "Replay:         " << seconds_since(start) << " s"
+                  << (o.check ? ", checks on" : "") << "\n";
     }
 
     print_messages(builder.stats());
@@ -452,10 +484,10 @@ int main(int argc, char **argv) {
             std::cout << "\n"
                       << o.symbol << " at the end of the replay (locate " << locate << "), top "
                       << o.depth << " levels:\n";
-            print_depth(builder.book(locate), configs[locate], o.depth);
+            print_depth(builder.book(locate), o.depth);
         }
     }
     std::cout << "\nPeak memory: " << max_rss_mb() << " MB (includes the file's pages read)\n";
     const ReplayStats &s = builder.stats();
-    return s.structure_failures == 0 && s.crossed_while_trading == 0 ? 0 : 1;
+    return s.structure_failures == 0 && s.crossed_while_trading == 0 && mismatches == 0 ? 0 : 1;
 }

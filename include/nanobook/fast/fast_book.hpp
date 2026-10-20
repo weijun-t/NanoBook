@@ -38,6 +38,7 @@
 #include <cstdint>
 #include <limits>
 #include <optional>
+#include <utility>
 #include <vector>
 
 #include "nanobook/core/event_buffer.hpp"
@@ -88,6 +89,8 @@ public:
         return level == nullptr ? Qty{} : level->total;
     }
     [[nodiscard]] std::vector<OrderId> level_orders(Side side, Price price) const;
+    // Up to max_levels levels, best first: (price, cached total qty).
+    [[nodiscard]] std::vector<std::pair<Price, Qty>> depth(Side side, std::size_t max_levels) const;
     [[nodiscard]] std::optional<Qty> leaves(OrderId id) const {
         const std::uint32_t slot = ids_.find(id);
         return slot == kNone ? std::nullopt : std::optional<Qty>{pool_[slot].leaves};
@@ -517,6 +520,20 @@ std::vector<OrderId> BasicFastBook<Levels>::level_orders(Side side, Price price)
         }
     }
     return ids;
+}
+
+template <typename Levels>
+std::vector<std::pair<Price, Qty>> BasicFastBook<Levels>::depth(Side side,
+                                                                std::size_t max_levels) const {
+    std::vector<std::pair<Price, Qty>> levels;
+    levels_.for_each_best_first(side, [&](const Level &level) {
+        if (levels.size() >= max_levels) {
+            return false;
+        }
+        levels.emplace_back(level.price, level.total);
+        return true;
+    });
+    return levels;
 }
 
 template <typename Levels> std::vector<OrderId> BasicFastBook<Levels>::resting_ids() const {

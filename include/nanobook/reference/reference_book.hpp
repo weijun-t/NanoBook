@@ -34,6 +34,7 @@
 #include <list>
 #include <map>
 #include <optional>
+#include <utility>
 #include <vector>
 
 #include "nanobook/core/event_buffer.hpp"
@@ -67,6 +68,8 @@ public:
     [[nodiscard]] std::optional<Price> best_ask() const;
     [[nodiscard]] Qty level_qty(Side side, Price price) const;                     // 0 if no level
     [[nodiscard]] std::vector<OrderId> level_orders(Side side, Price price) const; // front first
+    // Up to max_levels levels, best first: (price, total qty).
+    [[nodiscard]] std::vector<std::pair<Price, Qty>> depth(Side side, std::size_t max_levels) const;
     [[nodiscard]] std::optional<Qty> leaves(OrderId id) const; // remaining qty, if resting
     [[nodiscard]] std::size_t order_count() const;             // resting orders
     [[nodiscard]] std::vector<OrderId> resting_ids() const;    // ascending; for invariant checks

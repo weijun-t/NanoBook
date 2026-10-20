@@ -475,6 +475,28 @@ std::vector<OrderId> ReferenceBook::level_orders(Side side, Price price) const {
     return level == asks_.end() ? std::vector<OrderId>{} : ids(level->second);
 }
 
+std::vector<std::pair<Price, Qty>> ReferenceBook::depth(Side side, std::size_t max_levels) const {
+    std::vector<std::pair<Price, Qty>> levels;
+    const auto collect = [&](const auto &book_side) {
+        for (const auto &[price, queue] : book_side) { // best first
+            if (levels.size() >= max_levels) {
+                break;
+            }
+            Qty total{};
+            for (const Order &order : queue) {
+                total += order.leaves(); // added up, not cached: the fast book's cache is checked
+            }
+            levels.emplace_back(price, total);
+        }
+    };
+    if (side == Side::Buy) {
+        collect(bids_);
+    } else {
+        collect(asks_);
+    }
+    return levels;
+}
+
 std::optional<Qty> ReferenceBook::leaves(OrderId id) const {
     const auto found = orders_.find(id);
     if (found == orders_.end()) {

@@ -8,7 +8,8 @@
 > Step 2: the assembly check and the move to Clang 19 (§5).
 > Step 3: the feed operations as built: inputs, results, check order, `structure_holds()` (§6.1).
 > Step 4a: sizing as built (§7); step 4 split into 4a and 4b (§12). Step 4b: the crossed-book
-> rule decided from the real day (§8.1), the first full-day replay's results (§8.5). Phase 3 step 6 (the bare-metal
+> rule decided from the real day (§8.1), the first full-day replay's results (§8.5). Step 5: the
+> differential replay as built and its result (§8.2). Phase 3 step 6 (the bare-metal
 > run) is still open; phase 4's own published numbers come from the same Ubuntu session.
 
 Phases 1–3 built **the core of an exchange** and fed it orders we made up. Phase 4 plays the other
@@ -365,6 +366,20 @@ Replay the day into the reference book and the fast book side by side, and compa
 every stock after each message, or every N messages, for speed. This is phase 2's fuzzer, fed
 real flow instead of random flow.
 
+**As built (step 5):** `nanobook_replay --differential` (`support/itch_replay_comparison.hpp`).
+- After **every** order message, a quick check of the stock it touched: order count, best bid and
+  ask, and their quantities.
+- A **full** check of that stock every million order messages, and of **every** stock at each
+  System Event (start of day, market open and close, ...) and at the end. A full check compares
+  every level (`depth()`: the reference book adds each total up from its orders, the fast book
+  uses its cached total, so the cache is checked too), every queue's order, and every order's
+  remaining shares.
+- The two builders' statistics (every result, every crossing) must match at the end.
+
+**Result on 30 Jan 2019 (2026-10-20): 0 mismatches** in 363,118,215 quick checks and 61,354
+full checks (363 single stocks, plus all 8,713 stocks 7 times). The fast book equals the
+reference book after every one of the day's order messages.
+
 ### 8.3 Golden replay test (CI, every commit)
 A small ITCH byte file, and the expected final books and stats, both checked in. The test replays
 it and compares. **Proposal:** the bytes are **written by a small test encoder** (made-up stocks
@@ -389,6 +404,7 @@ groundwork for the optional libFuzzer target (README §7.1).
 | Order messages for an unnamed locate / bad input | 0 / 0 |
 | Crossed books | 8 times (663 order messages left a book crossed), **all while the stock was paused (`P`) or quotation-only (`Q`)**: EYEN at 07:27 (`Q`, pre-market), DLPN, PHUN and SXTC between 09:46 and 11:44 (`P`). **0 while trading (`T`)** |
 | Book structure | 3,631 checks during the day, 0 failures |
+| Reference book vs fast book (step 5, `--differential`) | **0 mismatches** in 363,118,215 quick and 61,354 full checks (§8.2) |
 | Orders resting after the last message | 0: Nasdaq deletes every remaining order after the close, and our copy ends empty too |
 | Sizing | room for 2,522,876 resting orders in all; no stock outgrew its book |
 | Most orders resting at once | AAPL 42,774, AMZN 39,028, MSFT 22,116, FB 20,986, NVDA 18,558 |
@@ -421,7 +437,7 @@ file's pages. Timing is step 6.
 
 | Tool | Does |
 |---|---|
-| `nanobook_replay FILE [--symbol AAPL] [--depth 10] [--until HH:MM:SS] [--check] [--structure-every N]` (built in step 4b); step 6 adds `[--window-mb N] [--book reference\|sorted\|tick] [--snapshot-csv out.csv] [--csv out.csv]` | Counting pass, sizing, replay; prints messages by type, every order message's result, crossed books, the biggest books, and the top N levels of one stock. Snapshot CSV for depth plots |
+| `nanobook_replay FILE [--symbol AAPL] [--depth 10] [--until HH:MM:SS] [--check] [--structure-every N] [--differential]` (built in steps 4b and 5); step 6 adds `[--window-mb N] [--book reference\|sorted\|tick] [--snapshot-csv out.csv] [--csv out.csv]` | Counting pass, sizing, replay; prints messages by type, every order message's result, crossed books, the biggest books, and the top N levels of one stock. Snapshot CSV for depth plots |
 | `scripts/plot_depth.py` | Cumulative quantity by price, bids against asks, from a snapshot CSV. The eyeball check that the rebuilt book looks like a market |
 
 Same rules as phase 3: tools outside the library, public API only, all printing after the timed
@@ -455,7 +471,7 @@ region (README §7.4).
 | 3 ✓ | Feed operations on both books + tests (incl. the zero-allocation test). Done 2026-10-20 (§6.1) | No |
 | 4a ✓ | Counting, sizing (§7), book builder, golden replay test (§8.3). Done 2026-10-20 | No |
 | 4b ✓ | `nanobook_replay` (minimal); first full-day replay with checks; the crossed-book rule (§8.1). Done 2026-10-20 (§8.5) | Yes |
-| 5 | Differential replay reference vs fast on the full day | Yes |
+| 5 ✓ | Differential replay reference vs fast on the full day. Done 2026-10-20: 0 mismatches (§8.2) | Yes |
 | 6 | mmap windows + pre-scan + `nanobook_replay` timing: messages/sec and per-message latency (WSL2, not for publishing) | Yes |
 | 7 | `plot_depth.py`, phase 4 report; fast-book design §13 revisit list answered from real data | Yes |
 | 8 | Published numbers: with phase 3 step 6, on bare metal | Yes |
