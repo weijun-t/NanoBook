@@ -5,7 +5,8 @@
  *   counts 1, none counts 0). Then points it at engine code: the EventBuffer, the fast book's
  *   parts, and the whole fast book (100,000 random operations after a warm-up) must never allocate
  *   after construction, and the reference book, which may allocate, must be seen allocating. The
- *   fast books must not allocate while applying 100,000 random feed inputs either (phase 4).
+ *   fast books must not allocate while applying 100,000 random feed inputs either, nor while
+ *   replaying a made-up ITCH day through the parser and the book builder (phase 4).
  *   Finally the latency harness's timing loop and recorder must not allocate either, and no
  *   scenario may allocate while it times a fast book (phase 3).
  *
@@ -21,6 +22,11 @@
 #include "alloc_counter.hpp"
 #include "differential_fuzz.hpp"
 #include "feed_fuzz.hpp"
+#include "itch_encoder.hpp"
+#include "nanobook/itch/book_builder.hpp"
+#include "nanobook/itch/day_stats.hpp"
+#include "nanobook/itch/parser.hpp"
+#include "nanobook/itch/sizing.hpp"
 #include "latency_recorder.hpp"
 #include "latency_scenarios.hpp"
 #include "nanobook/fast/fast_book.hpp"
@@ -220,6 +226,63 @@ template <typename Book> std::uint64_t allocations_while_applying_the_feed() {
 TEST(ZeroAlloc, FastBooksNeverAllocateWhileApplyingTheFeed) {
     EXPECT_EQ(allocations_while_applying_the_feed<FastBook>(), 0U);
     EXPECT_EQ(allocations_while_applying_the_feed<TickFastBook>(), 0U);
+}
+
+// The whole replay path (parser -> book builder -> books, ITCH design §6) on a made-up day of
+// 3 stocks: counting and sizing first, then only the replay is counted, with checks on.
+template <typename Book> std::uint64_t allocations_while_replaying_itch() {
+    itch::Writer w;
+    for (std::uint16_t locate = 1; locate <= 3; ++locate) {
+        w.stock_directory(
+            {.locate = locate,
+             .timestamp = 1,
+             .stock = {static_cast<char>('A' + locate), ' ', ' ', ' ', ' ', ' ', ' ', ' '}});
+    }
+    for (std::uint64_t ref = 1; ref <= 20'000; ++ref) {
+        const auto locate = static_cast<std::uint16_t>(1 + ref % 3);
+        const auto price = static_cast<std::uint32_t>(100'000 + (ref % 50) * 100);
+        w.add_order({.locate = locate,
+                     .timestamp = ref,
+                     .order_ref = ref,
+                     .side = ref % 2 == 0 ? 'B' : 'S',
+                     .shares = 100,
+                     .stock = {},
+                     .price = price,
+                     .attribution = {}});
+        if (ref % 4 == 0) { // execute part of an older order, delete another, replace a third
+            w.executed({.locate = locate,
+                        .timestamp = ref,
+                        .order_ref = ref - 3,
+                        .executed_shares = 40,
+                        .match_number = ref});
+            w.delete_order({.locate = static_cast<std::uint16_t>(1 + (ref - 2) % 3),
+                            .timestamp = ref,
+                            .order_ref = ref - 2});
+            w.replace({.locate = static_cast<std::uint16_t>(1 + (ref - 1) % 3),
+                       .timestamp = ref,
+                       .original_order_ref = ref - 1,
+                       .new_order_ref = 1'000'000 + ref,
+                       .shares = 50,
+                       .price = price});
+        }
+    }
+    itch::DayCounter counter;
+    EXPECT_TRUE(itch::parse(w.bytes(), counter).has_value());
+    const std::vector<BookConfig> configs =
+        itch::size_books(counter.directory(), counter.stats(), itch::SizingRules{});
+    itch::BookBuilder<Book> builder{configs,
+                                    itch::BuilderOptions{.check = true, .structure_every = 0}};
+
+    const std::uint64_t n =
+        allocations_during([&] { EXPECT_TRUE(itch::parse(w.bytes(), builder).has_value()); });
+    EXPECT_EQ(builder.stats().result(itch::OrderMessage::Add, FeedResult::Ok), 20'000U);
+    EXPECT_EQ(builder.stats().result(itch::OrderMessage::Replace, FeedResult::Ok), 5'000U);
+    return n;
+}
+
+TEST(ZeroAlloc, ItchReplayNeverAllocates) {
+    EXPECT_EQ(allocations_while_replaying_itch<FastBook>(), 0U);
+    EXPECT_EQ(allocations_while_replaying_itch<TickFastBook>(), 0U);
 }
 
 // The reference book is allowed to allocate (it uses std::map and std::list). This proves the tool

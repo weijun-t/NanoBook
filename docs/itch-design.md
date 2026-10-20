@@ -6,7 +6,9 @@
 > file downloaded now on WSL2. Items marked **[MEASURE]** are settled by a measurement in the step
 > named. Step 1 (2026-10-20): the file's size, framing and contents measured (§2, §3.1, §3.5, §9).
 > Step 2: the assembly check and the move to Clang 19 (§5).
-> Step 3: the feed operations as built: inputs, results, check order, `structure_holds()` (§6.1). Phase 3 step 6 (the bare-metal
+> Step 3: the feed operations as built: inputs, results, check order, `structure_holds()` (§6.1).
+> Step 4a: sizing as built (§7); step 4 split into 4a and 4b (§12). Step 4b: the crossed-book
+> rule decided from the real day (§8.1), the first full-day replay's results (§8.5). Phase 3 step 6 (the bare-metal
 > run) is still open; phase 4's own published numbers come from the same Ubuntu session.
 
 Phases 1–3 built **the core of an exchange** and fed it orders we made up. Phase 4 plays the other
@@ -321,6 +323,23 @@ The books are built from these, plus headroom. The pre-scan is cold path, and it
 separately. It also gives the first facts about real flow that fast-book design §13 asked for:
 how wide real price ranges are, and how deep books get.
 
+**As built (step 4a).** Counting (`include/nanobook/itch/day_stats.hpp`) and sizing
+(`sizing.hpp`) are separate, so the counts can come from another day:
+- **Stats are keyed by stock symbol, not locate.** The spec renumbers locates every day, so a
+  later version can size today's books from **yesterday's** stats with bigger margins, which is
+  what a real firm would have to do. Step 4 uses the same day's stats.
+- **Margins in whole percentages** (exact; `1.1` has no exact `double`): room for 125% of the
+  peak plus 16 orders; the price range widened by 10% each way.
+- **A stock with no stats** (a new listing, or no orders that day) gets a small default book that
+  accepts any price. Locate 0 and gaps in the directory get a tiny book that is never used,
+  because **only a Stock Directory (`R`) message creates a stock**: the builder counts an order
+  for an unnamed locate as unknown.
+- **`max_qty` is the largest share count ITCH can carry**: a copy accepts whatever Nasdaq did.
+- **Overflow is counted, never silent**: a stock that outgrows its book gets `BookFull` (or
+  `InvalidPrice`) from the book, and the builder counts it.
+- **The tick-array book can't take the any-price default** (2 billion prices x 32 bytes = 64 GB),
+  so it is only used where every stock has stats; `FastBook` replays the real day.
+
 ---
 
 ## 8. Proving it right
@@ -330,11 +349,14 @@ how wide real price ranges are, and how deep books get.
 - **Every executed, cancelled, deleted or replaced order existed:** an unknown ref fails.
 - **No new order reuses a live ref.**
 - **No crossed book outside auctions:** after each message, for that stock, best bid < best ask.
-  When this is allowed, though, is not obvious. The spec has per-stock halts, pauses and
-  quotation periods (`H`) and market-wide open/close times (`S`). Plan: count every crossed
-  moment with its time and the stock's trading state **[MEASURE, step 4]**, then write the
-  exact rule from what the data shows.
-- At the end, every book's own `invariants_hold()`.
+  When this is allowed, though, was not obvious. The spec has per-stock halts, pauses and
+  quotation periods (`H`) and market-wide open/close times (`S`). **Decided from the real day
+  (step 4b, §8.5): a stock's book may be crossed only while its trading state is not `T`**
+  (halted `H`, paused `P`, quotation only `Q`: the periods that end in a reopening auction). All
+  8 crossings on 30 Jan 2019 were in `P` or `Q`. The builder counts crossings while `T` as
+  `crossed_while_trading`, and `nanobook_replay --check` fails if it isn't 0.
+- Every book's `structure_holds()` (every invariant except "not crossed"), every N order
+  messages (`--structure-every N`).
 
 Check mode is slower. It's on for correctness runs and off for timed runs.
 
@@ -355,6 +377,28 @@ present.
 Each message type decoded from hand-made bytes (big-endian values, the 6-byte timestamp). Plus:
 lengths that are too short, too long, or past the end of the file are all rejected. That's the
 groundwork for the optional libFuzzer target (README §7.1).
+
+### 8.5 The first full-day replay (step 4b, 2026-10-20)
+`nanobook_replay data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50 --check
+--structure-every 100000`, `gcc-release`, WSL2. FastBook books sized by the counting pass (§7).
+
+| Check | Result |
+|---|---|
+| Messages replayed | **368,366,634**, every type's count equal to the census (§3.5) |
+| Order messages applied | **363,118,215, all `Ok`**: 0 unknown orders, 0 reduce too large, 0 duplicates, 0 bad prices or quantities, 0 `BookFull` |
+| Order messages for an unnamed locate / bad input | 0 / 0 |
+| Crossed books | 8 times (663 order messages left a book crossed), **all while the stock was paused (`P`) or quotation-only (`Q`)**: EYEN at 07:27 (`Q`, pre-market), DLPN, PHUN and SXTC between 09:46 and 11:44 (`P`). **0 while trading (`T`)** |
+| Book structure | 3,631 checks during the day, 0 failures |
+| Orders resting after the last message | 0: Nasdaq deletes every remaining order after the close, and our copy ends empty too |
+| Sizing | room for 2,522,876 resting orders in all; no stock outgrew its book |
+| Most orders resting at once | AAPL 42,774, AMZN 39,028, MSFT 22,116, FB 20,986, NVDA 18,558 |
+| At the 16:00 close (`--until 16:00:00`) | 1,579,011 orders resting; AAPL best bid $165.24, best ask $165.27 |
+
+What it means: the parser, the feed operations and the books agree with every one of Nasdaq's
+messages for a whole day, with no exception to explain away. Times, for orientation only
+(disk reads included, machine not checked to be idle, not a benchmark): counting pass about 31 to 40 s,
+building the books 0.2 s, replay with checks about 53 s; peak memory 11 GB, almost all of it the
+file's pages. Timing is step 6.
 
 ---
 
@@ -377,7 +421,7 @@ groundwork for the optional libFuzzer target (README §7.1).
 
 | Tool | Does |
 |---|---|
-| `nanobook_replay FILE [--symbol AAPL] [--depth 10] [--check] [--window-mb N] [--book reference\|sorted\|tick] [--snapshot-csv out.csv] [--csv out.csv]` | Pre-scan, replay, print top N levels for one stock and stats. Snapshot CSV for depth plots |
+| `nanobook_replay FILE [--symbol AAPL] [--depth 10] [--until HH:MM:SS] [--check] [--structure-every N]` (built in step 4b); step 6 adds `[--window-mb N] [--book reference\|sorted\|tick] [--snapshot-csv out.csv] [--csv out.csv]` | Counting pass, sizing, replay; prints messages by type, every order message's result, crossed books, the biggest books, and the top N levels of one stock. Snapshot CSV for depth plots |
 | `scripts/plot_depth.py` | Cumulative quantity by price, bids against asks, from a snapshot CSV. The eyeball check that the rebuilt book looks like a market |
 
 Same rules as phase 3: tools outside the library, public API only, all printing after the timed
@@ -409,7 +453,8 @@ region (README §7.4).
 | 1 ✓ | Download one day; confirm the framing; count messages per type with a tiny throwaway scan (the uncompressed size, the message count). Done 2026-10-20 (§3.5) | Yes |
 | 2 ✓ | Parser + test encoder + parser tests. Done 2026-10-20, after moving Clang 18 → 19 (§5) | No |
 | 3 ✓ | Feed operations on both books + tests (incl. the zero-allocation test). Done 2026-10-20 (§6.1) | No |
-| 4 | Book builder + golden replay test; first full-day replay with checks; the crossed-book rule (§8.1) | Yes |
+| 4a ✓ | Counting, sizing (§7), book builder, golden replay test (§8.3). Done 2026-10-20 | No |
+| 4b ✓ | `nanobook_replay` (minimal); first full-day replay with checks; the crossed-book rule (§8.1). Done 2026-10-20 (§8.5) | Yes |
 | 5 | Differential replay reference vs fast on the full day | Yes |
 | 6 | mmap windows + pre-scan + `nanobook_replay` timing: messages/sec and per-message latency (WSL2, not for publishing) | Yes |
 | 7 | `plot_depth.py`, phase 4 report; fast-book design §13 revisit list answered from real data | Yes |

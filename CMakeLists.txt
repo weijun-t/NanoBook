@@ -2,8 +2,9 @@
 #
 # What it does: Builds the engine library (nanobook), the tests (nanobook_tests, plus
 #   nanobook_alloc_tests in builds without sanitizers), the differential fuzzer (nanobook_fuzz),
-#   the benchmarks (nanobook_microbench) and the rdtsc latency harness (nanobook_bench). Downloads
-#   GoogleTest and Google Benchmark at pinned versions, checked by SHA256.
+#   the benchmarks (nanobook_microbench), the rdtsc latency harness (nanobook_bench) and the ITCH
+#   day replay (nanobook_replay). Downloads GoogleTest and Google Benchmark at pinned versions,
+#   checked by SHA256.
 #
 # How it works: Options come from CMakePresets.json. Sanitizer flags are global, so third-party code
 #   is built the same way as ours. The strict warnings (-Werror) apply to our code only. The engine
@@ -157,6 +158,7 @@ if(NANOBOOK_BUILD_TESTS)
         tests/fast/test_id_table.cpp
         tests/fast/test_levels.cpp
         tests/itch/test_parser.cpp
+        tests/itch/test_book_builder.cpp
     )
     target_link_libraries(nanobook_tests PRIVATE nanobook nanobook_testing GTest::gtest_main)
     nanobook_configure_target(nanobook_tests)
@@ -177,6 +179,12 @@ if(NANOBOOK_BUILD_TESTS)
     add_executable(nanobook_fuzz tools/nanobook_fuzz.cpp)
     target_link_libraries(nanobook_fuzz PRIVATE nanobook nanobook_testing)
     nanobook_configure_target(nanobook_fuzz)
+
+    # ITCH day replay (ITCH design §10). Built in every preset so CI compiles it; running it
+    # needs a day file, which isn't in the repo.
+    add_executable(nanobook_replay tools/nanobook_replay.cpp)
+    target_link_libraries(nanobook_replay PRIVATE nanobook)
+    nanobook_configure_target(nanobook_replay)
 endif()
 
 # ---------------------------------------------------------------------------
