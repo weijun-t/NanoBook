@@ -24,4 +24,7 @@ HeaderFilterRegex: '.*/(include/nanobook|src)/.*'
 CheckOptions:
   - key:   readability-identifier-naming.NamespaceCase
     value: lower_case
+  # std::from_chars takes an end pointer, so a string_view's data() needs no '\0' there.
+  - key:   bugprone-suspicious-stringview-data-usage.AllowedCallees
+    value: '::std::from_chars'
 ...

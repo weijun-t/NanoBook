@@ -30,7 +30,7 @@ A small book with measured latency, proven correctness and a clear README beats 
 
 ## 2. Language standard: C++23 (decision and reasoning)
 
-**Decision: C++23 (`-std=c++23`, `CMAKE_CXX_STANDARD 23`), built with GCC (primary) and Clang (secondary) on Linux.** Once phases 1–6 are finished, you may move to C++26, but only if you want reflection for tooling. That is a deliberate, separate commit.
+**Decision: C++23 (`-std=c++23`, `CMAKE_CXX_STANDARD 23`), built with GCC (primary) and Clang (secondary) on Linux.** Minimum versions: GCC 14 and Clang 19 (Clang 18 can't use `std::expected` with GCC 14's standard library). Once phases 1–6 are finished, you may move to C++26, but only if you want reflection for tooling. That is a deliberate, separate commit.
 
 | Option | Verdict | Reason |
 |---|---|---|

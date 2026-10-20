@@ -67,7 +67,8 @@ TEST(BookConfig, MaxOrdersTimesMaxQtyMustFit) {
 }
 
 TEST(BookConfig, PriceBandIsInclusive) {
-    constexpr BookConfig cfg{Price{10}, Price{20}, 1, Qty{1'000'000}};
+    constexpr BookConfig cfg{
+        .min_price = Price{10}, .max_price = Price{20}, .max_orders = 1, .max_qty = Qty{1'000'000}};
     EXPECT_FALSE(cfg.in_band(Price{9}));
     EXPECT_TRUE(cfg.in_band(Price{10}));
     EXPECT_TRUE(cfg.in_band(Price{20}));

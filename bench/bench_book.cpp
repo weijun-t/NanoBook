@@ -50,7 +50,10 @@ constexpr std::int64_t kBatch = 10'000;
 // The band is [1, 20000]: every benchmark price fits, and it is narrow enough for the TickLevels
 // experiment (at most 65,536 ticks). It was [1, 1000000] until phase 2 step 6; the band doesn't
 // change the reference book or the sorted levels, which only store prices that have orders.
-constexpr BookConfig kConfig{Price{1}, Price{20'000}, 20'000, Qty{1'000'000}};
+constexpr BookConfig kConfig{.min_price = Price{1},
+                             .max_price = Price{20'000},
+                             .max_orders = 20'000,
+                             .max_qty = Qty{1'000'000}};
 
 NewOrder order(OrderType type, Side side, std::uint32_t owner, std::uint64_t id, std::int64_t qty,
                std::int64_t price) {
@@ -262,7 +265,10 @@ constexpr std::int64_t kLargeOrders = 100'000;
 constexpr std::int64_t kLargeLevels = 10'000;
 constexpr std::int64_t kTimedBatches = 50;   // fixed, so a slow book can't make the run balloon
 constexpr std::int64_t kSweepBatches = 1000; // 100,000 sweeps per measurement
-constexpr BookConfig kLargeConfig{Price{1}, Price{20'000}, 120'000, Qty{1'000'000}};
+constexpr BookConfig kLargeConfig{.min_price = Price{1},
+                                  .max_price = Price{20'000},
+                                  .max_orders = 120'000,
+                                  .max_qty = Qty{1'000'000}};
 
 // 10 buy orders on each of prices 1 ... 10,000. The first pass adds levels in rising price order,
 // so each new bid is the new best and goes at the end of a sorted array.

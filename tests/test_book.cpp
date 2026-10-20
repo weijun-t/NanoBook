@@ -24,7 +24,8 @@ using Events = std::vector<Event>;
 
 namespace {
 
-constexpr BookConfig kConfig{Price{1}, Price{1000}, 100, Qty{1'000'000}};
+constexpr BookConfig kConfig{
+    .min_price = Price{1}, .max_price = Price{1000}, .max_orders = 100, .max_qty = Qty{1'000'000}};
 
 // Runs every test below once per type in BookTypes (test_helpers.hpp).
 template <typename Book> class BookTest : public ::testing::Test {
@@ -210,7 +211,10 @@ TYPED_TEST(BookTest, ChecksRunInContractOrder) {
 
 // #28
 TYPED_TEST(BookCapacityTest, FullBookRejectsOrderThatWouldRest) {
-    Harness<TypeParam> h{BookConfig{Price{1}, Price{1000}, 2, Qty{1'000'000}}};
+    Harness<TypeParam> h{BookConfig{.min_price = Price{1},
+                                    .max_price = Price{1000},
+                                    .max_orders = 2,
+                                    .max_qty = Qty{1'000'000}}};
     h.send(sell(2, 1, 10, 10));
     h.send(sell(2, 2, 10, 20));
     EXPECT_EQ(h.send(buy(1, 3, 10, 1)), (Events{rejected(3, RejectReason::BookFull)}));
@@ -219,14 +223,20 @@ TYPED_TEST(BookCapacityTest, FullBookRejectsOrderThatWouldRest) {
 
 // #29
 TYPED_TEST(BookCapacityTest, FullBookAcceptsOrderThatFillsCompletely) {
-    Harness<TypeParam> h{BookConfig{Price{1}, Price{1000}, 2, Qty{1'000'000}}};
+    Harness<TypeParam> h{BookConfig{.min_price = Price{1},
+                                    .max_price = Price{1000},
+                                    .max_orders = 2,
+                                    .max_qty = Qty{1'000'000}}};
     h.send(sell(2, 1, 10, 10));
     h.send(sell(2, 2, 10, 20));
     EXPECT_EQ(h.send(buy(1, 3, 10, 10)), (Events{accepted(3), trade(3, 1, 10, 10)}));
 }
 
 TYPED_TEST(BookCapacityTest, FullBookAcceptsCrossingOrderWithRemainder) {
-    Harness<TypeParam> h{BookConfig{Price{1}, Price{1000}, 2, Qty{1'000'000}}};
+    Harness<TypeParam> h{BookConfig{.min_price = Price{1},
+                                    .max_price = Price{1000},
+                                    .max_orders = 2,
+                                    .max_qty = Qty{1'000'000}}};
     h.send(sell(2, 1, 10, 10));
     h.send(sell(2, 2, 10, 20));
     // Crosses: uses up order 1, which frees its slot, so the remaining 5 can rest.
@@ -236,7 +246,10 @@ TYPED_TEST(BookCapacityTest, FullBookAcceptsCrossingOrderWithRemainder) {
 }
 
 TYPED_TEST(BookCapacityTest, CancelFreesASlot) {
-    Harness<TypeParam> h{BookConfig{Price{1}, Price{1000}, 1, Qty{1'000'000}}};
+    Harness<TypeParam> h{BookConfig{.min_price = Price{1},
+                                    .max_price = Price{1000},
+                                    .max_orders = 1,
+                                    .max_qty = Qty{1'000'000}}};
     h.send(buy(1, 1, 10, 10));
     EXPECT_EQ(h.send(buy(1, 2, 10, 10)), (Events{rejected(2, RejectReason::BookFull)}));
     h.send(cancel(1));
@@ -387,7 +400,10 @@ TYPED_TEST(BookTest, FokSellAndEmptyBook) {
 // ---------------------------------------------------------------------------
 
 TYPED_TEST(BookCapacityTest, NonRestingTypesAreNeverBookFull) {
-    Harness<TypeParam> h{BookConfig{Price{1}, Price{1000}, 1, Qty{1'000'000}}};
+    Harness<TypeParam> h{BookConfig{.min_price = Price{1},
+                                    .max_price = Price{1000},
+                                    .max_orders = 1,
+                                    .max_qty = Qty{1'000'000}}};
     h.send(buy(2, 1, 10, 5)); // book is now full
     EXPECT_EQ(h.send(ioc_buy(1, 2, 10, 5)),
               (Events{accepted(2), canceled(2, 10, CancelReason::Unfilled)}));
@@ -482,7 +498,10 @@ TYPED_TEST(BookTest, SelfMatchOnSellSide) {
 }
 
 TYPED_TEST(BookCapacityTest, CrossingOnlyOwnOrderOnFullBookFreesTheSlot) {
-    Harness<TypeParam> h{BookConfig{Price{1}, Price{1000}, 1, Qty{1'000'000}}};
+    Harness<TypeParam> h{BookConfig{.min_price = Price{1},
+                                    .max_price = Price{1000},
+                                    .max_orders = 1,
+                                    .max_qty = Qty{1'000'000}}};
     h.send(sell(1, 1, 10, 10)); // book is full
     EXPECT_EQ(h.send(buy(1, 2, 10, 10)),
               (Events{accepted(2), canceled(1, 10, CancelReason::SelfMatch)}));
@@ -656,7 +675,10 @@ TYPED_TEST(BookTest, ModifiedOrderCanBeModifiedAndCanceledAgain) {
 }
 
 TYPED_TEST(BookCapacityTest, ModifyIsNeverBookFull) {
-    Harness<TypeParam> h{BookConfig{Price{1}, Price{1000}, 2, Qty{1'000'000}}};
+    Harness<TypeParam> h{BookConfig{.min_price = Price{1},
+                                    .max_price = Price{1000},
+                                    .max_orders = 2,
+                                    .max_qty = Qty{1'000'000}}};
     h.send(buy(1, 1, 10, 10));
     h.send(buy(1, 2, 10, 9));                                          // book is full
     EXPECT_EQ(h.send(modify(1, 20, 8)), (Events{replaced(1, 20, 8)})); // frees its own slot first
@@ -708,7 +730,10 @@ TYPED_TEST(BookTest, SelfMatchInMiddleOfQueue) {
 // One input can produce max_orders + 2 events (design §12). Build that exact worst case, so the
 // EventBuffer's assert would fire if the formula were ever too small.
 TYPED_TEST(BookCapacityTest, WorstCaseEventCountFitsBuffer) {
-    constexpr BookConfig cfg{Price{1}, Price{1000}, 50, Qty{1'000'000}};
+    constexpr BookConfig cfg{.min_price = Price{1},
+                             .max_price = Price{1000},
+                             .max_orders = 50,
+                             .max_qty = Qty{1'000'000}};
     Harness<TypeParam> h{cfg};
     for (std::int64_t i = 1; i <= 50; ++i) {
         h.send(sell(2, static_cast<std::uint64_t>(i), 1, i)); // 50 orders on 50 levels: full

@@ -5,6 +5,10 @@
 #   benchmark tools, and checks formatting (clang-format) and code quality (clang-tidy).
 #
 # Why it exists: Every commit must build and pass its tests on both compilers (rule 21).
+#
+# Trade-offs: Clang 19, not 18 (the newest in Ubuntu 24.04 by default): GCC 14's standard library,
+#   which Clang uses too, only offers std::expected when the compiler reports C++20 concepts as
+#   202002, and Clang 18 reports 201907. The ITCH parser returns std::expected (phase 4).
 
 name: CI
 
@@ -36,7 +40,7 @@ jobs:
       - name: Install toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build g++-14 clang-18
+          sudo apt-get install -y ninja-build g++-14 clang-19
 
       # Newer runner kernels randomise memory layout more than older
       # ASan/TSan runtimes expect, which makes them crash or hang at startup.
@@ -75,10 +79,10 @@ jobs:
       - name: Install clang-format
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-format-18
+          sudo apt-get install -y clang-format-19
 
       - name: Check formatting
-        run: git ls-files '*.hpp' '*.cpp' | xargs clang-format-18 --dry-run --Werror
+        run: git ls-files '*.hpp' '*.cpp' | xargs clang-format-19 --dry-run --Werror
 
   # Runs clang-tidy with .clang-tidy on our own code only (not _deps/).
   tidy:
@@ -90,11 +94,11 @@ jobs:
       - name: Install toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build clang-18 clang-tidy-18
+          sudo apt-get install -y ninja-build clang-19 clang-tidy-19
 
       # Configure only: produces compile_commands.json, which clang-tidy reads.
       - name: Configure
         run: cmake --preset clang-debug-asan -DNANOBOOK_BUILD_BENCH=ON
 
       - name: Run clang-tidy
-        run: run-clang-tidy-18 -quiet -p build/clang-debug-asan "$PWD/(src|tests|bench|tools|support)/"
+        run: run-clang-tidy-19 -quiet -p build/clang-debug-asan "$PWD/(src|tests|bench|tools|support)/"

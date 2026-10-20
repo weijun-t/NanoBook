@@ -327,7 +327,8 @@ Qty ReferenceBook::match_against(Levels &opposite, OrderId aggressor, OwnerId ow
 template <typename Levels> void ReferenceBook::insert(Levels &levels, const Order &order) {
     Queue &queue = levels[order.price]; // creates the level if it doesn't exist yet
     queue.push_back(order);             // back of the queue = lowest time priority
-    orders_.emplace(order.id, Locator{order.side, order.price, std::prev(queue.end())});
+    orders_.emplace(
+        order.id, Locator{.side = order.side, .price = order.price, .it = std::prev(queue.end())});
 }
 
 template <typename Levels> void ReferenceBook::remove(Levels &levels, const Locator &where) {

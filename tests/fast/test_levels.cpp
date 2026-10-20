@@ -29,7 +29,10 @@ using namespace nanobook::fast;
 
 namespace {
 
-constexpr BookConfig kConfig{Price{1}, Price{10'000}, 1000, Qty{1'000'000}};
+constexpr BookConfig kConfig{.min_price = Price{1},
+                             .max_price = Price{10'000},
+                             .max_orders = 1000,
+                             .max_qty = Qty{1'000'000}};
 
 template <typename Levels> std::vector<std::int64_t> walk(const Levels &levels, Side side) {
     std::vector<std::int64_t> prices;

@@ -179,8 +179,14 @@ template <typename T> void shuffle(std::vector<T> &v, std::mt19937_64 &rng) {
 namespace detail {
 
 // Every price fits [1, 20000]; narrow enough for TickLevels (at most 65,536 ticks).
-inline constexpr BookConfig kSmall{Price{1}, Price{20'000}, 20'000, Qty{1'000'000}};
-inline constexpr BookConfig kLarge{Price{1}, Price{20'000}, 120'000, Qty{1'000'000}};
+inline constexpr BookConfig kSmall{.min_price = Price{1},
+                                   .max_price = Price{20'000},
+                                   .max_orders = 20'000,
+                                   .max_qty = Qty{1'000'000}};
+inline constexpr BookConfig kLarge{.min_price = Price{1},
+                                   .max_price = Price{20'000},
+                                   .max_orders = 120'000,
+                                   .max_qty = Qty{1'000'000}};
 
 inline constexpr std::size_t kBatch = 10'000;
 inline constexpr std::size_t kSweeps = 1'000;   // sweep10: sweeps per batch

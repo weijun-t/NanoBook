@@ -111,14 +111,14 @@ struct Expected {
 };
 
 constexpr std::array<Expected, 8> kSingleKind = {{
-    {Scenario::Add, Tag::Add},
-    {Scenario::Cancel, Tag::Cancel},
-    {Scenario::Modify, Tag::Modify},
-    {Scenario::Match, Tag::Match},
-    {Scenario::Sweep10, Tag::Match},
-    {Scenario::LargeCancel, Tag::Cancel},
-    {Scenario::LargeAdd, Tag::Add},
-    {Scenario::DeepInsert, Tag::Add},
+    {.scenario = Scenario::Add, .tag = Tag::Add},
+    {.scenario = Scenario::Cancel, .tag = Tag::Cancel},
+    {.scenario = Scenario::Modify, .tag = Tag::Modify},
+    {.scenario = Scenario::Match, .tag = Tag::Match},
+    {.scenario = Scenario::Sweep10, .tag = Tag::Match},
+    {.scenario = Scenario::LargeCancel, .tag = Tag::Cancel},
+    {.scenario = Scenario::LargeAdd, .tag = Tag::Add},
+    {.scenario = Scenario::DeepInsert, .tag = Tag::Add},
 }};
 
 } // namespace

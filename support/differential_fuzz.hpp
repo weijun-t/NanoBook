@@ -130,7 +130,10 @@ public:
     // full" happens often; the rest get room for 2000.
     explicit Generator(std::uint64_t seed, std::uint32_t max_orders = 0) : rng_(seed) {
         const std::uint32_t capacity = max_orders != 0 ? max_orders : (chance(25) ? 16U : 2000U);
-        config_ = BookConfig{Price{1}, Price{kMaxPrice}, capacity, Qty{kMaxQty}};
+        config_ = BookConfig{.min_price = Price{1},
+                             .max_price = Price{kMaxPrice},
+                             .max_orders = capacity,
+                             .max_qty = Qty{kMaxQty}};
     }
 
     [[nodiscard]] const BookConfig &config() const {

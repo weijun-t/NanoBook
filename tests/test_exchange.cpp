@@ -23,7 +23,8 @@ namespace {
 constexpr SymbolId A{0};
 constexpr SymbolId M{1};
 constexpr SymbolId Unlisted{2};
-constexpr BookConfig kBook{Price{1}, Price{1000}, 100, Qty{1'000'000}};
+constexpr BookConfig kBook{
+    .min_price = Price{1}, .max_price = Price{1000}, .max_orders = 100, .max_qty = Qty{1'000'000}};
 
 ExchangeConfig config(std::uint64_t max_orders_per_session = 100) {
     return ExchangeConfig{.max_orders_per_session = max_orders_per_session,
@@ -190,7 +191,10 @@ TEST(ExchangeConfigTest, Validity) {
 }
 
 TEST(ExchangeConfigTest, BufferFitsTheBiggestBook) {
-    const BookConfig big{Price{1}, Price{1000}, 500, Qty{1'000'000}};
+    const BookConfig big{.min_price = Price{1},
+                         .max_price = Price{1000},
+                         .max_orders = 500,
+                         .max_qty = Qty{1'000'000}};
     const ExchangeConfig cfg{.max_orders_per_session = 10, .books = {kBook, big}};
     EXPECT_EQ(cfg.max_events_per_input(), big.max_events_per_input());
 }
