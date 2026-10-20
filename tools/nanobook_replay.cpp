@@ -8,7 +8,9 @@
  *     the top levels of one stock. --check, --structure-every and --differential add the checks
  *     of ITCH design §8.1 and §8.2; --until stops at a time of day; --flow counts how many price
  *     levels each new or vanishing level shifts in the sorted array, and how far new orders are
- *     from the best price (support/itch_flow.hpp, step 6).
+ *     from the best price (support/itch_flow.hpp, step 6), and --csv writes those tables;
+ *     --snapshot-csv writes --symbol's whole book at the end of the replay (step 7, for
+ *     scripts/plot_depth.py).
  *   - Timing (--throughput, --latency; step 6, design §9): messages per second for the parser
  *     alone and for parser + FastBook, and the latency of every Nth order message by kind, with
  *     the environment block and CSV files of the phase 3 harness.
@@ -16,7 +18,8 @@
  *   book structure, a book crossed while its stock was trading (design §8.1) or (--differential)
  *   a difference between the reference and fast books; 2 bad arguments; 3 no usable timer.
  *     nanobook_replay FILE [--symbol AAPL] [--depth N] [--until HH:MM:SS] [--check]
- *                     [--structure-every N] [--differential] [--flow]
+ *                     [--structure-every N] [--differential] [--flow [--csv FILE.csv]]
+ *                     [--snapshot-csv FILE.csv]
  *     nanobook_replay FILE [--throughput] [--latency] [--every N] [--window-mb N] [--core C]
  *                     [--csv FILE.csv]
  *
@@ -56,6 +59,7 @@
 #include <expected>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <span>
 #include <string>
@@ -86,7 +90,8 @@ using Clock = std::chrono::steady_clock;
 
 constexpr std::string_view kUsage =
     "usage: nanobook_replay FILE [--symbol AAPL] [--depth N] [--until HH:MM:SS] [--check]\n"
-    "                       [--structure-every N] [--differential] [--flow]\n"
+    "                       [--structure-every N] [--differential] [--flow [--csv FILE.csv]]\n"
+    "                       [--snapshot-csv FILE.csv]\n"
     "       nanobook_replay FILE [--throughput] [--latency] [--every N] [--window-mb N] [--core "
     "C]\n"
     "                       [--csv FILE.csv]\n";
@@ -106,7 +111,8 @@ struct Options {
     std::uint64_t every{8}; // --latency times every Nth order message (design §13 Q5)
     std::size_t window_mb{1024};
     int core{-1};
-    std::string csv;
+    std::string csv;          // timing: summary + histogram; --flow: the flow tables
+    std::string snapshot_csv; // --symbol's book at the end of the replay (for plot_depth.py)
 };
 
 // Reads a whole decimal number; false if `text` isn't one.
@@ -181,6 +187,9 @@ std::optional<Options> parse_args(int argc, char **argv) {
         } else if (arg == "--csv") {
             o.csv = value;
             ok = !o.csv.empty();
+        } else if (arg == "--snapshot-csv") {
+            o.snapshot_csv = value;
+            ok = !o.snapshot_csv.empty();
         }
         if (!ok) {
             return std::nullopt;
@@ -478,6 +487,76 @@ void print_flow(const FlowStats &s) {
                   << 100.0 * static_cast<double>(s.distance[d]) / static_cast<double>(total)
                   << "%\n";
     }
+}
+
+// The lines every CSV written outside timing mode starts with: what it was made from.
+void write_provenance(std::ostream &f, const Options &o) {
+    f << "# input: " << o.file << "\n"
+      << "# replayed until: "
+      << (o.until == ~std::uint64_t{0} ? "the end of the day" : time_of_day(o.until)) << "\n"
+      << "# commit: " << NANOBOOK_GIT_COMMIT << "\n";
+}
+
+// One stock's book, every level, best first on each side (plot_depth.py reads it).
+bool write_snapshot_csv(const Options &o, const FastBook &book) {
+    std::ofstream f{o.snapshot_csv};
+    if (!f) {
+        std::cerr << "can't write " << o.snapshot_csv << "\n";
+        return false;
+    }
+    write_provenance(f, o);
+    f << "# symbol: " << o.symbol << "\n"
+      << "side,level,price_ticks,price,qty,orders,cumulative_qty\n";
+    for (const Side side : {Side::Buy, Side::Sell}) {
+        std::int64_t cumulative = 0;
+        std::size_t level = 0;
+        for (const auto &[price, qty] : book.depth(side, std::numeric_limits<std::size_t>::max())) {
+            cumulative += qty.value;
+            f << (side == Side::Buy ? "bid" : "ask") << "," << ++level << "," << price.ticks << ","
+              << dollars(price) << "," << qty.value << "," << book.level_orders(side, price).size()
+              << "," << cumulative << "\n";
+        }
+    }
+    std::cout << "wrote " << o.snapshot_csv << "\n";
+    return true;
+}
+
+// The flow analysis's three tables, one row per bucket (plot_phase4.py reads it).
+bool write_flow_csv(const Options &o, const FlowStats &s) {
+    std::ofstream f{o.csv};
+    if (!f) {
+        std::cerr << "can't write " << o.csv << "\n";
+        return false;
+    }
+    write_provenance(f, o);
+    f << "table,bucket,low,high,count\n";
+    const auto shifts = [&f](std::string_view table,
+                             const std::array<std::uint64_t, kShiftBuckets> &counts) {
+        for (std::size_t b = 0; b < counts.size(); ++b) {
+            const std::uint64_t low = b == 0 ? 0 : std::uint64_t{1} << (b - 1);
+            const std::uint64_t high = b == 0 ? 0 : (std::uint64_t{1} << b) - 1;
+            f << table << "," << b << "," << low << "," << high << "," << counts[b] << "\n";
+        }
+    };
+    shifts("levels_shifted_by_creation", s.created);
+    shifts("levels_shifted_by_removal", s.removed);
+    // Distance from the best price, in ticks of $0.0001 (-1: improves the best; empty side: -2).
+    constexpr std::array<std::pair<std::int64_t, std::int64_t>, kDistances> kRanges{
+        {{-2, -2},
+         {-1, -1},
+         {0, 0},
+         {1, 99},
+         {100, 999},
+         {1'000, 9'999},
+         {10'000, 99'999},
+         {100'000, 999'999},
+         {1'000'000, -1}}};
+    for (std::size_t d = 0; d < kDistances; ++d) {
+        f << "distance_from_best," << d << "," << kRanges[d].first << "," << kRanges[d].second
+          << "," << s.distance[d] << "\n";
+    }
+    std::cout << "wrote " << o.csv << "\n";
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -807,6 +886,9 @@ int main(int argc, char **argv) {
         }
         std::cout << "Replay:         " << seconds_since(start) << " s, with the flow analysis\n";
         print_flow(flow.stats());
+        if (!o.csv.empty() && !write_flow_csv(o, flow.stats())) {
+            return 2;
+        }
     } else {
         if (!replay(builder)) {
             return 1;
@@ -830,6 +912,9 @@ int main(int argc, char **argv) {
                       << o.symbol << " at the end of the replay (locate " << locate << "), top "
                       << o.depth << " levels:\n";
             print_depth(builder.book(locate), o.depth);
+            if (!o.snapshot_csv.empty() && !write_snapshot_csv(o, builder.book(locate))) {
+                return 2;
+            }
         }
     }
     std::cout << "\nPeak memory: " << max_rss_mb() << " MB (includes the file's pages read)\n";
