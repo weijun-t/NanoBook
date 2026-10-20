@@ -1,0 +1,382 @@
+# Phase 4 design: replaying a real Nasdaq day (ITCH 5.0)
+
+> **Status:** approved (2026-10-20). Changes from here on are made by an edit plus a note in the
+> commit message. Decided (§13): the 30 Jan 2019 day, feed operations on both books, a pre-scan to
+> size the books, 1 GiB windows, histogram plus a raw subset, an encoder for the golden test, the
+> file downloaded now on WSL2. Items marked **[MEASURE]** are settled by a measurement in the step
+> named. Phase 3 step 6 (the bare-metal
+> run) is still open; phase 4's own published numbers come from the same Ubuntu session.
+
+Phases 1–3 built **the core of an exchange** and fed it orders we made up. Phase 4 plays the other
+side: **a trading firm watching Nasdaq on one real trading day**. It rebuilds every stock's book
+from Nasdaq's own record of that day, and measures how fast our order book does it.
+
+---
+
+## 0. Background in plain words
+
+### 0.1 Orders and the order book
+An **order** says: *"buy (or sell) this many shares of this stock, at this price or better"*.
+For example: "buy 100 Apple at most $190.05".
+
+A stock's **order book** is the list of orders that are **waiting**, which nobody has traded with
+yet. Buyers (bids) are sorted from the highest price down; sellers (asks) from the lowest price
+up. At one price, orders queue first come, first served.
+
+| Buyers (bids) | | Sellers (asks) | |
+|---|---|---|---|
+| **$190.04**: 100 (Ann), 50 (Bob) | ← best bid | **$190.05**: 200 (Cat) | ← best ask |
+| $190.03: 300 (Dan) | | $190.06: 80 (Eve) |
+
+Nothing trades here: the most a buyer will pay ($190.04) is less than the least a seller will
+accept ($190.05). The book holds **waiting orders, not trades**. When two orders trade, the shares
+that traded **leave** the book. A list of past trades is a separate record ("the tape").
+
+### 0.2 The matching engine
+The **matching engine** is the set of rules that decides **when trades happen**. A new order
+"buy 250 at up to $190.05" arrives. It trades 200 with Cat (best price first, then earliest
+arrival: **price-time priority**). Cat's order is used up and removed. The other 50 have no seller
+left at $190.05 or below, so they wait in the book as a new bid.
+
+### 0.3 What phases 1–3 built: the core of an exchange
+
+| Layer | In the code | Job |
+|---|---|---|
+| **Order book** | Price levels, queues, order pool, id lookup | Store the waiting orders, sorted |
+| **Matching engine** | `handle(NewOrder / Cancel / Modify)` in each book | Decide trades by price-time priority |
+| **`Exchange`** | `include/nanobook/exchange.hpp` | One book per stock; give each order an id; send it to its stock's book |
+
+A real exchange also has network connections, account and risk checks, fees and settlement. Those
+are left out on purpose (README §1). NanoBook is the part that **holds the orders and decides
+the trades**, which is the part that has to be fast.
+
+### 0.4 Phase 4: the trading firm's side
+A trading firm doesn't run Nasdaq's matching. It needs to **see** Nasdaq's book (who waits at
+which price) to decide its own trades. Nasdaq doesn't send a picture of the whole book every
+moment. It sends **only the changes**, one message each. That's the ITCH feed:
+
+| Time | Message | Meaning |
+|---|---|---|
+| 10:00:01 | `A` order 501: sell 70 @ $190.05 | A new waiting order joined the book |
+| 10:00:02 | `E` order 501: 30 executed | 30 of it traded (Nasdaq did the matching) |
+| 10:00:03 | `D` order 501 | The rest was cancelled; it left the book |
+
+So the firm keeps **its own copy** of each book. It starts empty at the beginning of the day and
+applies every change in order. Then the copy equals Nasdaq's real book at every moment. That's
+**rebuilding the book**. It's like a bank account: the bank sends each transaction, not your
+balance, and applying them all in order always gives the balance. Or like replaying a recorded
+chess game on your own board: you decide no moves, you only apply them.
+
+The ITCH file is **one real day of these change messages, for every stock**: hundreds of
+millions of them, read from a file on disk. Nothing is live, and nothing connects to Nasdaq.
+
+### 0.5 Why phase 4 doesn't use our matching
+The file records **outcomes** of Nasdaq's matching, so it can't drive ours:
+- **The orders that caused trades aren't in it.** "Order 501: 30 executed" doesn't include the
+  buyer's order, so our engine would have nothing to match.
+- **Some orders are invisible.** Hidden orders trade on Nasdaq but are never added to the
+  displayed book, so our engine couldn't reproduce those trades.
+- **The ids are already chosen.** Later messages refer to Nasdaq's ids (order 501), so our book
+  must use them instead of numbering orders 1, 2, 3 as our `Exchange` does.
+
+Matching on this data would give a different, made-up day. The only faithful thing to do is
+**apply** each change. So the book gets a few new, simpler inputs: "add this order without
+matching", "take N shares off order X", "remove order X" (§6.1). They sit on top of **the same
+order book**: pool, price levels, queues and id lookup.
+
+### 0.6 What gets benchmarked
+
+| | Phases 1–3 | Phase 4 |
+|---|---|---|
+| NanoBook plays | **The exchange** (it decides trades) | **A trading firm** (it copies Nasdaq's book) |
+| Input | Orders we made up | Nasdaq's real record of one day |
+| Uses our matching | **Yes** | **No**: Nasdaq already matched |
+| Uses our order book | Yes | **Yes, the same one** |
+| Answers | How fast is our exchange? (phase 3's nine scenarios, e.g. about 11 ns per add on the fast book, but 1.41 µs at p50 for a deep insert; `docs/perf-log.md`) | How fast can our book follow a real day, and what does real order flow do to its data structures? |
+
+Phase 4 doesn't replace phase 3's numbers. The matching benchmarks stay phase 3's, on made-up
+orders, because real data can't drive matching faithfully. Phase 4 adds the second half: **our
+order book on real data**. It also answers the questions phase 2 left open (fast-book design §13):
+do real orders cluster near the best price, how deep do real books get, and is the slow deep
+insert rare or common? Those answers decide what phase 6 optimises.
+
+---
+
+## 1. Goal and exit criteria
+
+**Goal:** `nanobook_replay` reads a full-day ITCH 5.0 file, rebuilds the book of every stock, and
+prints the top levels of one stock plus stats (README §7.4).
+
+**Phase 4 is done when** (README roadmap):
+1. A **full-day replay completes**.
+2. The **consistency checks pass** (rule 13, §8): no negative quantities, every executed or
+   cancelled order existed, no crossed book outside auctions.
+3. **Messages/sec and per-message latency are reported** (§9). On WSL2 they carry the NOT FOR
+   PUBLISHING banner. The published versions come from bare metal (rule 20).
+
+Also built: `plot_depth.py` (§10), and a golden replay test in CI (§8.3).
+
+---
+
+## 2. The data
+
+Nasdaq publishes whole sample days at `emi.nasdaq.com/ITCH/Nasdaq ITCH/` (checked 2026-10-20).
+For example `01302019.NASDAQ_ITCH50.gz` is **4.76 GB compressed**. The uncompressed size is
+**[MEASURE]** in step 1 (a guess: two to three times bigger).
+
+- **Where it lives:** `data/itch/` in the repo folder, **ignored by git** (a new `.gitignore`
+  line). It's far too big for git, and it's Nasdaq's data, not ours to republish.
+- **Disk:** WSL2's disk is a file on C: that **grows but doesn't shrink on its own** when files
+  are deleted. So a 15 GB download today makes C: 15 GB fuller, and that matters when C: is
+  shrunk for Ubuntu. Options: download it on the Ubuntu side later, or compact the WSL disk after
+  deleting it.
+- **Memory:** WSL2 sees **15 GB of RAM** here. A file that's 10+ GB uncompressed doesn't fit in
+  memory next to the books, which affects how we read it (§4).
+
+---
+
+## 3. The format
+
+### 3.1 Framing
+The file is a sequence of messages, each **preceded by a 2-byte big-endian length**. Expected
+from the sample files' convention; **confirmed on the real file in step 1** (the spec PDF covers
+the messages, not the file framing).
+
+### 3.2 Every message starts with the same 11 bytes
+
+| Offset | Length | Field | Notes |
+|---|---|---|---|
+| 0 | 1 | Message type | One letter, e.g. `A` |
+| 1 | 2 | Stock locate | A small number per stock, **assigned fresh each day from 1**, "intended as an array index" (spec). 0 = not about one stock |
+| 3 | 2 | Tracking number | Nasdaq internal. Ignored |
+| 5 | 6 | Timestamp | Nanoseconds since midnight, a **6-byte** integer |
+
+**Data types (spec):** all integers are **big-endian** and unsigned. Text is ASCII, padded with
+spaces. Prices are integers with 4 implied decimal places: `Price(4)` 1,905,000 = $190.5000.
+The largest price is 200,000.0000.
+
+### 3.3 The messages that change the book
+
+| Type | Name | Length | Fields after the header | Effect on our book |
+|---|---|---|---|---|
+| `A` | Add Order | 36 | order ref (8), side `B`/`S` (1), shares (4), stock (8), price (4) | Add a resting order at the back of its level |
+| `F` | Add Order with MPID | 40 | as `A`, plus attribution (4) | Same as `A` |
+| `E` | Order Executed | 31 | order ref (8), executed shares (4), match number (8) | Reduce the order by that many; remove it at 0 |
+| `C` | Order Executed With Price | 36 | as `E`, plus printable (1), execution price (4) | Same as `E` (the price is for trade reports) |
+| `X` | Order Cancel | 23 | order ref (8), cancelled shares (4) | Reduce the order, **keeping its place in the queue** |
+| `D` | Order Delete | 19 | order ref (8) | Remove the order |
+| `U` | Order Replace | 35 | old ref (8), new ref (8), shares (4), price (4) | Remove the old order; add the new one, **same side**, at the back of the queue (spec: side can't change) |
+
+The spec says order refs are **unique for the whole day**, and that `E`, `C` and `X` are
+**cumulative**: an order can be reduced several times.
+
+### 3.4 The messages we read but that don't change the book
+
+| Type | Name | What we use it for |
+|---|---|---|
+| `S` | System Event | Start/end of messages, market open (`Q`) and close (`M`) times |
+| `R` | Stock Directory | Stock locate → symbol name ("AAPL"), so `--symbol AAPL` works |
+| `H` | Stock Trading Action | Per-stock state: Halted, Paused, Quotation only, Trading. Needed for the crossed-book check (§8.1) |
+| `P`, `Q` | Trade (non-displayed), Cross Trade | Counted in stats only. The spec says they don't affect the book |
+
+All other types (`Y`, `L`, `V`, `W`, `K`, `J`, `h`, `I`, `N`, `O`, `B`) are skipped using the
+length prefix and counted.
+
+---
+
+## 4. Reading the file
+
+- **mmap:** the kernel maps the file into our address space, so the bytes are read in place, with
+  no `read()` copies into buffers.
+- **Pre-fault before timing (README §7.2):** touch every page first so the timed replay
+  measures the book, not the disk.
+- **Windows, because of §2's memory limit:** pre-fault a **window** (say 1 GiB, aligned to whole
+  messages), replay it with the clock running, then release it with `madvise(MADV_DONTNEED)`
+  and move on. Only the time spent replaying a window counts. On bare metal with more RAM, one
+  window can be the whole file. The window size is a command-line option.
+
+Cost: one pass over the file. Pre-faulting is cold path.
+
+---
+
+## 5. Parsing
+
+- **No `reinterpret_cast` of the buffer onto a struct.** That's undefined behaviour (strict
+  aliasing, alignment; README §4). Each field is read with a small helper: `std::memcpy` into an
+  integer, then `std::byteswap`. The compiler turns that into one load plus one `bswap`
+  (**[MEASURE]** on Compiler Explorer in step 2). The 6-byte timestamp is read into a `uint64_t`
+  by hand.
+- **"Zero-copy"** means the message bytes are never copied into a buffer or a string. Each field
+  goes straight from the mapped file into a register, in a small decoded struct (`AddOrder`,
+  `OrderExecuted`, ...).
+- **Dispatch:** a `switch` on the type letter (rule 4: no virtual calls). The parser calls a
+  handler that's a template parameter, so a test handler, a counting handler and the book builder
+  all use the same parser at zero cost.
+- **Bad input:** a length that runs past the end of the file, or doesn't match the type's fixed
+  length, is reported and stops the replay. The parser never reads past the buffer. Errors use
+  `std::expected` (cold path).
+
+---
+
+## 6. Building the books
+
+### 6.1 New book operations
+Our books' `NewOrder` *matches*, and `Modify` uses FIX's "new total" rule (design §7). Neither is
+what a feed means. So both books get **four feed operations**, written down as a second concept
+next to `OrderBook`:
+
+| Operation | From | Does | Must not |
+|---|---|---|---|
+| `add_resting(id, side, price, qty)` | `A`, `F`, `U` | Place the order at the back of its level, **without matching** | Match, even if the price crosses (Nasdaq didn't) |
+| `reduce(id, qty)` | `E`, `C`, `X` | Take `qty` off; remove the order if it reaches 0; keep its queue place otherwise | Go below 0 (that's a check failure, §8.1) |
+| `remove(id)` | `D`, `U` | Remove the order | — |
+| (Replace) | `U` | `remove(old)` then `add_resting(new, same side, new price, new qty)` | — |
+
+Both the **reference book** and the **fast book** get them. That's what lets us run the
+differential check on real data (§8.2), the same way phase 2 proved the fast book.
+
+The fast book reuses its pool, levels, intrusive queues and id table unchanged. Only the four
+entry points are new. The tick-array book needs a price band per stock (§7).
+
+### 6.2 One book per stock
+The stock locate is already an array index (spec), so `books[locate]` finds the book with one
+load, like our `SymbolId`. Each `E`/`C`/`X`/`D`/`U` also carries the locate, so the id lookup
+happens inside that one stock's book.
+
+---
+
+## 7. Sizing every book before the replay (rule 1: no allocation while replaying)
+
+A book needs its limits at construction (`BookConfig`): the largest number of resting orders,
+and for the tick array, the price band. Real stocks differ hugely (a $2 stock vs a $700 stock).
+
+**Proposal: a pre-scan.** One fast pass over the file, before the replay, that only counts. For
+each stock it records:
+- the **peak** number of orders resting at once,
+- the lowest and highest price seen,
+- the largest order size.
+
+The books are built from these, plus headroom. The pre-scan is cold path, and its time is reported
+separately. It also gives the first facts about real flow that fast-book design §13 asked for:
+how wide real price ranges are, and how deep books get.
+
+---
+
+## 8. Proving it right
+
+### 8.1 Consistency checks (rule 13), after every message in check mode
+- **No negative quantities:** a `reduce` larger than what's left fails.
+- **Every executed, cancelled, deleted or replaced order existed:** an unknown ref fails.
+- **No new order reuses a live ref.**
+- **No crossed book outside auctions:** after each message, for that stock, best bid < best ask.
+  When this is allowed, though, is not obvious. The spec has per-stock halts, pauses and
+  quotation periods (`H`) and market-wide open/close times (`S`). Plan: count every crossed
+  moment with its time and the stock's trading state **[MEASURE, step 4]**, then write the
+  exact rule from what the data shows.
+- At the end, every book's own `invariants_hold()`.
+
+Check mode is slower. It's on for correctness runs and off for timed runs.
+
+### 8.2 Differential replay
+Replay the day into the reference book and the fast book side by side, and compare the books for
+every stock after each message, or every N messages, for speed. This is phase 2's fuzzer, fed
+real flow instead of random flow.
+
+### 8.3 Golden replay test (CI, every commit)
+A small ITCH byte file, and the expected final books and stats, both checked in. The test replays
+it and compares. **Proposal:** the bytes are **written by a small test encoder** (made-up stocks
+and orders covering every message type, including the tricky ones: partial executes, replace,
+cancel to zero), not cut from Nasdaq's file. It's small, readable, and has no question about
+republishing Nasdaq's data. A local-only test can also replay a real slice when the file is
+present.
+
+### 8.4 Parser tests
+Each message type decoded from hand-made bytes (big-endian values, the 6-byte timestamp). Plus:
+lengths that are too short, too long, or past the end of the file are all rejected. That's the
+groundwork for the optional libFuzzer target (README §7.1).
+
+---
+
+## 9. What gets measured
+
+- **Messages/sec:** the timed windows only (§4), the fast book with checks off. Reported next to
+  the pre-scan time and the message counts per type.
+- **Per-message latency:** the `rdtsc` timer from phase 3 around each message's book update,
+  tagged by message type (add, execute, cancel, delete, replace).
+- **Memory for the samples:** phase 3 kept every raw sample (5 MB per million). A full day is
+  hundreds of millions of messages (**[MEASURE]** in step 1), so raw samples could be several GB.
+  **Proposal:** keep the full **histogram** for every message (the phase 3 recorder's buckets),
+  and raw samples for one chosen stock or a sampled 1-in-N subset. Exact percentiles from the raw
+  subset; the histogram shows the whole day's shape.
+- Environment block and NOT FOR PUBLISHING banner exactly as phase 3 (`support/environment.hpp`).
+
+---
+
+## 10. Tools and plots
+
+| Tool | Does |
+|---|---|
+| `nanobook_replay FILE [--symbol AAPL] [--depth 10] [--check] [--window-mb N] [--book reference\|sorted\|tick] [--snapshot-csv out.csv] [--csv out.csv]` | Pre-scan, replay, print top N levels for one stock and stats. Snapshot CSV for depth plots |
+| `scripts/plot_depth.py` | Cumulative quantity by price, bids against asks, from a snapshot CSV. The eyeball check that the rebuilt book looks like a market |
+
+Same rules as phase 3: tools outside the library, public API only, all printing after the timed
+region (README §7.4).
+
+---
+
+## 11. Files
+
+| File | What |
+|---|---|
+| `include/nanobook/itch/messages.hpp` | The decoded message structs and type letters |
+| `include/nanobook/itch/parser.hpp` | Field readers (`memcpy` + `byteswap`), the `switch`, length checks |
+| `include/nanobook/itch/file.hpp`, `src/itch/file.cpp` | mmap, windows, pre-fault |
+| `include/nanobook/itch/book_builder.hpp` | Messages → feed operations on `books[locate]`, stats |
+| Reference and fast books | The four feed operations (§6.1), a `FeedBook` concept |
+| `support/itch_encoder.hpp` | Test-only: writes ITCH bytes (golden test, parser tests) |
+| `tools/nanobook_replay.cpp` | The CLI |
+| `scripts/plot_depth.py` | The plot |
+| `tests/itch/...` | Parser, feed operations, builder, golden replay |
+
+---
+
+## 12. Plan, one commit per step
+
+| Step | What | Needs the data file? |
+|---|---|---|
+| 0 | This design note, decisions recorded | No |
+| 1 | Download one day; confirm the framing; count messages per type with a tiny throwaway scan (the uncompressed size, the message count) | Yes |
+| 2 | Parser + test encoder + parser tests | No |
+| 3 | Feed operations on both books + tests (incl. the zero-allocation test) | No |
+| 4 | Book builder + golden replay test; first full-day replay with checks; the crossed-book rule (§8.1) | Yes |
+| 5 | Differential replay reference vs fast on the full day | Yes |
+| 6 | mmap windows + pre-scan + `nanobook_replay` timing: messages/sec and per-message latency (WSL2, not for publishing) | Yes |
+| 7 | `plot_depth.py`, phase 4 report; fast-book design §13 revisit list answered from real data | Yes |
+| 8 | Published numbers: with phase 3 step 6, on bare metal | Yes |
+
+---
+
+## 13. Decisions (approved 2026-10-20)
+
+| # | Question | Decision | Why |
+|---|---|---|---|
+| Q1 | Which day? (§2) | `01302019.NASDAQ_ITCH50.gz` (Wednesday 30 January 2019, 4.76 GB compressed) | A full mid-week trading day, mid-sized among the files listed (3.5 to 5.6 GB for the 2019–2020 days) |
+| Q2 | Feed operations on both books (§6.1)? | **Yes**, behind a `FeedBook` concept | Lets the reference book check the fast book on real data (§8.2) |
+| Q3 | Size books with a pre-scan (§7)? | **Yes** | Rule 1 needs sizes up front; real stocks differ too much for one size |
+| Q4 | Read in pre-faulted windows (§4)? | **Yes**, 1 GiB default | The file may not fit in WSL2's 15 GB |
+| Q5 | Latency samples (§9) | Histogram for all, raw for one stock or 1-in-N | Raw samples for the whole day could be several GB |
+| Q6 | Golden test bytes (§8.3) | From a test encoder, not Nasdaq's file | Small, readable, no republishing question |
+| Q7 | Where the file lives (§2) | `data/itch/`, git-ignored; **downloaded now on WSL2** | Work can start now; the C: space it takes is counted before the dual-boot shrink |
+
+---
+
+## 14. Out of scope for phase 4
+
+| Idea | Where it belongs |
+|---|---|
+| Threads: parser on one core, books on another, over a ring buffer | Phase 5 (README §5 pipeline) |
+| Optimising what the replay shows is slow | Phase 6, with before/after numbers (rule 10) |
+| `perf` profiles and flame graphs of the replay | Phase 6 (needs bare metal) |
+| Live network feed (MoldUDP64, SoupBinTCP) | Not in NanoBook: there is no network (README §1) |
+| libFuzzer on the parser | Optional, after phase 4 (README §7.1) |
+| Trading on the rebuilt book (signals, strategies) | Not part of an order book. Optional "phase 8" |

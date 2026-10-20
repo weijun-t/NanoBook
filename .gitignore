@@ -1,6 +1,7 @@
 # .gitignore: files git never tracks.
 #
-# What it does: Build output, the Python environment, editor indexes and profiler output.
+# What it does: Build output, the Python environment, editor indexes, profiler output and market
+#   data files (too big for git, and not ours to republish).
 
 # Build output
 build/
@@ -23,3 +24,6 @@ __pycache__/
 # perf / profiling output
 perf.data
 perf.data.old
+
+# Market data (e.g. Nasdaq ITCH days, several GB each; docs/itch-design.md §2)
+data/
