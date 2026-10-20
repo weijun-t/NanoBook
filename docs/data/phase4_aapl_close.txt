@@ -1,0 +1,80 @@
+File: data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50 (11245883092 bytes)
+Counting pass:  33.4 s (8713 locates; 0 inputs the counter couldn't follow)
+Building books: 0.2 s (room for 2522876 resting orders in all)
+Stopped at 16:00:00.000000000: 3043050 later messages not replayed
+Replay:         46.2 s
+
+Messages by type
+  A     162319574
+  B           116
+  C        157743
+  D     156077529
+  E       8042485
+  F       1724723
+  H          8804
+  I       3683417
+  J            62
+  L        193753
+  P       1300727
+  Q          8717
+  R          8714
+  S             3
+  U      27148930
+  V             1
+  X       4639467
+  Y          8819
+  all   365323584
+
+Result of every order message
+                  Ok   UnknownOrder DuplicateOrder     InvalidQty   InvalidPrice ReduceTooLarge       BookFull
+  A        162319574              0              0              0              0              0              0
+  F          1724723              0              0              0              0              0              0
+  E          8042485              0              0              0              0              0              0
+  C           157743              0              0              0              0              0              0
+  X          4639467              0              0              0              0              0              0
+  D        156077529              0              0              0              0              0              0
+  U         27148930              0              0              0              0              0              0
+  order messages for a locate no R named: 0
+  bad input (ref 0, or side not B/S):     0
+
+Checks: off (use --check)
+
+Most orders resting at once during the day:
+  AAPL         42774
+  AMZN         39028
+  MSFT         22116
+  FB           20986
+  NVDA         18558
+
+Orders resting at the end of the replay: 1579011; biggest books:
+  AAPL         42767
+  AMZN         39028
+  MSFT         22071
+  FB           20953
+  NVDA         18553
+
+AAPL at the end of the replay (locate 14), top 10 levels:
+  ask     165.3600       200
+  ask     165.3500       500
+  ask     165.3400       200
+  ask     165.3300      5100
+  ask     165.3200       100
+  ask     165.3100       103
+  ask     165.3000       100
+  ask     165.2900       100
+  ask     165.2800      3853
+  ask     165.2700       217
+  ----
+  bid     165.2400      1800
+  bid     165.2100       200
+  bid     165.2000      1900
+  bid     165.1900      8200
+  bid     165.1800       190
+  bid     165.1700       100
+  bid     165.1600       100
+  bid     165.1500      4182
+  bid     165.1400       190
+  bid     165.1300      5103
+wrote docs/data/phase4_aapl_close.csv
+
+Peak memory: 11083 MB (includes the file's pages read)

@@ -207,7 +207,7 @@ def plot_flow(data: Path, out: Path) -> None:
         tail = 100 * int(created[last]["count"]) / created_total
         left.annotate(f"{deep:,} creations shift 1,024+ levels\n"
                       "(phase 3's deep_insert did, every time)", (last - width / 2, tail),
-                      xytext=(0.62, 0.55), textcoords="axes fraction", fontsize=7.5, color=INK_2,
+                      xytext=(0.58, 0.86), textcoords="axes fraction", fontsize=7.5, color=INK_2,
                       arrowprops={"arrowstyle": "-", "color": MUTED, "linewidth": 0.8})
     left.set_yscale("log")
     left.yaxis.set_major_locator(FixedLocator([0.001, 0.01, 0.1, 1, 10, 100]))
@@ -217,8 +217,9 @@ def plot_flow(data: Path, out: Path) -> None:
     left.set_xticks(range(last + 1), labels, rotation=45, ha="right")
     left.set_xlabel("levels shifted in the sorted array")
     left.set_title("Each new or vanishing price level: levels it shifts", loc="left")
-    left.legend([plt.Rectangle((0, 0), 1, 1, color=CREATED), plt.Rectangle((0, 0), 1, 1, color=REMOVED)],
-                ["level created", "level removed"], frameon=False, fontsize=8, labelcolor=INK_2)
+    fig.legend([plt.Rectangle((0, 0), 1, 1, color=CREATED), plt.Rectangle((0, 0), 1, 1, color=REMOVED)],
+               ["level created", "level removed"], loc="upper left", ncol=2, frameon=False,
+               bbox_to_anchor=(0.003, 0.925), fontsize=8.5, labelcolor=INK_2)
     tidy(left)
 
     # Right: distance of each new order from its side's best price.
@@ -235,7 +236,7 @@ def plot_flow(data: Path, out: Path) -> None:
     right.set_yticks(ys, [n.replace("$", "\\$") for n in names])
     right.set_xlim(0, max(shares) * 1.25)
     right.xaxis.set_major_formatter(FuncFormatter(lambda v, _p: f"{v:g}%"))
-    right.set_title("Each new order: distance from the best price", loc="left")
+    right.set_title("Each new order: distance from the best", loc="left")
     for side in ("top", "right"):
         right.spines[side].set_visible(False)
     right.spines["left"].set_color(BASELINE)
@@ -248,7 +249,7 @@ def plot_flow(data: Path, out: Path) -> None:
                  fontweight="bold", color=INK)
     fig.text(0.01, 0.005, f"input {info.get('input', '?')} · commit {info.get('commit', '?')} · "
              "nanobook_replay --flow (untimed)", ha="left", va="bottom", fontsize=6.5, color=MUTED)
-    fig.tight_layout(rect=(0, 0.03, 1, 0.95))
+    fig.tight_layout(rect=(0, 0.03, 1, 0.88))
     fig.savefig(out, dpi=200)
     plt.close(fig)
 

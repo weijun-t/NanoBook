@@ -476,3 +476,16 @@ Each is re-measured once phase 4 can feed a real trading day through the books.
 | Plain binary search in the sorted list; the hybrid dropped (§6.1) | Evenly spread add/cancel and a clustered mixed stream | Lookups clustering near the best price much more tightly than our benchmarks | Re-measure a hybrid (one-by-one checks near the best, then binary search) |
 | Sorted list as the default; tick array an experiment (§6) | Synthetic benchmarks | How wide real price ranges are per stock, and how deep real books get | Decide the moving window (§6.3) |
 | Deep inserts are rare (§6.1 known weakness) | Assumption | How often a brand-new price appears deep in a deep book | Pick a fix from the §6.1 candidate list |
+
+**Answered by phase 4 (2026-10-20, one real Nasdaq day; `docs/phase4-report.md` §10,
+`docs/itch-design.md` §9.1):**
+- **Clustering near the best: yes.** 48% of new orders land at or improve the best price, 93%
+  within $1, and 35% of new levels are created at the best end of the array. The hybrid search is
+  worth re-measuring on real flow (phase 6).
+- **Price ranges: as wide as the spec allows.** Stub quotes stretch a stock's range from $0.0001
+  to $199,999.99 (AAPL at the close: 3,053 bid and 2,602 ask levels; its peak, 42,774 resting
+  orders). A fixed tick array is ruled out (about 489,000 GB for the day); a window of tick slots
+  near the best plus an overflow structure fits the data (§6.3, phase 6).
+- **Deep inserts: rare but real.** 0.02% of 59 million level creations shift 1,024 or more levels
+  (the deepest 2,048–4,095); about 40 GB of level shifting over the day. A fix from the §6.1 list,
+  with before/after numbers, is phase 6's.

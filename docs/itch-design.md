@@ -12,7 +12,8 @@
 > differential replay as built and its result (§8.2). Step 6: timing as built and Q5 changed
 > (§9, §13), TickFastBook can't hold the real day (§9), the flow analysis (§9.1); step 6 split
 > into 6a, 6b, 6c (§12). Step 6c: the timed runs (§12; numbers in `docs/perf-log.md`). Step 7a:
-> the snapshot and flow CSVs and the two plot scripts (§10); step 7 split into 7a and 7b (§12). Phase 3 step 6 (the bare-metal
+> the snapshot and flow CSVs and the two plot scripts (§10); step 7 split into 7a and 7b (§12).
+> Step 7b: the phase 4 report; phase 4 complete except step 8, the bare-metal numbers. Phase 3 step 6 (the bare-metal
 > run) is still open; phase 4's own published numbers come from the same Ubuntu session.
 
 Phases 1–3 built **the core of an exchange** and fed it orders we made up. Phase 4 plays the other
@@ -540,7 +541,7 @@ region (README §7.4).
 | 6b ✓ | Real-flow analysis `--flow`: levels shifted per level created or removed, distance from best (§9.1). Done 2026-10-20 | Yes |
 | 6c ✓ | The timed runs on an idle laptop, two rounds, recorded in `docs/perf-log.md` (WSL2, not for publishing). Done 2026-10-20: 104 ns per message (parser 3%), p50 105 ns, p99 429 ns | Yes |
 | 7a ✓ | `--snapshot-csv` and `--flow --csv` in `nanobook_replay`; `plot_depth.py`, `plot_phase4.py` (§10). Built 2026-10-20 | No |
-| 7b | From a clean commit: the snapshot and flow CSVs, the charts, the phase 4 report; fast-book design §13 revisit list answered from real data; README status | Yes |
+| 7b ✓ | From a clean commit: the snapshot and flow CSVs, the charts, the phase 4 report (`docs/phase4-report.md`, `.pdf`); fast-book design §13 revisit list answered from real data; README status. Done 2026-10-20 | Yes |
 | 8 | Published numbers: with phase 3 step 6, on bare metal | Yes |
 
 ---
