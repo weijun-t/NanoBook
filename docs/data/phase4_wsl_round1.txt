@@ -1,0 +1,38 @@
+File: data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50 (11245883092 bytes)
+*** NOT FOR PUBLISHING: measured in a virtual machine (README rule 20) ***
+cpu              Intel(R) Core(TM) i7-14650HX
+logical cores    24
+os               Ubuntu 24.04.5 LTS
+kernel           Linux 6.18.54.1-microsoft-standard-WSL2 x86_64
+virtual machine  yes: WSL2
+isolated cores   none
+nohz_full cores  unknown
+governor         unknown
+turbo            unknown
+compiler         GCC 14.2.0
+build type       Release
+flags            -std=c++23 -O3 -DNDEBUG
+commit           c13e5bb7252e
+pinned to core   2
+counter          2.4192 ticks per ns
+timer overhead   min 28 ticks (subtracted from every latency sample)
+windows          1024 MiB, loaded before the clock starts
+
+Throughput (checks off; 368366634 messages, 11 windows; checksum 13154425643777011431)
+  parse only:        1.12 s, 3.0 ns per message, 329.7 M messages/s
+  parse + FastBook:  37.68 s, 102.3 ns per message, 9.8 M messages/s
+  the books' share:  99.3 ns per message (97% of the time)
+
+Latency of every 8th order message, FastBook (45389776 samples; ns, timer overhead subtracted)
+tag      ITCH       count       min       p50       p90       p99     p99.9    p99.99       max      mean
+add      A, F    20584856       9.5      96.7     172.4     290.2     461.7      9667   1656281     108.8
+match    E, C     1030612       8.7     103.3     253.8     439.4     689.1      9874    151083     131.2
+cancel   D       19786668       9.5     108.3     261.2     441.9     687.4     10822    810953     137.2
+modify   X         584111       8.3      53.7     186.4     355.5     583.3         -     93289      85.3
+replace  U        3403529      13.6     166.2     325.3     521.7     862.7     13023    300828     193.2
+all              45389776       8.3     102.5     233.5     412.5     656.4     10330   1656281     127.7
+  dropped (moved core) 0, clamped (too long) 0, refused (full) 0
+
+counter drift during the run: 0.000 parts per million
+wrote docs/data/phase4_wsl_round1.csv and docs/data/phase4_wsl_round1_histogram.csv
+*** NOT FOR PUBLISHING: measured in a virtual machine (README rule 20) ***

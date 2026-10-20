@@ -437,3 +437,85 @@ every scenario. The reference book allocates 2.0 per add, 3.0 per deep insert.
   and tick books agree to 1–3%. Same inputs and book; a code-layout or inlining difference
   between the two binaries is the likely cause. To check with `perf` on bare metal (phase 6
   tooling), not by guessing.
+
+---
+
+## 2026-10-20: A real Nasdaq day through FastBook (phase 4 step 6c)
+
+The first timing on real order flow (`docs/itch-design.md` §9): the whole of 30 Jan 2019
+(368,366,634 ITCH messages, 8,713 stocks) replayed into one FastBook per stock. WSL2, so **not
+for publishing** (rule 20): every file from this run carries the NOT FOR PUBLISHING banner.
+
+### Method
+- Same machine, OS and compiler as above: i7-14650HX, Ubuntu 24.04 on WSL2 (kernel
+  `6.18.54.1-microsoft-standard-WSL2`), GCC 14.2.0, `gcc-release` (`-O3 -DNDEBUG`), commit
+  `c13e5bb7252e` (clean tree, rebuilt immediately before), pinned to core 2 (not isolated),
+  plugged in, idle laptop. Counter 2.4192 ticks per ns; timer overhead minimum 28 ticks (11.6 ns),
+  subtracted from every latency sample; drift under 0.2 parts per million.
+- Command, twice, 19:22–19:26: `nanobook_replay data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50
+  --throughput --latency --core 2 --csv docs/data/phase4_wsl_roundN.csv`. Each run: the counting
+  pass and sizing (untimed), a parse-only pass, a parse + FastBook pass (throughput), and a
+  third pass timing **every 8th order message** (45,389,776 samples). Checks off. The file is
+  read in 1 GiB windows whose pages are loaded before the clock starts (design §4), so the disk
+  is not timed.
+- Numbers below are the **average of the two rounds**; the round-to-round difference is in
+  brackets. Data: `docs/data/phase4_wsl_round1.txt`, `.csv`, `_histogram.csv` (and round 2).
+
+### Throughput (every message of the day, parsing included)
+
+| | ns per message | Messages per second |
+|---|---|---|
+| Parse only | 3.1 (7%) | about 320 M |
+| Parse + FastBook | **104.1** (3.4%) | **9.6 M** |
+| The books' share | 101.0 | 97% of the time |
+
+### Latency per order message, FastBook (every 8th; ns)
+
+| Kind (ITCH) | Samples | p50 | p90 | p99 | p99.9 | p99.99 | mean |
+|---|---|---|---|---|---|---|---|
+| add (A, F) | 20,584,856 | 98.3 (3%) | 177.4 | 299.7 (7%) | 482.1 | 10,389 (15%) | 111.3 |
+| execute (E, C) | 1,030,612 | 105.6 (5%) | 261.9 | 461.7 (10%) | 727.3 | 10,197 | 135.3 |
+| delete (D) | 19,786,668 | 111.0 (5%) | 269.3 | 461.1 (9%) | 722.5 | 11,637 (15%) | 140.9 |
+| partial cancel (X) | 584,111 | 54.5 (3%) | 193.2 | 371.8 (9%) | 615.5 | – | 88.2 |
+| replace (U) | 3,403,529 | 168.8 (3%) | 333.4 | 539.9 (7%) | 915.0 | 12,994 | 196.9 |
+| **all** | 45,389,776 | **104.8** (5%) | 240.3 | **428.6** (8%) | 690.3 (10%) | 11,241 (18%) | 130.9 |
+
+p99.99 is left out where fewer than 1,000,000 samples back it (as in phase 3). No sample was
+dropped or clamped.
+
+### Against phase 3 (one book, made-up scenarios, same machine, 2026-10-18)
+
+| | Phase 3 FastBook p50 | Real day p50 | Ratio |
+|---|---|---|---|
+| Add a resting order | 20.2 ns (`add`) | 98.3 ns | 4.9x |
+| Remove a resting order | 44.0 ns (`cancel`) | 111.0 ns (delete) | 2.5x |
+| Shrink an order, keep its place | 46.3 ns (`modify`, half of them) | 54.5 ns (partial cancel) | 1.2x |
+| Whole stream, mean | 29.0 ns (`mixed`, throughput mode) | 104.1 ns (throughput) | 3.6x |
+
+### What these numbers say
+- **The parser is 3% of the time; the books are 97%.** Decoding a message costs about 3 ns
+  (one load and a byte swap per field, design §5), applying it to the book about 100 ns. Speed
+  work belongs in the book.
+- **The same book is 2.5–5x slower per operation on the real day than in phase 3.** Phase 3 timed
+  one book that stayed in the CPU's caches. The real day jumps between 8,713 books whose memory
+  (about 2.5 million order slots, plus id tables and levels) is far bigger than the 30 MB L3
+  cache, so most messages likely start with cache misses. The step 6 flow analysis also counts
+  about 40 GB of level shifting over the day (design §9.1), roughly 1 s of copying at 40 GB/s. These
+  are the likely causes, not yet separated: that needs hardware counters (`perf stat`
+  cache-misses), so bare metal (phase 6 tooling).
+- **Partial cancels are the cheapest (54.5 ns)**: find the order, shrink it in place, no level
+  change. **Replaces are the dearest (168.8 ns)**: a removal and an insert, often at a new price.
+- **Timing a message costs more here than in phase 3.** The latency mean (130.9 ns, order
+  messages only) is about 27 ns above the throughput mean (104.1 ns, all messages, parsing
+  included); phase 3 saw 6–10 ns. The timer's fences stop the CPU starting the next message's
+  memory reads early, and with cache misses that overlap is worth more.
+- **p99.99 is about 11 µs, against phase 3's ~2.3 µs floor.** Leading hypothesis, not yet tested:
+  **first-touch page faults in the sorted-level arrays.** `SortedLevels` only `reserve()`s its two
+  arrays (161 MB for the day's 2.5 million order slots), so a page is first written mid-replay;
+  the order pool and the id table are zero-filled at construction, so theirs aren't. At one
+  fault per newly used 4 KiB page, that's tens of thousands of faults over 363 million order
+  messages, about 1 in 10,000: the p99.99 level. Test: touch the level arrays at construction
+  (as the latency recorder does) and compare, before/after (rule 10), in phase 6.
+- **Round-to-round agreement is like phase 3's:** throughput 3.4%, p50 3–5%, p99 7–10%, p99.99
+  up to 18%. p50 and p99 are trustworthy on WSL2; the far tail is not, and only bare metal can
+  settle it.

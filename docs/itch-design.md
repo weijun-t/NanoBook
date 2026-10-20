@@ -11,7 +11,7 @@
 > rule decided from the real day (§8.1), the first full-day replay's results (§8.5). Step 5: the
 > differential replay as built and its result (§8.2). Step 6: timing as built and Q5 changed
 > (§9, §13), TickFastBook can't hold the real day (§9), the flow analysis (§9.1); step 6 split
-> into 6a, 6b, 6c (§12). Phase 3 step 6 (the bare-metal
+> into 6a, 6b, 6c (§12). Step 6c: the timed runs (§12; numbers in `docs/perf-log.md`). Phase 3 step 6 (the bare-metal
 > run) is still open; phase 4's own published numbers come from the same Ubuntu session.
 
 Phases 1–3 built **the core of an exchange** and fed it orders we made up. Phase 4 plays the other
@@ -536,7 +536,7 @@ region (README §7.4).
 | 5 ✓ | Differential replay reference vs fast on the full day. Done 2026-10-20: 0 mismatches (§8.2) | Yes |
 | 6a ✓ | Timing in pre-loaded windows: `--throughput` (parse alone vs parse + FastBook), `--latency` (every 8th order message by kind), CSV (§9). Built 2026-10-20 | No |
 | 6b ✓ | Real-flow analysis `--flow`: levels shifted per level created or removed, distance from best (§9.1). Done 2026-10-20 | Yes |
-| 6c | The timed runs on an idle laptop, two rounds, recorded in `docs/perf-log.md` (WSL2, not for publishing) | Yes |
+| 6c ✓ | The timed runs on an idle laptop, two rounds, recorded in `docs/perf-log.md` (WSL2, not for publishing). Done 2026-10-20: 104 ns per message (parser 3%), p50 105 ns, p99 429 ns | Yes |
 | 7 | `plot_depth.py`, phase 4 report; fast-book design §13 revisit list answered from real data | Yes |
 | 8 | Published numbers: with phase 3 step 6, on bare metal | Yes |
 

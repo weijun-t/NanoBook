@@ -25,5 +25,6 @@ __pycache__/
 perf.data
 perf.data.old
 
-# Market data (e.g. Nasdaq ITCH days, several GB each; docs/itch-design.md §2)
-data/
+# Market data (e.g. Nasdaq ITCH days, several GB each; docs/itch-design.md §2). The leading /
+# limits it to the top folder: without it, docs/data/ (where results are kept) is ignored too.
+/data/
