@@ -4,7 +4,7 @@
 > commit message. Decided (§13): the 30 Jan 2019 day, feed operations on both books, a pre-scan to
 > size the books, 1 GiB windows, histogram plus a raw subset, an encoder for the golden test, the
 > file downloaded now on WSL2. Items marked **[MEASURE]** are settled by a measurement in the step
-> named. Phase 3 step 6 (the bare-metal
+> named. Step 1 (2026-10-20): the file's size, framing and contents measured (§2, §3.1, §3.5, §9). Phase 3 step 6 (the bare-metal
 > run) is still open; phase 4's own published numbers come from the same Ubuntu session.
 
 Phases 1–3 built **the core of an exchange** and fed it orders we made up. Phase 4 plays the other
@@ -121,26 +121,34 @@ Also built: `plot_depth.py` (§10), and a golden replay test in CI (§8.3).
 ## 2. The data
 
 Nasdaq publishes whole sample days at `emi.nasdaq.com/ITCH/Nasdaq ITCH/` (checked 2026-10-20).
-For example `01302019.NASDAQ_ITCH50.gz` is **4.76 GB compressed**. The uncompressed size is
-**[MEASURE]** in step 1 (a guess: two to three times bigger).
+For example `01302019.NASDAQ_ITCH50.gz` is **4.76 GB compressed** (4,764,426,091 bytes) and
+**11.25 GB uncompressed** (11,245,883,092 bytes, 2.36 times bigger; measured in step 1). The
+download was checked against the server's byte count and the gzip checksum, and the extracted
+file against a fresh decompression (identical). Nasdaq's `.md5sum` files are listed but not
+served (HTTP 404).
 
 - **Where it lives:** `data/itch/` in the repo folder, **ignored by git** (a new `.gitignore`
-  line). It's far too big for git, and it's Nasdaq's data, not ours to republish.
+  line). It's far too big for git, and it's Nasdaq's data, not ours to republish. The extracted
+  file is `data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50` (the Windows unzip tool made
+  the folder).
 - **Disk:** WSL2's disk is a file on C: that **grows but doesn't shrink on its own** when files
   are deleted. So a 15 GB download today makes C: 15 GB fuller, and that matters when C: is
   shrunk for Ubuntu. Options: download it on the Ubuntu side later, or compact the WSL disk after
   deleting it.
-- **Memory:** WSL2 sees **15 GB of RAM** here. A file that's 10+ GB uncompressed doesn't fit in
-  memory next to the books, which affects how we read it (§4).
+- **Memory:** WSL2 sees **15 GB of RAM** here. The 11.25 GB file only just fits on its own (the
+  step 1 scan, which mapped all of it, peaked at 10.7 GB resident), so not next to the books.
+  That's why we read it in windows (§4).
 
 ---
 
 ## 3. The format
 
 ### 3.1 Framing
-The file is a sequence of messages, each **preceded by a 2-byte big-endian length**. Expected
-from the sample files' convention; **confirmed on the real file in step 1** (the spec PDF covers
-the messages, not the file framing).
+The file is a sequence of messages, each **preceded by a 2-byte big-endian length** (the spec
+PDF covers the messages, not the file framing). **Confirmed in step 1:** the first bytes are
+`00 0c` (length 12) then `S` ... `O` (System Event "Start of Messages"); walking the whole file by
+the lengths gives 368,366,634 messages, the last one ending exactly at the end of the file, and
+every message's length matches its type's length in the spec.
 
 ### 3.2 Every message starts with the same 11 bytes
 
@@ -181,6 +189,41 @@ The spec says order refs are **unique for the whole day**, and that `E`, `C` and
 
 All other types (`Y`, `L`, `V`, `W`, `K`, `J`, `h`, `I`, `N`, `O`, `B`) are skipped using the
 length prefix and counted.
+
+### 3.5 What the real day contains (step 1)
+Counted with a throwaway scanner (outside the repo) that walks the file by the length prefix. The
+step 4 replay counts again, as a cross-check.
+
+| Type | Messages | Share | | Type | Messages | Share |
+|---|---|---|---|---|---|---|
+| `A` Add | 162,970,455 | 44.24% | | `I` Imbalance (NOII) | 3,684,511 | 1.00% |
+| `D` Delete | 158,273,361 | 42.97% | | `P` Trade (non-displayed) | 1,326,184 | 0.36% |
+| `U` Replace | 27,222,746 | 7.39% | | `L` Participant position | 193,769 | 0.05% |
+| `E` Executed | 8,096,995 | 2.20% | | `Q` Cross trade | 17,430 | 0.00% |
+| `X` Cancel (partial) | 4,669,874 | 1.27% | | `Y` Reg SHO | 8,821 | 0.00% |
+| `F` Add with MPID | 1,725,898 | 0.47% | | `H` Trading action | 8,805 | 0.00% |
+| `C` Executed with price | 158,886 | 0.04% | | `R` Stock directory | 8,714 | 0.00% |
+| | | | | `B`, `J`, `S`, `V` | 116, 62, 6, 1 | 0.00% |
+| **All** | **368,366,634** | | | | | |
+
+What it tells us:
+- **98.6% of messages change the book** (`A`, `D`, `U`, `E`, `X`, `F`, `C`). The book is the
+  work; everything else is a rounding error.
+- **Most orders are cancelled, not traded.** There are about 19 deletes for every execution
+  (158.3 M `D` against 8.3 M `E` + `C`). Real flow is add, wait, delete; a trade is rare. So add,
+  delete and replace speed matter most here, not matching.
+- **8,713 stocks**, locates 1 to 8,713 with no gaps (Apple is 14). One directory message is
+  **re-sent** during the day for a stock already listed (`CFG-D`, locate 1335, at 05:16:01), so
+  the builder treats `R` for a known locate as an update, never as a second book.
+- **Order refs go up to 329,176,641** while 191.9 M orders are added (`A` + `F` + `U`): not
+  every number is used, but they stay below about 330 M. Relevant to fast-book design §5.2 (one
+  table entry per possible id, rejected for synthetic ids); a phase 6 question, not phase 4's.
+- **The day's clock:** start of messages 03:03:59, system hours 04:00, market open 09:30, close
+  16:00, end of system hours 20:00, end of messages 20:05 (nanoseconds since midnight, New York
+  time). Types `W`, `K`, `h`, `N` and `O` never appear in this file.
+- **A plain walk of the whole file takes about 6 seconds** (one run, file already in memory,
+  WSL2, with another program reading the disk at the same time: not a benchmark). Enough to know
+  the pre-scan (§7) costs seconds, not minutes.
 
 ---
 
@@ -304,7 +347,7 @@ groundwork for the optional libFuzzer target (README §7.1).
 - **Per-message latency:** the `rdtsc` timer from phase 3 around each message's book update,
   tagged by message type (add, execute, cancel, delete, replace).
 - **Memory for the samples:** phase 3 kept every raw sample (5 MB per million). A full day is
-  hundreds of millions of messages (**[MEASURE]** in step 1), so raw samples could be several GB.
+  368 million messages (§3.5), so raw samples for all of them would take about 1.8 GB.
   **Proposal:** keep the full **histogram** for every message (the phase 3 recorder's buckets),
   and raw samples for one chosen stock or a sampled 1-in-N subset. Exact percentiles from the raw
   subset; the histogram shows the whole day's shape.
@@ -345,7 +388,7 @@ region (README §7.4).
 | Step | What | Needs the data file? |
 |---|---|---|
 | 0 | This design note, decisions recorded | No |
-| 1 | Download one day; confirm the framing; count messages per type with a tiny throwaway scan (the uncompressed size, the message count) | Yes |
+| 1 ✓ | Download one day; confirm the framing; count messages per type with a tiny throwaway scan (the uncompressed size, the message count). Done 2026-10-20 (§3.5) | Yes |
 | 2 | Parser + test encoder + parser tests | No |
 | 3 | Feed operations on both books + tests (incl. the zero-allocation test) | No |
 | 4 | Book builder + golden replay test; first full-day replay with checks; the crossed-book rule (§8.1) | Yes |
