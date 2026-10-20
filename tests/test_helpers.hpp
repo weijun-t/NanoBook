@@ -47,6 +47,10 @@ inline void PrintTo(OrderId id, std::ostream *os) {
     *os << "OrderId{" << id.value << "}";
 }
 
+inline void PrintTo(FeedResult r, std::ostream *os) {
+    *os << name(r);
+}
+
 inline void PrintTo(const Event &e, std::ostream *os) {
     *os << name(e.type) << " id=" << e.id.value;
     switch (e.type) {

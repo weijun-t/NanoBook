@@ -3,6 +3,8 @@
  *
  * What it does: Lists what a book must provide: construction from a BookConfig, handle() for
  *   NewOrder, Cancel and Modify, and test-only queries (best bid and ask, level quantity, ...).
+ *   FeedBook adds what copying another exchange's book needs (phase 4): apply() for the four feed
+ *   inputs, and structure_holds().
  *
  * Why it exists: There will be two books, reference and fast, that must be interchangeable.
  *   Exchange<Book>, the typed tests and the benchmarks are written once, against this concept,
@@ -50,6 +52,20 @@ concept OrderBook =
         { cbook.order_count() } -> std::same_as<std::size_t>;
         { cbook.resting_ids() } -> std::same_as<std::vector<OrderId>>;
         { cbook.invariants_hold() } -> std::same_as<bool>;
+    };
+
+// A book that can also copy another exchange's book from its feed (ITCH design §6.1).
+// structure_holds() is invariants_hold() without "not crossed": a copy must accept whatever the
+// exchange's book looked like, crossed or not.
+template <typename B>
+concept FeedBook =
+    OrderBook<B> && requires(B &book, const B &cbook, const FeedAdd &add, const FeedReduce &reduce,
+                             const FeedRemove &remove, const FeedReplace &replace) {
+        { book.apply(add) } -> std::same_as<FeedResult>;
+        { book.apply(reduce) } -> std::same_as<FeedResult>;
+        { book.apply(remove) } -> std::same_as<FeedResult>;
+        { book.apply(replace) } -> std::same_as<FeedResult>;
+        { cbook.structure_holds() } -> std::same_as<bool>;
     };
 
 } // namespace nanobook

@@ -4,7 +4,9 @@
  *
  * What it does: Exactly what the reference book does, event for event: price-time matching for
  *   Limit, Market, IOC and FOK orders, Cancel, Modify and self-match prevention, following the
- *   same contract (docs/design.md). The differential fuzzer and the typed tests check that.
+ *   same contract (docs/design.md). The differential fuzzer and the typed tests check that. As a
+ *   copy of another exchange's book (phase 4) it applies feed inputs instead: add without
+ *   matching, reduce, remove, replace (ITCH design §6.1), again exactly like the reference book.
  *
  * Why it exists: The reference book allocates about twice per added order and scatters its data
  *   across memory. This book keeps every order in a pool allocated once (OrderPool), links each
@@ -65,6 +67,13 @@ public:
     void handle(const Cancel &cancel, EventBuffer &out);
     void handle(const Modify &modify, EventBuffer &out);
 
+    // Feed inputs (ITCH design §6.1): copy another exchange's book. Never match, emit no events;
+    // anything but Ok leaves the book unchanged.
+    [[nodiscard]] FeedResult apply(const FeedAdd &add);
+    [[nodiscard]] FeedResult apply(const FeedReduce &reduce);
+    [[nodiscard]] FeedResult apply(const FeedRemove &remove);
+    [[nodiscard]] FeedResult apply(const FeedReplace &replace);
+
     // Read-only queries, for tests and invariant checks.
     [[nodiscard]] std::optional<Price> best_bid() const {
         const Level *level = levels_.best(Side::Buy);
@@ -88,6 +97,7 @@ public:
     }
     [[nodiscard]] std::vector<OrderId> resting_ids() const; // ascending
     [[nodiscard]] bool invariants_hold() const;             // fast-book design §8.5
+    [[nodiscard]] bool structure_holds() const;             // the same, minus "not crossed"
 
 private:
     // Small rule helpers. Written again here, not shared with the reference book (see above).
@@ -116,6 +126,7 @@ private:
     Qty match(OrderId aggressor, OwnerId owner, Side side, Price limit, Qty qty, EventBuffer &out);
     void link_into_level(std::uint32_t slot);
     void remove_resting(Level &level, std::uint32_t slot);
+    void remove_and_tidy(std::uint32_t slot);
 
     BookConfig config_;
     OrderPool pool_;
@@ -248,6 +259,103 @@ void BasicFastBook<Levels>::handle(const Modify &modify, EventBuffer &out) {
     order.leaves = remaining;
     order.filled = modify.new_total_qty - remaining;
     link_into_level(slot); // the back of the new price's queue
+}
+
+// ---------------------------------------------------------------------------
+// Feed inputs (ITCH design §6.1): the same checks, in the same order, as the reference book.
+// ---------------------------------------------------------------------------
+
+template <typename Levels> FeedResult BasicFastBook<Levels>::apply(const FeedAdd &add) {
+    if (add.qty <= Qty{0} || add.qty > config_.max_qty) {
+        return FeedResult::InvalidQty;
+    }
+    if (!config_.in_band(add.price)) {
+        return FeedResult::InvalidPrice; // also keeps TickLevels' array index in range
+    }
+    if (ids_.find(add.id) != kNone) {
+        return FeedResult::DuplicateOrder;
+    }
+    if (pool_.full()) {
+        return FeedResult::BookFull;
+    }
+    // No matching, even if the price crosses: the other exchange has already matched.
+    const std::uint32_t slot = pool_.acquire();
+    Order &order = pool_[slot];
+    order.id = add.id;
+    order.leaves = add.qty;
+    order.filled = Qty{0};
+    order.price = add.price;
+    order.owner = OwnerId{};
+    order.side = add.side;
+    link_into_level(slot);
+    ids_.insert(add.id, slot);
+    return FeedResult::Ok;
+}
+
+template <typename Levels> FeedResult BasicFastBook<Levels>::apply(const FeedReduce &reduce) {
+    const std::uint32_t slot = ids_.find(reduce.id);
+    if (slot == kNone) {
+        return FeedResult::UnknownOrder;
+    }
+    if (reduce.qty <= Qty{0}) {
+        return FeedResult::InvalidQty;
+    }
+    Order &order = pool_[slot];
+    if (reduce.qty > order.leaves) {
+        return FeedResult::ReduceTooLarge;
+    }
+    if (reduce.qty == order.leaves) {
+        remove_and_tidy(slot); // nothing left: it leaves the book
+        return FeedResult::Ok;
+    }
+    Level *level = levels_.find(order.side, order.price);
+    assert(level != nullptr);
+    order.leaves -= reduce.qty; // smaller, same place in the queue
+    level->total -= reduce.qty;
+    return FeedResult::Ok;
+}
+
+template <typename Levels> FeedResult BasicFastBook<Levels>::apply(const FeedRemove &remove) {
+    const std::uint32_t slot = ids_.find(remove.id);
+    if (slot == kNone) {
+        return FeedResult::UnknownOrder;
+    }
+    remove_and_tidy(slot);
+    return FeedResult::Ok;
+}
+
+template <typename Levels> FeedResult BasicFastBook<Levels>::apply(const FeedReplace &replace) {
+    const std::uint32_t slot = ids_.find(replace.old_id);
+    if (slot == kNone) {
+        return FeedResult::UnknownOrder;
+    }
+    if (replace.qty <= Qty{0} || replace.qty > config_.max_qty) {
+        return FeedResult::InvalidQty;
+    }
+    if (!config_.in_band(replace.price)) {
+        return FeedResult::InvalidPrice;
+    }
+    if (replace.new_id != replace.old_id && ids_.find(replace.new_id) != kNone) {
+        return FeedResult::DuplicateOrder;
+    }
+    // Take the order off its level but keep its slot (as Modify does), then put it back as the
+    // new order: same side (ITCH spec), new id, price and qty, at the back of the queue.
+    Order &order = pool_[slot]; // the pool never resizes, so this reference stays valid
+    Level *level = levels_.find(order.side, order.price);
+    assert(level != nullptr);
+    level->total -= order.leaves;
+    level->queue.unlink(pool_, slot);
+    if (level->queue.empty()) {
+        levels_.erase(order.side, order.price);
+    }
+    ids_.erase(replace.old_id);
+    order.id = replace.new_id;
+    order.price = replace.price;
+    order.leaves = replace.qty;
+    order.filled = Qty{0};
+    link_into_level(slot);
+    ids_.insert(replace.new_id, slot);
+    return FeedResult::Ok;
 }
 
 // ---------------------------------------------------------------------------
@@ -384,6 +492,18 @@ void BasicFastBook<Levels>::remove_resting(Level &level, std::uint32_t slot) {
     pool_.release(slot);
 }
 
+// remove_resting(), then removes the level if that left it empty.
+template <typename Levels> void BasicFastBook<Levels>::remove_and_tidy(std::uint32_t slot) {
+    const Side side = pool_[slot].side; // copies: remove_resting() frees the slot
+    const Price price = pool_[slot].price;
+    Level *level = levels_.find(side, price);
+    assert(level != nullptr);
+    remove_resting(*level, slot);
+    if (level->queue.empty()) {
+        levels_.erase(side, price); // no empty levels (design §9)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Queries
 // ---------------------------------------------------------------------------
@@ -422,7 +542,12 @@ template <typename Levels> bool BasicFastBook<Levels>::invariants_hold() const {
     if (bid && ask && !(*bid < *ask)) {
         return false; // crossed
     }
+    return structure_holds();
+}
 
+// Every invariant except "not crossed". A copy of another exchange's book must accept a crossed
+// book if that exchange's book was crossed (ITCH design §8.1).
+template <typename Levels> bool BasicFastBook<Levels>::structure_holds() const {
     std::size_t queued = 0;
     bool ok = true;
     for (const Side side : {Side::Buy, Side::Sell}) {
@@ -471,7 +596,7 @@ using FastBook = fast::BasicFastBook<fast::SortedLevels>;
 // The tick-array experiment (design §6.2): same book, levels in a tick array. Narrow bands only.
 using TickFastBook = fast::BasicFastBook<fast::TickLevels>;
 
-static_assert(OrderBook<FastBook>);
-static_assert(OrderBook<TickFastBook>);
+static_assert(FeedBook<FastBook>);
+static_assert(FeedBook<TickFastBook>);
 
 } // namespace nanobook

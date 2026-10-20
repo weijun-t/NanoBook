@@ -2,7 +2,8 @@
  * reference_book.cpp: how the reference book handles each input.
  *
  * What it does: Implements handle() for NewOrder, Cancel and Modify, the matching loop, the checks
- *   (in the order the contract fixes), and the queries and invariant check the tests use.
+ *   (in the order the contract fixes), apply() for the four feed inputs, and the queries and
+ *   invariant checks the tests use.
  *
  * How it works: handle(NewOrder) = validate, emit New, FOK look-first, match, then rest the
  *   remainder (Limit) or cancel it (IOC, Market). match_against() is one loop for both sides,
@@ -189,6 +190,90 @@ void ReferenceBook::handle(const Modify &modify, EventBuffer &out) {
                    .filled = modify.new_total_qty - remaining,
                    .seq = next_seq_++});
     }
+}
+
+// ---------------------------------------------------------------------------
+// Feed inputs (ITCH design §6.1). Every check comes before any change, so a failed input leaves
+// the book untouched. The order of the checks is part of the contract: both books follow it.
+// ---------------------------------------------------------------------------
+
+FeedResult ReferenceBook::apply(const FeedAdd &add) {
+    if (add.qty <= Qty{0} || add.qty > config_.max_qty) {
+        return FeedResult::InvalidQty;
+    }
+    if (!config_.in_band(add.price)) {
+        return FeedResult::InvalidPrice;
+    }
+    if (orders_.contains(add.id)) {
+        return FeedResult::DuplicateOrder;
+    }
+    if (orders_.size() >= config_.max_orders) {
+        return FeedResult::BookFull;
+    }
+    // No matching, even if the price crosses: the other exchange has already matched.
+    rest(Order{.id = add.id,
+               .owner = OwnerId{},
+               .side = add.side,
+               .price = add.price,
+               .total = add.qty,
+               .filled = Qty{0},
+               .seq = next_seq_++});
+    return FeedResult::Ok;
+}
+
+FeedResult ReferenceBook::apply(const FeedReduce &reduce) {
+    const auto found = orders_.find(reduce.id);
+    if (found == orders_.end()) {
+        return FeedResult::UnknownOrder;
+    }
+    if (reduce.qty <= Qty{0}) {
+        return FeedResult::InvalidQty;
+    }
+    Order &order = *found->second.it;
+    if (reduce.qty > order.leaves()) {
+        return FeedResult::ReduceTooLarge;
+    }
+    if (reduce.qty == order.leaves()) {
+        unlink(found); // nothing left: it leaves the book
+    } else {
+        order.total -= reduce.qty; // smaller, same place in the queue
+    }
+    return FeedResult::Ok;
+}
+
+FeedResult ReferenceBook::apply(const FeedRemove &remove) {
+    const auto found = orders_.find(remove.id);
+    if (found == orders_.end()) {
+        return FeedResult::UnknownOrder;
+    }
+    unlink(found);
+    return FeedResult::Ok;
+}
+
+FeedResult ReferenceBook::apply(const FeedReplace &replace) {
+    const auto found = orders_.find(replace.old_id);
+    if (found == orders_.end()) {
+        return FeedResult::UnknownOrder;
+    }
+    if (replace.qty <= Qty{0} || replace.qty > config_.max_qty) {
+        return FeedResult::InvalidQty;
+    }
+    if (!config_.in_band(replace.price)) {
+        return FeedResult::InvalidPrice;
+    }
+    if (replace.new_id != replace.old_id && orders_.contains(replace.new_id)) {
+        return FeedResult::DuplicateOrder;
+    }
+    const Side side = found->second.side; // a replace keeps the side (ITCH spec)
+    unlink(found);                        // frees a place, so this can't be BookFull
+    rest(Order{.id = replace.new_id,
+               .owner = OwnerId{},
+               .side = side,
+               .price = replace.price,
+               .total = replace.qty,
+               .filled = Qty{0},
+               .seq = next_seq_++}); // the back of the queue: it lost its time priority
+    return FeedResult::Ok;
 }
 
 // ---------------------------------------------------------------------------
@@ -419,7 +504,12 @@ bool ReferenceBook::invariants_hold() const {
     if (!bids_.empty() && !asks_.empty() && !(bids_.begin()->first < asks_.begin()->first)) {
         return false;
     }
+    return structure_holds();
+}
 
+// Every invariant except "not crossed" (design §9 2-6). A copy of another exchange's book must
+// accept a crossed book if that exchange's book was crossed (ITCH design §8.1).
+bool ReferenceBook::structure_holds() const {
     std::size_t orders_in_levels = 0;
     const auto check_side = [&](const auto &levels, Side side) {
         for (const auto &[price, queue] : levels) {

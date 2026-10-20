@@ -4,7 +4,8 @@
  * What it does: Holds the resting orders for one stock and matches incoming orders by price-time
  *   priority: best price first, oldest first within a price, trading at the resting order's
  *   price. Supports Limit, Market, IOC and FOK orders, Cancel and Modify, with self-match
- *   prevention.
+ *   prevention. As a copy of another exchange's book (phase 4) it applies feed inputs instead:
+ *   add without matching, reduce, remove, replace.
  *
  * Why it exists: It is the answer key. The phase 2 fast book is checked against it on millions of
  *   random inputs, so it is written for clarity, not speed, and may allocate freely.
@@ -54,6 +55,13 @@ public:
     void handle(const Cancel &cancel, EventBuffer &out);
     void handle(const Modify &modify, EventBuffer &out);
 
+    // Feed inputs (ITCH design §6.1): copy another exchange's book. Never match, emit no events;
+    // anything but Ok leaves the book unchanged.
+    [[nodiscard]] FeedResult apply(const FeedAdd &add);
+    [[nodiscard]] FeedResult apply(const FeedReduce &reduce);
+    [[nodiscard]] FeedResult apply(const FeedRemove &remove);
+    [[nodiscard]] FeedResult apply(const FeedReplace &replace);
+
     // Read-only queries, for tests and invariant checks.
     [[nodiscard]] std::optional<Price> best_bid() const;
     [[nodiscard]] std::optional<Price> best_ask() const;
@@ -63,6 +71,7 @@ public:
     [[nodiscard]] std::size_t order_count() const;             // resting orders
     [[nodiscard]] std::vector<OrderId> resting_ids() const;    // ascending; for invariant checks
     [[nodiscard]] bool invariants_hold() const;                // design §9
+    [[nodiscard]] bool structure_holds() const;                // design §9 minus "not crossed"
 
 private:
     struct Order {
@@ -119,5 +128,6 @@ private:
 
 // Proves at compile time that the reference book meets the contract (design §11).
 static_assert(OrderBook<ReferenceBook>);
+static_assert(FeedBook<ReferenceBook>);
 
 } // namespace nanobook

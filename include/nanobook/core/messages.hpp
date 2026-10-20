@@ -4,6 +4,8 @@
  * What it does: Inputs: OrderRequest (trader to exchange, no id), NewOrder (exchange to book, with
  *   the assigned id), Cancel and Modify. Output: Event, the "receipt" for what happened: New,
  *   Trade, Canceled, Replaced or Rejected, with a reason. The names follow the FIX protocol.
+ *   Feed inputs (FeedAdd, FeedReduce, FeedRemove, FeedReplace) and FeedResult, for a book that
+ *   copies another exchange's book from its feed (phase 4, ITCH design §6.1).
  *
  * Why it exists: It is the contract between the engine and the outside world. The fast book must
  *   produce exactly the same events as the reference book, so events must be easy to compare.
@@ -73,6 +75,46 @@ struct Modify {
 static_assert(sizeof(OrderRequest) == 24 && std::is_trivially_copyable_v<OrderRequest>);
 static_assert(sizeof(NewOrder) == 32 && std::is_trivially_copyable_v<NewOrder>);
 static_assert(sizeof(Cancel) == 16 && std::is_trivially_copyable_v<Cancel>);
+
+// ---------------------------------------------------------------------------
+// Feed inputs (ITCH design §6.1): a book copying another exchange's book. The exchange has
+// already matched, so these never match; the ids are the exchange's. A book is used either
+// through handle() (as our exchange) or through apply() (as a copy), never both.
+// ---------------------------------------------------------------------------
+
+struct FeedAdd { // ITCH A, F: rest at the back of the queue, even if the price crosses
+    OrderId id{};
+    Side side{Side::Buy};
+    Price price{};
+    Qty qty{};
+};
+
+struct FeedReduce { // ITCH E, C, X: take qty off; keeps its place; removed at 0
+    OrderId id{};
+    Qty qty{};
+};
+
+struct FeedRemove { // ITCH D
+    OrderId id{};
+};
+
+struct FeedReplace { // ITCH U: remove old_id, add new_id on the same side, at the back
+    OrderId old_id{};
+    OrderId new_id{};
+    Price price{};
+    Qty qty{}; // the new total
+};
+
+// What apply() reports. Anything but Ok means the book was left exactly as it was.
+enum class FeedResult : std::uint8_t {
+    Ok,
+    UnknownOrder,   // the id isn't resting in this book
+    DuplicateOrder, // an add's id is already resting
+    InvalidQty,     // <= 0, or above the book's max_qty
+    InvalidPrice,   // outside the book's price band
+    ReduceTooLarge, // a reduce of more than is left
+    BookFull,
+};
 
 // ---------------------------------------------------------------------------
 // Events (design §4)

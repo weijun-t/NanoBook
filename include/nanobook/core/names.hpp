@@ -80,6 +80,26 @@ constexpr std::string_view name(CancelReason r) {
     return "?";
 }
 
+constexpr std::string_view name(FeedResult r) {
+    switch (r) {
+    case FeedResult::Ok:
+        return "Ok";
+    case FeedResult::UnknownOrder:
+        return "UnknownOrder";
+    case FeedResult::DuplicateOrder:
+        return "DuplicateOrder";
+    case FeedResult::InvalidQty:
+        return "InvalidQty";
+    case FeedResult::InvalidPrice:
+        return "InvalidPrice";
+    case FeedResult::ReduceTooLarge:
+        return "ReduceTooLarge";
+    case FeedResult::BookFull:
+        return "BookFull";
+    }
+    return "?";
+}
+
 constexpr std::string_view name(RejectReason r) {
     switch (r) {
     case RejectReason::None:

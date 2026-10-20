@@ -4,7 +4,8 @@
  * What it does: First checks the allocation counter on code whose allocations are known (one new
  *   counts 1, none counts 0). Then points it at engine code: the EventBuffer, the fast book's
  *   parts, and the whole fast book (100,000 random operations after a warm-up) must never allocate
- *   after construction, and the reference book, which may allocate, must be seen allocating.
+ *   after construction, and the reference book, which may allocate, must be seen allocating. The
+ *   fast books must not allocate while applying 100,000 random feed inputs either (phase 4).
  *   Finally the latency harness's timing loop and recorder must not allocate either, and no
  *   scenario may allocate while it times a fast book (phase 3).
  *
@@ -19,6 +20,7 @@
 #include <gtest/gtest.h>
 #include "alloc_counter.hpp"
 #include "differential_fuzz.hpp"
+#include "feed_fuzz.hpp"
 #include "latency_recorder.hpp"
 #include "latency_scenarios.hpp"
 #include "nanobook/fast/fast_book.hpp"
@@ -194,6 +196,30 @@ TEST(ZeroAlloc, FastBookNeverAllocatesWhileTrading) {
 
 TEST(ZeroAlloc, TickFastBookNeverAllocatesWhileTrading) {
     EXPECT_EQ(allocations_while_trading<TickFastBook>(2000), 0U);
+}
+
+// Phase 4: copying a book from a feed (add, reduce, remove, replace) must not allocate either. The
+// inputs are made first; only applying them is counted. max_orders 64 with 128 ids keeps the book
+// often full, so BookFull and every other failure path run too.
+template <typename Book> std::uint64_t allocations_while_applying_the_feed() {
+    const BookConfig config{
+        .min_price = Price{1}, .max_price = Price{1000}, .max_orders = 64, .max_qty = Qty{100}};
+    Book book{config};
+    const std::vector<support::FeedInput> inputs = support::random_feed({.count = 100'000});
+    std::uint64_t ok = 0;
+    const std::uint64_t n = allocations_during([&] {
+        for (const support::FeedInput &input : inputs) {
+            ok += support::apply(book, input) == FeedResult::Ok ? 1U : 0U;
+        }
+    });
+    EXPECT_GT(ok, 10'000U); // most of the work really happened
+    EXPECT_TRUE(book.structure_holds());
+    return n;
+}
+
+TEST(ZeroAlloc, FastBooksNeverAllocateWhileApplyingTheFeed) {
+    EXPECT_EQ(allocations_while_applying_the_feed<FastBook>(), 0U);
+    EXPECT_EQ(allocations_while_applying_the_feed<TickFastBook>(), 0U);
 }
 
 // The reference book is allowed to allocate (it uses std::map and std::list). This proves the tool

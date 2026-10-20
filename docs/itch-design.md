@@ -5,7 +5,8 @@
 > size the books, 1 GiB windows, histogram plus a raw subset, an encoder for the golden test, the
 > file downloaded now on WSL2. Items marked **[MEASURE]** are settled by a measurement in the step
 > named. Step 1 (2026-10-20): the file's size, framing and contents measured (§2, §3.1, §3.5, §9).
-> Step 2: the assembly check and the move to Clang 19 (§5). Phase 3 step 6 (the bare-metal
+> Step 2: the assembly check and the move to Clang 19 (§5).
+> Step 3: the feed operations as built: inputs, results, check order, `structure_holds()` (§6.1). Phase 3 step 6 (the bare-metal
 > run) is still open; phase 4's own published numbers come from the same Ubuntu session.
 
 Phases 1–3 built **the core of an exchange** and fed it orders we made up. Phase 4 plays the other
@@ -268,21 +269,35 @@ Cost: one pass over the file. Pre-faulting is cold path.
 
 ### 6.1 New book operations
 Our books' `NewOrder` *matches*, and `Modify` uses FIX's "new total" rule (design §7). Neither is
-what a feed means. So both books get **four feed operations**, written down as a second concept
-next to `OrderBook`:
+what a feed means. So both books get **four feed operations**, written down as a second concept,
+`FeedBook`, next to `OrderBook` (`include/nanobook/core/order_book.hpp`). As built in step 3:
 
-| Operation | From | Does | Must not |
+| Input (`core/messages.hpp`) | From | Does | Fails, in this order (book unchanged) |
 |---|---|---|---|
-| `add_resting(id, side, price, qty)` | `A`, `F`, `U` | Place the order at the back of its level, **without matching** | Match, even if the price crosses (Nasdaq didn't) |
-| `reduce(id, qty)` | `E`, `C`, `X` | Take `qty` off; remove the order if it reaches 0; keep its queue place otherwise | Go below 0 (that's a check failure, §8.1) |
-| `remove(id)` | `D`, `U` | Remove the order | — |
-| (Replace) | `U` | `remove(old)` then `add_resting(new, same side, new price, new qty)` | — |
+| `apply(FeedAdd{id, side, price, qty})` | `A`, `F` | Rest at the back of its level, **without matching**, even if the price crosses (Nasdaq already matched) | `InvalidQty`, `InvalidPrice`, `DuplicateOrder`, `BookFull` |
+| `apply(FeedReduce{id, qty})` | `E`, `C`, `X` | Take `qty` off, keeping the order's place; remove it at 0 | `UnknownOrder`, `InvalidQty`, `ReduceTooLarge` |
+| `apply(FeedRemove{id})` | `D` | Remove the order | `UnknownOrder` |
+| `apply(FeedReplace{old_id, new_id, price, qty})` | `U` | Remove the old order, rest the new one on the **same side**, at the back of its level | `UnknownOrder`, `InvalidQty`, `InvalidPrice`, `DuplicateOrder` |
+
+- Each returns a `FeedResult`: `Ok`, or why it failed. **Every check comes before any change**,
+  so a failed input leaves the book exactly as it was, and both books must report the same
+  result. Those results are what step 4's consistency checks count (§8.1).
+- **No events, no matching, no owner.** A reduce shrinks the order's total; `filled` stays 0,
+  because a copy never uses `Modify`'s "total including what traded" rule.
+- **Ids needn't increase**, unlike on our exchange (design §4): a copy takes them as the feed
+  gives them. A book is used either through `handle()` (as our exchange) or through `apply()`
+  (as a copy), never both.
+- **A crossed book is allowed.** `invariants_hold()` still means "a valid exchange book" (never
+  crossed). The new `structure_holds()` is every invariant except "not crossed", which is what a
+  copy must keep; whether Nasdaq's book is ever crossed is step 4's measurement (§8.1).
 
 Both the **reference book** and the **fast book** get them. That's what lets us run the
-differential check on real data (§8.2), the same way phase 2 proved the fast book.
+differential check on real data (§8.2), the same way phase 2 proved the fast book. Step 3 already
+runs it on 100,000 random feed inputs (`tests/test_feed.cpp`).
 
 The fast book reuses its pool, levels, intrusive queues and id table unchanged. Only the four
-entry points are new. The tick-array book needs a price band per stock (§7).
+entry points are new; a replace keeps the order's pool slot, as `Modify` does. The tick-array
+book needs a price band per stock (§7).
 
 ### 6.2 One book per stock
 The stock locate is already an array index (spec), so `books[locate]` finds the book with one
@@ -393,7 +408,7 @@ region (README §7.4).
 | 0 | This design note, decisions recorded | No |
 | 1 ✓ | Download one day; confirm the framing; count messages per type with a tiny throwaway scan (the uncompressed size, the message count). Done 2026-10-20 (§3.5) | Yes |
 | 2 ✓ | Parser + test encoder + parser tests. Done 2026-10-20, after moving Clang 18 → 19 (§5) | No |
-| 3 | Feed operations on both books + tests (incl. the zero-allocation test) | No |
+| 3 ✓ | Feed operations on both books + tests (incl. the zero-allocation test). Done 2026-10-20 (§6.1) | No |
 | 4 | Book builder + golden replay test; first full-day replay with checks; the crossed-book rule (§8.1) | Yes |
 | 5 | Differential replay reference vs fast on the full day | Yes |
 | 6 | mmap windows + pre-scan + `nanobook_replay` timing: messages/sec and per-message latency (WSL2, not for publishing) | Yes |

@@ -149,6 +149,7 @@ if(NANOBOOK_BUILD_TESTS)
         tests/test_book.cpp
         tests/test_exchange.cpp
         tests/test_fuzz.cpp
+        tests/test_feed.cpp
         tests/test_latency.cpp
         tests/test_latency_scenarios.cpp
         tests/fast/test_order_pool.cpp
