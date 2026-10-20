@@ -4,7 +4,8 @@
 > commit message. Decided (§13): the 30 Jan 2019 day, feed operations on both books, a pre-scan to
 > size the books, 1 GiB windows, histogram plus a raw subset, an encoder for the golden test, the
 > file downloaded now on WSL2. Items marked **[MEASURE]** are settled by a measurement in the step
-> named. Step 1 (2026-10-20): the file's size, framing and contents measured (§2, §3.1, §3.5, §9). Phase 3 step 6 (the bare-metal
+> named. Step 1 (2026-10-20): the file's size, framing and contents measured (§2, §3.1, §3.5, §9).
+> Step 2: the assembly check and the move to Clang 19 (§5). Phase 3 step 6 (the bare-metal
 > run) is still open; phase 4's own published numbers come from the same Ubuntu session.
 
 Phases 1–3 built **the core of an exchange** and fed it orders we made up. Phase 4 plays the other
@@ -246,9 +247,9 @@ Cost: one pass over the file. Pre-faulting is cold path.
 
 - **No `reinterpret_cast` of the buffer onto a struct.** That's undefined behaviour (strict
   aliasing, alignment; README §4). Each field is read with a small helper: `std::memcpy` into an
-  integer, then `std::byteswap`. The compiler turns that into one load plus one `bswap`
-  (**[MEASURE]** on Compiler Explorer in step 2). The 6-byte timestamp is read into a `uint64_t`
-  by hand.
+  integer, then `std::byteswap`. **Checked in step 2** (`-O2` assembly, GCC 14 and Clang 19): a
+  4- or 8-byte field is exactly one load plus one `bswap`. The 6-byte timestamp is read as 2 bytes
+  plus 4 bytes and combined: two loads, two swaps, a shift and an OR (7 instructions).
 - **"Zero-copy"** means the message bytes are never copied into a buffer or a string. Each field
   goes straight from the mapped file into a register, in a small decoded struct (`AddOrder`,
   `OrderExecuted`, ...).
@@ -257,7 +258,9 @@ Cost: one pass over the file. Pre-faulting is cold path.
   all use the same parser at zero cost.
 - **Bad input:** a length that runs past the end of the file, or doesn't match the type's fixed
   length, is reported and stops the replay. The parser never reads past the buffer. Errors use
-  `std::expected` (cold path).
+  `std::expected` (cold path). That needs **Clang 19**: with GCC 14's standard library, Clang 18
+  doesn't get `std::expected` at all (it reports C++20 concepts as `201907`, and the library wants
+  `202002`), so the project moved from Clang 18 to 19 before step 2.
 
 ---
 
@@ -389,7 +392,7 @@ region (README §7.4).
 |---|---|---|
 | 0 | This design note, decisions recorded | No |
 | 1 ✓ | Download one day; confirm the framing; count messages per type with a tiny throwaway scan (the uncompressed size, the message count). Done 2026-10-20 (§3.5) | Yes |
-| 2 | Parser + test encoder + parser tests | No |
+| 2 ✓ | Parser + test encoder + parser tests. Done 2026-10-20, after moving Clang 18 → 19 (§5) | No |
 | 3 | Feed operations on both books + tests (incl. the zero-allocation test) | No |
 | 4 | Book builder + golden replay test; first full-day replay with checks; the crossed-book rule (§8.1) | Yes |
 | 5 | Differential replay reference vs fast on the full day | Yes |
