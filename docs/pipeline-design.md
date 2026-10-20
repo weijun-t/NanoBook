@@ -3,7 +3,7 @@
 > **Status:** approved (2026-10-20): every decision in §12 as proposed. Changes from here on are
 > made by an edit plus a note in the commit message. Items marked **[MEASURE]** are settled by a
 > measurement in the step named. Step 1 (2026-10-20): the assembly check and the planted
-> relaxed-store bug (§3.3, §8).
+> relaxed-store bug (§3.3, §8). Step 2: the record layouts as built (§4).
 
 Phases 1–4 ran everything on **one thread**: read a message, apply it to the book, then the next.
 Phase 5 splits that work into **three stages on three threads**, connected by **lock-free
@@ -208,9 +208,12 @@ how full the rings get.
 | `FeedRecord` | 1 | kind (A, F, E, C, X, D, U, R, H, S, End), locate, side, ITCH timestamp, order ref, new ref, shares, price, symbol/state, `sent` (TSC ticks: when it was ready to send) | at most 64 bytes, `static_assert`ed |
 | `TopOfBook` | 2 | locate, sequence number, ITCH timestamp, best bid price and qty, best ask price and qty, `sent` (copied from the record) | 64 bytes (58 of fields), `static_assert`ed |
 
-Both are trivially copyable, so a push is one cache line's copy; the exact `FeedRecord` layout is
-**[MEASURE, step 2]** (an R message's 8-character symbol can share the space of the order refs,
-which it doesn't have). `sent` travels with the record so C can
+Both are trivially copyable, so a push is one cache line's copy. **As built (step 2):**
+`FeedRecord` is **48 bytes** (four 8-byte fields, two 4-byte, then locate, kind and side): an R's
+8-character symbol travels in `ref`, an F's attribution in `new_ref`, an S's event code and an H's
+trading state in `side`. Only what the book builder reads crosses: an add's stock name and an
+execution's match number and price stay behind. `TopOfBook` is **64 bytes**. The ITCH messages
+the books never use (P, Q, I, ...) are counted by the feed and not sent. `sent` travels with the record so C can
 compute the end-to-end latency (§9).
 
 ---
@@ -329,7 +332,7 @@ one core), so two stages never share one core's caches and execution units.
 |---|---|---|
 | 0 | This design note, decisions recorded | No |
 | 1 ✓ | `SpscRing` + one- and two-thread tests + TSan in CI; the assembly check (§3.3); `nanobook_ringbench` (throughput and round trip of one ring; run in step 4's session). Built 2026-10-20 | No |
-| 2 | Records and the three stages; pipeline = single thread on the golden day; shutdown; zero allocations | No |
+| 2 ✓ | Records and the three stages (`records.hpp`, `stages.hpp`); pipeline = single thread on the golden day and on a busy day with 2-record rings; shutdown; zero allocations. Built 2026-10-20 | No |
 | 3 | Binary log + `nanobook_logdump`; byte-identical log against a single-threaded run, on the full day | Yes |
 | 4 | `nanobook_pipeline`: unpaced throughput, paced latency at several rates, on an idle laptop (WSL2, not for publishing) | Yes |
 | 5 | Phase 5 report; published numbers later, on bare metal, with phases 3 and 4 | Yes |

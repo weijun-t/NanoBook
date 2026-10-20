@@ -4,6 +4,8 @@
  * What it does: golden_day() writes the day's bytes with the test encoder (itch_encoder.hpp):
  *   two stocks, every kind of message, deliberate errors, and two crossed moments. The comment
  *   above it says what the books must look like at the end. add() builds an AddOrder in one line.
+ *   busy_day(n) writes a bigger, regular day (3 stocks, n adds with executions, deletes and
+ *   replaces) for tests that need volume rather than hand-checked outcomes.
  *
  * Why it exists: The golden replay test (tests/itch/test_book_builder.cpp, ITCH design §8.3)
  *   checks every number it produces, and the differential replay test
@@ -105,6 +107,49 @@ inline std::vector<std::byte> golden_day() {
     w.system_event({.locate = 0, .timestamp = ++t, .event_code = 'M'});
     w.system_event({.locate = 0, .timestamp = ++t, .event_code = 'E'});
     w.system_event({.locate = 0, .timestamp = ++t, .event_code = 'C'});
+    const std::span<const std::byte> bytes = w.bytes();
+    return {bytes.begin(), bytes.end()};
+}
+
+// 3 stocks (locates 1-3, "B", "C", "D"), `adds` orders, and for every 4th add an execution of
+// an older order, a delete of another and a replace of a third. Every input is valid, so every
+// order message is applied (the zero-allocation and pipeline tests rely on that).
+inline std::vector<std::byte> busy_day(std::uint64_t adds) {
+    Writer w;
+    for (std::uint16_t locate = 1; locate <= 3; ++locate) {
+        w.stock_directory(
+            {.locate = locate,
+             .timestamp = 1,
+             .stock = {static_cast<char>('A' + locate), ' ', ' ', ' ', ' ', ' ', ' ', ' '}});
+    }
+    for (std::uint64_t ref = 1; ref <= adds; ++ref) {
+        const auto locate = static_cast<std::uint16_t>(1 + ref % 3);
+        const auto price = static_cast<std::uint32_t>(100'000 + (ref % 50) * 100);
+        w.add_order({.locate = locate,
+                     .timestamp = ref,
+                     .order_ref = ref,
+                     .side = ref % 2 == 0 ? 'B' : 'S',
+                     .shares = 100,
+                     .stock = {},
+                     .price = price,
+                     .attribution = {}});
+        if (ref % 4 == 0) { // execute part of an older order, delete another, replace a third
+            w.executed({.locate = locate,
+                        .timestamp = ref,
+                        .order_ref = ref - 3,
+                        .executed_shares = 40,
+                        .match_number = ref});
+            w.delete_order({.locate = static_cast<std::uint16_t>(1 + (ref - 2) % 3),
+                            .timestamp = ref,
+                            .order_ref = ref - 2});
+            w.replace({.locate = static_cast<std::uint16_t>(1 + (ref - 1) % 3),
+                       .timestamp = ref,
+                       .original_order_ref = ref - 1,
+                       .new_order_ref = 1'000'000 + ref,
+                       .shares = 50,
+                       .price = price});
+        }
+    }
     const std::span<const std::byte> bytes = w.bytes();
     return {bytes.begin(), bytes.end()};
 }
