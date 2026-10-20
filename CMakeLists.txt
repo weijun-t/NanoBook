@@ -160,6 +160,8 @@ if(NANOBOOK_BUILD_TESTS)
         tests/itch/test_parser.cpp
         tests/itch/test_book_builder.cpp
         tests/itch/test_replay_comparison.cpp
+        tests/itch/test_itch_timing.cpp
+        tests/itch/test_itch_flow.cpp
     )
     target_link_libraries(nanobook_tests PRIVATE nanobook nanobook_testing GTest::gtest_main)
     nanobook_configure_target(nanobook_tests)
@@ -186,6 +188,7 @@ if(NANOBOOK_BUILD_TESTS)
     add_executable(nanobook_replay tools/nanobook_replay.cpp)
     target_link_libraries(nanobook_replay PRIVATE nanobook nanobook_testing)
     nanobook_configure_target(nanobook_replay)
+    nanobook_uses_environment(nanobook_replay)
 endif()
 
 # ---------------------------------------------------------------------------

@@ -91,6 +91,13 @@ public:
     [[nodiscard]] std::vector<OrderId> level_orders(Side side, Price price) const;
     // Up to max_levels levels, best first: (price, cached total qty).
     [[nodiscard]] std::vector<std::pair<Price, Qty>> depth(Side side, std::size_t max_levels) const;
+    // How many levels a new or vanishing level at `price` shifts (SortedLevels only: a tick array
+    // shifts nothing). For the real-flow analysis (ITCH design step 6), not the hot path.
+    [[nodiscard]] std::size_t levels_better_than(Side side, Price price) const
+        requires requires(const Levels &levels) { levels.better_than(side, price); }
+    {
+        return levels_.better_than(side, price);
+    }
     [[nodiscard]] std::optional<Qty> leaves(OrderId id) const {
         const std::uint32_t slot = ids_.find(id);
         return slot == kNone ? std::nullopt : std::optional<Qty>{pool_[slot].leaves};

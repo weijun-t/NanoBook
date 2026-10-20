@@ -1,36 +1,44 @@
 /*
  * nanobook_replay.cpp: replays a full ITCH 5.0 day into one book per stock and reports it.
  *
- * What it does: Reads an uncompressed ITCH file, counts what each stock needs, sizes every book,
- *   replays the whole day into FastBook books through the book builder, and prints: messages by
- *   type, the result of every order message (Ok, UnknownOrder, ...), crossed books, the biggest
- *   books, and the top levels of one stock. Exit code 0 means the day replayed (anomalies are
- *   reported, not fatal), 1 a bad file, a broken book structure, a book crossed while its
- *   stock was trading (design §8.1) or (--differential) a difference between the reference and
- *   fast books, 2 bad arguments.
+ * What it does: Two kinds of run.
+ *   - Correctness (the default): counts what each stock needs, sizes every book, replays the
+ *     whole day into FastBook books through the book builder, and prints messages by type, the
+ *     result of every order message (Ok, UnknownOrder, ...), crossed books, the biggest books and
+ *     the top levels of one stock. --check, --structure-every and --differential add the checks
+ *     of ITCH design §8.1 and §8.2; --until stops at a time of day; --flow counts how many price
+ *     levels each new or vanishing level shifts in the sorted array, and how far new orders are
+ *     from the best price (support/itch_flow.hpp, step 6).
+ *   - Timing (--throughput, --latency; step 6, design §9): messages per second for the parser
+ *     alone and for parser + FastBook, and the latency of every Nth order message by kind, with
+ *     the environment block and CSV files of the phase 3 harness.
+ *   Exit code: 0 the day replayed (anomalies are reported, not fatal); 1 a bad file, a broken
+ *   book structure, a book crossed while its stock was trading (design §8.1) or (--differential)
+ *   a difference between the reference and fast books; 2 bad arguments; 3 no usable timer.
  *     nanobook_replay FILE [--symbol AAPL] [--depth N] [--until HH:MM:SS] [--check]
- *                     [--structure-every N] [--differential]
+ *                     [--structure-every N] [--differential] [--flow]
+ *     nanobook_replay FILE [--throughput] [--latency] [--every N] [--window-mb N] [--core C]
+ *                     [--csv FILE.csv]
  *
- * Why it exists: Phase 4's exit criteria (ITCH design §1): a full day replays and the
- *   consistency checks pass. This is the minimal version (step 4b); step 6 adds pre-faulted
- *   windows and timing, and the CSV output.
+ * Why it exists: Phase 4's exit criteria (ITCH design §1): a full day replays, the consistency
+ *   checks pass, and messages per second and per-message latency are reported.
  *
- * How it works: mmap the file read-only, then three steps, each timed with the system clock:
- *   counting (day_stats.hpp), building the books (sizing.hpp), replaying (book_builder.hpp).
- *   --check watches every order message for a crossed book; --structure-every N also checks a
- *   book's structure every N order messages. --differential also replays into the reference book
- *   and compares the two copies as it goes (design §8.2, support/itch_replay_comparison.hpp): a
- *   quick check after every order message, the touched stock in full every million order
- *   messages, every stock in full at each System Event and at the end. --until stops the replay
- *   at a time of day, so the
- *   books can be seen mid-day (at the end of the day Nasdaq has deleted every order). Pages are
- * read from disk as needed, so the times include the disk: they are not benchmarks (that's step 6).
+ * How it works:
+ *   - Correctness: mmap the file read-only, then counting (day_stats.hpp), sizing and building the
+ *     books (sizing.hpp), replaying (book_builder.hpp), each timed with the system clock. Pages
+ *     are read from disk as needed, so those times include the disk: they are not benchmarks.
+ *   - Timing: the file is read in windows (support/itch_timing.hpp): each window's pages are
+ *     loaded before the clock starts and released after, so only parsing and book work are
+ *     timed, and memory stays near one window. Checks are off. The time-stamp counter is
+ *     calibrated, its own cost subtracted from every latency sample, and the environment printed
+ *     next to the numbers (rules 19, 20), as in nanobook_bench.
  *
  * Trade-offs: A tool, not the engine: it prints, allocates and reads the clock freely, all
- *   outside the replay loop.
+ *   outside the timed regions.
  */
 
 #include <fcntl.h>
+#include <sched.h>
 #include <sys/mman.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
@@ -42,7 +50,9 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cmath>
 #include <cstdio>
+#include <fstream>
 #include <expected>
 #include <iomanip>
 #include <iostream>
@@ -61,7 +71,12 @@
 #include "nanobook/itch/sizing.hpp"
 #include "nanobook/reference/reference_book.hpp"
 
-#include "itch_replay_comparison.hpp" // support/: test and tool code
+#include "environment.hpp" // support/: test and tool code
+#include "itch_flow.hpp"
+#include "itch_replay_comparison.hpp"
+#include "itch_timing.hpp"
+#include "latency_recorder.hpp"
+#include "tsc.hpp"
 
 namespace {
 
@@ -71,7 +86,10 @@ using Clock = std::chrono::steady_clock;
 
 constexpr std::string_view kUsage =
     "usage: nanobook_replay FILE [--symbol AAPL] [--depth N] [--until HH:MM:SS] [--check]\n"
-    "                       [--structure-every N] [--differential]\n";
+    "                       [--structure-every N] [--differential] [--flow]\n"
+    "       nanobook_replay FILE [--throughput] [--latency] [--every N] [--window-mb N] [--core "
+    "C]\n"
+    "                       [--csv FILE.csv]\n";
 
 struct Options {
     std::string file;
@@ -81,6 +99,14 @@ struct Options {
     bool check{false};
     std::uint64_t structure_every{0};
     bool differential{false}; // also replay into the reference book and compare (design §8.2)
+    bool flow{false};         // count level changes, their shifts, and distances from the best
+    // Timing (step 6)
+    bool throughput{false};
+    bool latency{false};
+    std::uint64_t every{8}; // --latency times every Nth order message (design §13 Q5)
+    std::size_t window_mb{1024};
+    int core{-1};
+    std::string csv;
 };
 
 // Reads a whole decimal number; false if `text` isn't one.
@@ -116,6 +142,14 @@ std::optional<Options> parse_args(int argc, char **argv) {
             o.differential = true;
             continue;
         }
+        if (arg == "--flow") {
+            o.flow = true;
+            continue;
+        }
+        if (arg == "--throughput" || arg == "--latency") {
+            (arg == "--throughput" ? o.throughput : o.latency) = true;
+            continue;
+        }
         if (!arg.starts_with("--")) {
             if (!o.file.empty()) {
                 return std::nullopt; // two files
@@ -138,6 +172,15 @@ std::optional<Options> parse_args(int argc, char **argv) {
         } else if (arg == "--structure-every") {
             ok = parse_number(value, o.structure_every);
             o.check = true;
+        } else if (arg == "--every") {
+            ok = parse_number(value, o.every) && o.every > 0;
+        } else if (arg == "--window-mb") {
+            ok = parse_number(value, o.window_mb) && o.window_mb > 0;
+        } else if (arg == "--core") {
+            ok = parse_number(value, o.core) && o.core >= 0;
+        } else if (arg == "--csv") {
+            o.csv = value;
+            ok = !o.csv.empty();
         }
         if (!ok) {
             return std::nullopt;
@@ -383,6 +426,298 @@ void print_depth(const FastBook &book, std::size_t depth) {
     }
 }
 
+// The flow analysis (support/itch_flow.hpp): levels created and removed by how many levels they
+// shifted, and new orders by distance from the best price.
+void print_flow(const FlowStats &s) {
+    const auto table = [](std::string_view what,
+                          const std::array<std::uint64_t, kShiftBuckets> &counts,
+                          std::uint64_t shifted) {
+        std::uint64_t total = 0;
+        for (const std::uint64_t n : counts) {
+            total += n;
+        }
+        std::cout << "\n"
+                  << what << ": " << total << ", shifting " << shifted << " levels in all ("
+                  << std::setprecision(1) << std::fixed << static_cast<double>(shifted) * 32 / 1e9
+                  << " GB moved at 32 bytes each)\n"
+                  << "  levels shifted        count   share  cumulative\n";
+        std::uint64_t so_far = 0;
+        for (std::size_t b = 0; b < counts.size(); ++b) {
+            if (counts[b] == 0) {
+                continue;
+            }
+            so_far += counts[b];
+            const std::uint64_t low = b == 0 ? 0 : std::uint64_t{1} << (b - 1);
+            const std::uint64_t high = b == 0 ? 0 : (std::uint64_t{1} << b) - 1;
+            const std::string range = low == high
+                                          ? std::to_string(low)
+                                          : std::to_string(low) + "-" + std::to_string(high);
+            std::cout << "  " << std::left << std::setw(16) << range << std::right << std::setw(12)
+                      << counts[b] << std::setw(7) << std::setprecision(2)
+                      << 100.0 * static_cast<double>(counts[b]) / static_cast<double>(total) << "%"
+                      << std::setw(10)
+                      << 100.0 * static_cast<double>(so_far) / static_cast<double>(total) << "%\n";
+        }
+    };
+    table("Price levels created", s.created, s.created_shifted);
+    table("Price levels removed", s.removed, s.removed_shifted);
+
+    constexpr std::array<std::string_view, kDistances> kNames{"side was empty", "improves the best",
+                                                              "at the best",    "behind by < $0.01",
+                                                              "< $0.10",        "< $1",
+                                                              "< $10",          "< $100",
+                                                              "$100 or more"};
+    std::uint64_t total = 0;
+    for (const std::uint64_t n : s.distance) {
+        total += n;
+    }
+    std::cout << "\nNew resting orders by distance from their side's best price: " << total << "\n";
+    for (std::size_t d = 0; d < kDistances; ++d) {
+        std::cout << "  " << std::left << std::setw(20) << kNames[d] << std::right << std::setw(12)
+                  << s.distance[d] << std::setw(7) << std::setprecision(2)
+                  << 100.0 * static_cast<double>(s.distance[d]) / static_cast<double>(total)
+                  << "%\n";
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Timing (step 6, ITCH design §9)
+// ---------------------------------------------------------------------------
+
+// Moves this program onto `core` and checks that it is running there (as nanobook_bench).
+bool pin_to_core(int core) {
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    CPU_SET(static_cast<std::size_t>(core), &set);
+    return sched_setaffinity(0, sizeof(set), &set) == 0 && sched_getcpu() == core;
+}
+
+// "out.csv" -> "out_histogram.csv", the pair nanobook_bench writes and plot_latency.py reads.
+std::string histogram_path(std::string_view csv) {
+    const std::string_view stem = csv.ends_with(".csv") ? csv.substr(0, csv.size() - 4) : csv;
+    return std::string{stem} + "_histogram.csv";
+}
+
+// The ITCH messages behind each tag (support/itch_timing.hpp).
+std::string_view itch_kinds(latency::Tag tag) {
+    switch (tag) {
+    case latency::Tag::Add:
+        return "A, F";
+    case latency::Tag::Match:
+        return "E, C";
+    case latency::Tag::Cancel:
+        return "D";
+    case latency::Tag::Modify:
+        return "X";
+    case latency::Tag::Replace:
+        return "U";
+    case latency::Tag::Reject:
+    case latency::Tag::Other:
+        break;
+    }
+    return "";
+}
+
+void print_ns(double ns) {
+    std::cout << std::setw(10) << std::fixed << std::setprecision(ns < 1'000 ? 1 : 0) << ns;
+}
+
+struct CsvRow {
+    std::string mode; // "throughput" or "latency"
+    std::string book; // "parse_only" or "FastBook"
+    std::string tag;
+    latency::Summary summary;
+};
+
+int run_timing(const Options &o, std::span<const std::byte> bytes) {
+    using namespace nanobook::latency;
+    const auto missing = missing_tsc_flags(read_cpu_flags());
+    if (!missing.empty()) {
+        std::cerr << "the time-stamp counter can't be used as a clock here\n";
+        return 3;
+    }
+    if (o.core >= 0 && !pin_to_core(o.core)) {
+        std::cerr << "could not pin to core " << o.core << "\n";
+        return 3;
+    }
+    const Environment env = collect_environment(o.core);
+    const Calibration calibration = calibrate();
+    const Overhead overhead = measure_overhead();
+    const double rate = calibration.ticks_per_ns;
+    const std::string banner = "*** NOT FOR PUBLISHING: " + env.unpublishable_reason() + " ***";
+    if (!env.publishable()) {
+        std::cout << banner << "\n";
+    }
+    for (const auto &[key, value] : env.lines()) {
+        std::cout << std::left << std::setw(17) << key << value << "\n";
+    }
+    std::cout << std::setw(17) << "pinned to core" << (o.core >= 0 ? std::to_string(o.core) : "no")
+              << "\n"
+              << std::setw(17) << "counter" << std::fixed << std::setprecision(4) << rate
+              << " ticks per ns\n"
+              << std::setw(17) << "timer overhead" << "min " << overhead.min
+              << " ticks (subtracted from every latency sample)\n"
+              << std::setw(17) << "windows" << o.window_mb
+              << " MiB, loaded before the clock starts\n"
+              << std::right;
+
+    const std::size_t window = o.window_mb << 20U;
+    const auto failed = [&](const auto &run, std::string_view pass) {
+        if (!run) {
+            std::cerr << pass << ": bad message at byte " << run.error().offset << "\n";
+            return true;
+        }
+        if (run->bytes != bytes.size()) {
+            std::cerr << pass << ": the file ends in the middle of a message\n";
+            return true;
+        }
+        return false;
+    };
+
+    // Counting and sizing (untimed; in windows too, so memory stays near one window).
+    DayCounter counter{1 << 22};
+    if (failed(replay_in_windows(bytes, window, counter), "counting")) {
+        return 1;
+    }
+    const std::vector<BookConfig> configs =
+        size_books(counter.directory(), counter.stats(), SizingRules{});
+
+    std::vector<CsvRow> rows;
+    std::vector<std::pair<std::string, Bucket>> histogram_rows;
+
+    if (o.throughput) {
+        ParseOnly parse_only;
+        const auto parsed = replay_in_windows(bytes, window, parse_only);
+        if (failed(parsed, "parse only")) {
+            return 1;
+        }
+        BookBuilder<FastBook> builder{configs, BuilderOptions{}};
+        const auto replayed = replay_in_windows(bytes, window, builder);
+        if (failed(replayed, "replay")) {
+            return 1;
+        }
+        const auto messages = static_cast<double>(parse_only.messages);
+        const double parse_ns = to_ns(parsed->timed_ticks, rate);
+        const double replay_ns = to_ns(replayed->timed_ticks, rate);
+        std::cout << "\nThroughput (checks off; " << parse_only.messages << " messages, "
+                  << replayed->windows << " windows; checksum " << parse_only.sum << ")\n"
+                  << std::setprecision(2) << "  parse only:        " << parse_ns / 1e9 << " s, "
+                  << std::setprecision(1) << parse_ns / messages << " ns per message, "
+                  << messages / parse_ns * 1e3 << " M messages/s\n"
+                  << std::setprecision(2) << "  parse + FastBook:  " << replay_ns / 1e9 << " s, "
+                  << std::setprecision(1) << replay_ns / messages << " ns per message, "
+                  << messages / replay_ns * 1e3 << " M messages/s\n"
+                  << "  the books' share:  " << (replay_ns - parse_ns) / messages
+                  << " ns per message (" << std::setprecision(0)
+                  << 100.0 * (replay_ns - parse_ns) / replay_ns << "% of the time)\n";
+        rows.push_back({"throughput", "parse_only", "all",
+                        Summary{.count = parse_only.messages, .mean_ns = parse_ns / messages}});
+        rows.push_back({"throughput", "FastBook", "all",
+                        Summary{.count = parse_only.messages, .mean_ns = replay_ns / messages}});
+    }
+
+    if (o.latency) {
+        // Room for every Nth of the most order messages the file could hold (21 bytes each).
+        Recorder recorder{bytes.size() / (kLengthPrefix + 19) / o.every + 1};
+        BookBuilder<FastBook> builder{configs, BuilderOptions{}};
+        TimedOrders timed{builder, recorder, o.every};
+        if (failed(replay_in_windows(bytes, window, timed), "latency")) {
+            return 1;
+        }
+        std::cout << "\nLatency of every " << o.every << "th order message, FastBook ("
+                  << recorder.size() << " samples; ns, timer overhead subtracted)\n"
+                  << "tag      ITCH       count       min       p50       p90       p99     p99.9"
+                     "    p99.99       max      mean\n";
+        std::vector<std::pair<std::string, std::optional<Tag>>> groups;
+        for (const Tag tag : kAllTags) {
+            if (std::ranges::find(recorder.tags(), tag) != recorder.tags().end()) {
+                groups.emplace_back(std::string{tag_name(tag)}, tag);
+            }
+        }
+        groups.emplace_back("all", std::nullopt);
+        for (const auto &[label, tag] : groups) {
+            const Summary s = summarize(recorder, overhead.min, rate, tag);
+            std::cout << std::left << std::setw(9) << label << std::setw(6)
+                      << (tag ? itch_kinds(*tag) : "") << std::right << std::setw(10) << s.count;
+            for (const double v : {s.min_ns, s.p50_ns, s.p90_ns, s.p99_ns, s.p999_ns}) {
+                print_ns(v);
+            }
+            if (s.count >= 1'000'000) { // p99.99 rests on at least 100 samples
+                print_ns(s.p9999_ns);
+            } else {
+                std::cout << std::setw(10) << "-";
+            }
+            print_ns(s.max_ns);
+            print_ns(s.mean_ns);
+            std::cout << "\n";
+            rows.push_back({"latency", "FastBook", label, s});
+            if (!o.csv.empty()) {
+                for (const Bucket &b :
+                     histogram(sorted_samples(recorder, overhead.min, tag), rate)) {
+                    histogram_rows.emplace_back(label, b);
+                }
+            }
+        }
+        std::cout << "  dropped (moved core) " << recorder.dropped() << ", clamped (too long) "
+                  << recorder.clamped() << ", refused (full) " << recorder.refused() << "\n";
+    }
+
+    const Calibration after = calibrate();
+    const double drift = (after.ticks_per_ns - rate) / rate;
+    std::cout << "\ncounter drift during the run: " << std::setprecision(3) << std::abs(drift) * 1e6
+              << " parts per million\n";
+
+    if (!o.csv.empty()) {
+        std::ofstream summary{o.csv};
+        std::ofstream hist{histogram_path(o.csv)};
+        if (!summary || !hist) {
+            std::cerr << "can't write " << o.csv << "\n";
+            return 2;
+        }
+        for (std::ostream *f :
+             {static_cast<std::ostream *>(&summary), static_cast<std::ostream *>(&hist)}) {
+            if (!env.publishable()) {
+                *f << "# " << banner << "\n";
+            }
+            for (const auto &[key, value] : env.lines()) {
+                *f << "# " << key << ": " << value << "\n";
+            }
+            *f << std::fixed
+               << "# pinned to core: " << (o.core >= 0 ? std::to_string(o.core) : "no") << "\n"
+               << std::setprecision(6) << "# counter ticks per ns: " << rate << "\n"
+               << "# counter drift during the run (parts per million): " << drift * 1e6 << "\n"
+               << "# timer overhead min (ticks, subtracted): " << overhead.min << "\n"
+               << "# input: " << o.file << "\n"
+               << "# latency: every " << o.every << "th order message; windows of " << o.window_mb
+               << " MiB\n";
+        }
+        summary << "mode,scenario,book,tag,count,min_ns,p50_ns,p90_ns,p99_ns,p999_ns,p9999_ns,"
+                   "max_ns,mean_ns,dropped,clamped,timed_allocations\n"
+                << std::setprecision(1);
+        for (const CsvRow &r : rows) {
+            const Summary &s = r.summary;
+            summary << r.mode << ",itch_day," << r.book << "," << r.tag << "," << s.count << ",";
+            if (r.mode == "latency") {
+                summary << s.min_ns << "," << s.p50_ns << "," << s.p90_ns << "," << s.p99_ns << ","
+                        << s.p999_ns << "," << s.p9999_ns << "," << s.max_ns << ",";
+            } else {
+                summary << ",,,,,,,";
+            }
+            summary << s.mean_ns << ",,,\n";
+        }
+        hist << "scenario,book,tag,low_ns,high_ns,count\n";
+        for (const auto &[tag, b] : histogram_rows) {
+            hist << "itch_day,FastBook," << tag << "," << b.low_ns << "," << b.high_ns << ","
+                 << b.count << "\n";
+        }
+        std::cout << "wrote " << o.csv << " and " << histogram_path(o.csv) << "\n";
+    }
+    if (!env.publishable()) {
+        std::cout << banner << "\n";
+    }
+    return 0;
+}
+
 long max_rss_mb() {
     rusage usage{};
     getrusage(RUSAGE_SELF, &usage);
@@ -405,6 +740,9 @@ int main(int argc, char **argv) {
         return 1;
     }
     std::cout << "File: " << o.file << " (" << bytes.size() << " bytes)\n";
+    if (o.throughput || o.latency) {
+        return run_timing(o, bytes);
+    }
 
     // 1. Counting (ITCH design §7).
     auto start = Clock::now();
@@ -462,6 +800,13 @@ int main(int argc, char **argv) {
                       << time_of_day(first->timestamp) << "), locate " << first->locate << ": "
                       << first->what << "\n";
         }
+    } else if (o.flow) {
+        FlowAnalysis flow{builder};
+        if (!replay(flow)) {
+            return 1;
+        }
+        std::cout << "Replay:         " << seconds_since(start) << " s, with the flow analysis\n";
+        print_flow(flow.stats());
     } else {
         if (!replay(builder)) {
             return 1;

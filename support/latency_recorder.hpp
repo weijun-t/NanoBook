@@ -56,10 +56,11 @@ namespace nanobook::latency {
 // Tags: what kind of operation a sample was (design §5.3)
 // ---------------------------------------------------------------------------
 
-enum class Tag : std::uint8_t { Add, Match, Cancel, Modify, Reject, Other };
+// Replace: an ITCH Order Replace (U), a cancel-replace that loses its place (phase 4).
+enum class Tag : std::uint8_t { Add, Match, Cancel, Modify, Replace, Reject, Other };
 
-inline constexpr std::array<Tag, 6> kAllTags = {Tag::Add,    Tag::Match,  Tag::Cancel,
-                                                Tag::Modify, Tag::Reject, Tag::Other};
+inline constexpr std::array<Tag, 7> kAllTags = {Tag::Add,     Tag::Match,  Tag::Cancel, Tag::Modify,
+                                                Tag::Replace, Tag::Reject, Tag::Other};
 
 constexpr std::string_view tag_name(Tag tag) {
     switch (tag) {
@@ -71,6 +72,8 @@ constexpr std::string_view tag_name(Tag tag) {
         return "cancel";
     case Tag::Modify:
         return "modify";
+    case Tag::Replace:
+        return "replace";
     case Tag::Reject:
         return "reject";
     case Tag::Other:

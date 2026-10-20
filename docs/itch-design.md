@@ -9,7 +9,9 @@
 > Step 3: the feed operations as built: inputs, results, check order, `structure_holds()` (§6.1).
 > Step 4a: sizing as built (§7); step 4 split into 4a and 4b (§12). Step 4b: the crossed-book
 > rule decided from the real day (§8.1), the first full-day replay's results (§8.5). Step 5: the
-> differential replay as built and its result (§8.2). Phase 3 step 6 (the bare-metal
+> differential replay as built and its result (§8.2). Step 6: timing as built and Q5 changed
+> (§9, §13), TickFastBook can't hold the real day (§9), the flow analysis (§9.1); step 6 split
+> into 6a, 6b, 6c (§12). Phase 3 step 6 (the bare-metal
 > run) is still open; phase 4's own published numbers come from the same Ubuntu session.
 
 Phases 1–3 built **the core of an exchange** and fed it orders we made up. Phase 4 plays the other
@@ -426,10 +428,70 @@ file's pages. Timing is step 6.
   tagged by message type (add, execute, cancel, delete, replace).
 - **Memory for the samples:** phase 3 kept every raw sample (5 MB per million). A full day is
   368 million messages (§3.5), so raw samples for all of them would take about 1.8 GB.
-  **Proposal:** keep the full **histogram** for every message (the phase 3 recorder's buckets),
-  and raw samples for one chosen stock or a sampled 1-in-N subset. Exact percentiles from the raw
-  subset; the histogram shows the whole day's shape.
+  **Decided (step 6, replacing Q5's histogram):** raw samples of **every 8th order message**,
+  about 45 million (227 MB), in phase 3's Recorder unchanged. Exact percentiles (p99.99 rests on
+  ~4,500 samples), and the 7 untimed messages in 8 run at full speed (the timer's fences cost
+  ~12 ns and stop the CPU overlapping a timed message with the next).
 - Environment block and NOT FOR PUBLISHING banner exactly as phase 3 (`support/environment.hpp`).
+
+**As built (step 6):** `nanobook_replay FILE --throughput --latency [--every 8] [--window-mb 1024]
+[--core C] [--csv FILE.csv]` (`support/itch_timing.hpp`).
+- `replay_in_windows()`: each window's pages are loaded (MADV_WILLNEED, then one read per 4 KiB
+  page) before the clock starts, and released (MADV_DONTNEED) after, so the disk is not timed
+  and memory stays near one window. The counting pass runs in windows too.
+- **Throughput:** `ParseOnly` (decodes every message, keeps a checksum so the decoding can't be
+  optimised away) gives the parser's time alone; the same windows through `BookBuilder<FastBook>`
+  give parser + books; the difference is the books' share. Checks off.
+- **Latency:** `TimedOrders` times every Nth order message, tagged A, F -> add; E, C -> match;
+  D -> cancel; X -> modify; U -> replace (a new phase 3 tag). A sample covers the builder's and
+  the book's work, not the parsing.
+- **FastBook only.** TickFastBook can't hold the real day: with step 4's sizing its tick arrays
+  would need about **489,000 GB** (2,123 stocks with no stats get the any-price default, 64 GB
+  each; of the rest, 4,032 need over 100 MB, the largest 128 GB), because real price ranges run
+  from about $0.0001 to $200,000. It stays as the measured lookup baseline for phase 6's
+  moving-window design (fast-book design §6.3).
+
+### 9.1 What real flow does to the price levels (step 6, `--flow`, untimed)
+`support/itch_flow.hpp` follows every order and, for each price level created or removed, counts
+the levels it shifted in FastBook's sorted array (the levels better than it; fast-book design
+§6.1), and for each new order its distance from its side's best price. 30 Jan 2019, all 8,713
+stocks:
+
+| Levels shifted by one creation | Share of 59,027,714 creations | Cumulative |
+|---|---|---|
+| 0 (at or beyond the best) | 34.69% | 34.69% |
+| 1 | 9.83% | 44.52% |
+| 2-3 | 11.07% | 55.59% |
+| 4-15 | 25.71% | 81.31% |
+| 16-63 | 16.53% | 97.84% |
+| 64-1,023 | 2.14% | 99.98% |
+| 1,024-4,095 | 0.02% (12,721) | 100.00% |
+
+Removals (59,027,714, the same count: every book ends empty) look the same: 31.93% shift 0,
+92.87% at most 31, 1,162 shift 1,024 or more. In all, 641 million levels shifted by creations
+and 613 million by removals: about **40 GB copied over the day**, 10.9 levels (350 bytes) per
+creation on average.
+
+| New resting order's distance from its side's best | Share of 191,919,099 |
+|---|---|
+| side was empty | 0.05% |
+| improves the best | 10.49% |
+| at the best | 37.35% |
+| behind by < $0.01 | 0.15% |
+| < $0.10 | 30.65% |
+| < $1 | 14.18% |
+| < $10 | 6.60% |
+| < $100 | 0.50% |
+| $100 or more | 0.04% |
+
+What it answers (fast-book design §13):
+- **Deep inserts are rare but real:** 0.02% of creations shift 1,024+ levels. Phase 3's
+  `deep_insert` (thousands of levels every time) was a worst case, not typical flow.
+- **Activity clusters near the best**: 48% of new orders at or improving it, 93% within $1. But
+  the far tail is what makes a fixed tick band impossible: a few stub quotes stretch every range.
+  That's the case for a window of tick slots near the best plus an overflow structure for the
+  rest (fast-book design §6.3).
+- **Price ranges are as wide as the spec allows**, which rules out TickFastBook as it is (above).
 
 ---
 
@@ -472,7 +534,9 @@ region (README §7.4).
 | 4a ✓ | Counting, sizing (§7), book builder, golden replay test (§8.3). Done 2026-10-20 | No |
 | 4b ✓ | `nanobook_replay` (minimal); first full-day replay with checks; the crossed-book rule (§8.1). Done 2026-10-20 (§8.5) | Yes |
 | 5 ✓ | Differential replay reference vs fast on the full day. Done 2026-10-20: 0 mismatches (§8.2) | Yes |
-| 6 | mmap windows + pre-scan + `nanobook_replay` timing: messages/sec and per-message latency (WSL2, not for publishing) | Yes |
+| 6a ✓ | Timing in pre-loaded windows: `--throughput` (parse alone vs parse + FastBook), `--latency` (every 8th order message by kind), CSV (§9). Built 2026-10-20 | No |
+| 6b ✓ | Real-flow analysis `--flow`: levels shifted per level created or removed, distance from best (§9.1). Done 2026-10-20 | Yes |
+| 6c | The timed runs on an idle laptop, two rounds, recorded in `docs/perf-log.md` (WSL2, not for publishing) | Yes |
 | 7 | `plot_depth.py`, phase 4 report; fast-book design §13 revisit list answered from real data | Yes |
 | 8 | Published numbers: with phase 3 step 6, on bare metal | Yes |
 
@@ -486,7 +550,7 @@ region (README §7.4).
 | Q2 | Feed operations on both books (§6.1)? | **Yes**, behind a `FeedBook` concept | Lets the reference book check the fast book on real data (§8.2) |
 | Q3 | Size books with a pre-scan (§7)? | **Yes** | Rule 1 needs sizes up front; real stocks differ too much for one size |
 | Q4 | Read in pre-faulted windows (§4)? | **Yes**, 1 GiB default | The file may not fit in WSL2's 15 GB |
-| Q5 | Latency samples (§9) | Histogram for all, raw for one stock or 1-in-N | Raw samples for the whole day could be several GB |
+| Q5 | Latency samples (§9) | ~~Histogram for all, raw for one stock or 1-in-N~~ **Raw samples of every 8th order message** (changed in step 6, user's choice) | Exact percentiles from 45 M samples in 227 MB, phase 3's Recorder unchanged |
 | Q6 | Golden test bytes (§8.3) | From a test encoder, not Nasdaq's file | Small, readable, no republishing question |
 | Q7 | Where the file lives (§2) | `data/itch/`, git-ignored; **downloaded now on WSL2** | Work can start now; the C: space it takes is counted before the dual-boot shrink |
 

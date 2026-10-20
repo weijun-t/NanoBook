@@ -91,6 +91,18 @@ public:
         v.erase(v.begin() + static_cast<std::ptrdiff_t>(i));
     }
 
+    // How many levels are strictly better than `price`: exactly the levels that inserting or
+    // erasing a level at `price` shifts along the array. For analysis (ITCH design step 6), not
+    // the hot path.
+    [[nodiscard]] std::size_t better_than(Side side, Price price) const {
+        const std::vector<Level> &v = levels(side);
+        std::size_t i = lower_bound(side, v, price); // the first level not worse than `price`
+        if (i < v.size() && v[i].price == price) {
+            ++i; // the level at `price` itself isn't better
+        }
+        return v.size() - i;
+    }
+
     // Calls visit(level) for each level of a side, best price first, until visit returns false.
     template <typename Visit> void for_each_best_first(Side side, Visit &&visit) const {
         const std::vector<Level> &v = levels(side);
