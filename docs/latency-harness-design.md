@@ -281,7 +281,7 @@ The harness collects these itself, at start-up (cold path):
 | **WSL2?** | `/proc/sys/kernel/osrelease` contains "microsoft" → a **NOT FOR PUBLISHING** banner on every output |
 | Compiler and version | `__VERSION__`, compiled in |
 | Build flags, build type | Passed in by CMake |
-| Git commit | Passed in by CMake at configure time (and "dirty" if there were uncommitted changes) |
+| Git commit | Passed in by CMake, regenerated on every build (and "-dirty" if there were uncommitted changes → a **NOT FOR PUBLISHING** banner too) |
 | Core used, isolated cores | `--core`, `/sys/devices/system/cpu/isolated` |
 | Governor, turbo | `/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor`, `.../intel_pstate/no_turbo` (printed as "unknown" if missing, as on WSL2) |
 | Counter rate, its spread, drift during the run | §4 |

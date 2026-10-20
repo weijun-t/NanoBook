@@ -7,7 +7,8 @@
  *   (support/latency_recorder.hpp): samples kept in order with their tags, bad samples dropped or
  *   clamped and counted, nearest-rank percentiles on known data, overhead subtraction, the
  *   histogram's buckets, and a planted slow operation the tail percentiles must catch. Last, the
- *   environment parsers (support/environment.hpp) on made-up /proc and /sys contents.
+ *   environment parsers (support/environment.hpp) on made-up /proc and /sys contents, and when
+ *   numbers may be published (bare metal and a clean commit only).
  *
  * Why it exists: A wrong harness gives confident wrong numbers (latency-harness design §10), so
  *   its parts are tested like the engine's. The planted slow operation is the harness's version of
@@ -24,6 +25,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -356,5 +358,22 @@ TEST(Environment, CollectsEveryField) {
         SCOPED_TRACE(key);
         EXPECT_FALSE(value.empty()); // "unknown" at worst, never empty
     }
-    EXPECT_EQ(env.publishable(), env.virtual_machine == "no");
+}
+
+TEST(Environment, PublishableOnlyFromBareMetalAndACleanCommit) {
+    Environment env;
+    env.virtual_machine = "no";
+    env.commit = "9354158a1b2c";
+    EXPECT_TRUE(env.publishable());
+    EXPECT_EQ(env.unpublishable_reason(), "");
+
+    env.commit = "9354158a1b2c-dirty"; // uncommitted changes: can't be traced to a commit
+    EXPECT_FALSE(env.publishable());
+    env.commit = "unknown"; // no git, or not a repository
+    EXPECT_FALSE(env.publishable());
+
+    env.commit = "9354158a1b2c";
+    env.virtual_machine = "yes: WSL2";
+    EXPECT_FALSE(env.publishable());
+    EXPECT_NE(env.unpublishable_reason().find("virtual machine"), std::string::npos);
 }

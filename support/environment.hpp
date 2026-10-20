@@ -5,11 +5,14 @@
  *   cores there are, the kernel and OS, whether this is a virtual machine (WSL2 or any other),
  *   which cores the kernel isolated, the CPU frequency governor and turbo setting, the compiler,
  *   build type and flags, and the git commit. lines() turns it into "key: value" lines for the
- *   terminal and the CSV (latency-harness design §8).
+ *   terminal and the CSV (latency-harness design §8). unpublishable_reason() says why the numbers
+ *   must not be published: a virtual machine, or a commit that is unknown or has uncommitted
+ *   changes ("-dirty").
  *
  * Why it exists: A latency number without its machine is meaningless, and numbers from a virtual
- *   machine must never be published (rule 20). Collecting it in the tool means it can't be
- *   forgotten or copied wrong by hand.
+ *   machine must never be published (rule 20). Nor can numbers whose code can't be traced to a
+ *   commit (rule 19). Collecting it in the tool means it can't be forgotten or copied wrong by
+ *   hand.
  *
  * How it works: Plain reads of /proc and /sys files, and uname(). A file that doesn't exist (WSL2
  *   has no cpufreq or intel_pstate) gives "unknown", never an error. Compiler facts come from the
@@ -155,9 +158,20 @@ struct Environment {
     std::string flags;
     std::string commit;
 
-    // Published numbers must come from bare metal (rule 20).
+    // Why these numbers must not be published, or "" if they may be. Published numbers come from
+    // bare metal (rule 20) and from code that is exactly one commit (rule 19).
+    [[nodiscard]] std::string unpublishable_reason() const {
+        if (virtual_machine != "no") {
+            return "measured in a virtual machine (README rule 20)";
+        }
+        if (commit == "unknown" || commit.ends_with("-dirty")) {
+            return "the commit is unknown or has uncommitted changes (README rule 19)";
+        }
+        return "";
+    }
+
     [[nodiscard]] bool publishable() const {
-        return virtual_machine == "no";
+        return unpublishable_reason().empty();
     }
 
     // "key: value" lines, in a fixed order.

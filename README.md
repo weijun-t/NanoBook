@@ -4,7 +4,7 @@
 
 An ultra-low-latency limit order book and matching engine in modern C++ (C++23), built as a quant developer portfolio project.
 
-> **Status:** Phase 0 complete (build system, tests, sanitizers, CI). Phase 1 (reference book) complete. Phase 2 (fast book) complete: zero heap allocations while trading, and identical behaviour to the reference book on 162 million fuzzed operations (see `docs/phase2-report.md`). Phase 3 (benchmark harness) next. Every number in this README that is not marked *target* was measured. The hardware, OS, compiler and flags are listed next to it.
+> **Status:** Phase 0 complete (build system, tests, sanitizers, CI). Phase 1 (reference book) complete. Phase 2 (fast book) complete: zero heap allocations while trading, and identical behaviour to the reference book on 162 million fuzzed operations (see `docs/phase2-report.md`). Phase 3 (benchmark harness): steps 0–5 done; step 6, the published latency run on bare-metal Linux (rule 20), is still to come. The numbers measured so far come from WSL2 and are marked not for publishing (`docs/perf-log.md`). Phase 4 (ITCH 5.0) has started in the meantime. Every number in this README that is not marked *target* was measured. The hardware, OS, compiler and flags are listed next to it.
 
 ---
 

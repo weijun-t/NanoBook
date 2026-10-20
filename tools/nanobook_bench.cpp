@@ -18,12 +18,13 @@
  *
  * How it works: First the environment (support/environment.hpp) and the timer: check the
  *   counter's CPU flags, pin to --core C if given, calibrate ticks per ns, measure the timer's own
- *   cost (its minimum is subtracted from every sample, design §13 Q2). In a virtual machine every
- *   output carries a NOT FOR PUBLISHING banner (rule 20). Then, for each scenario and book: a
- *   Recorder with room for N samples, run_scenario(), summarize() per tag. The allocations made
- *   while timed operations ran are counted with the counting operator new (the fast books must
- *   show 0, rule 1). Last, the counter is calibrated again to show any drift; the CSV files are
- *   written at the end, so they include it.
+ *   cost (its minimum is subtracted from every sample, design §13 Q2). In a virtual machine, or
+ *   built from uncommitted changes, every output carries a NOT FOR PUBLISHING banner with the
+ *   reason (rules 19, 20). Then, for each scenario and book: a Recorder with room for N samples,
+ *   run_scenario(), summarize() per tag. The allocations made while timed operations ran are
+ *   counted with the counting operator new (the fast books must show 0, rule 1). Last, the counter
+ *   is calibrated again to show any drift; the CSV files are written at the end, so they include
+ *   it.
  *
  * Trade-offs: A tool, not the engine: it prints with iostream, writes files and calls the system
  *   clock, which the hot path must never do (rule 6). All of that happens outside timed regions.
@@ -66,8 +67,10 @@ constexpr std::string_view kUsage =
     "                      [--seed S] [--core C] [--throughput] [--csv FILE.csv] [--raw FILE.csv]\n"
     "scenarios: add cancel modify match sweep10 large_cancel large_add deep_insert mixed\n";
 
-constexpr std::string_view kBanner =
-    "*** NOT FOR PUBLISHING: measured in a virtual machine (README rule 20) ***";
+// Only printed when !env.publishable().
+std::string banner(const Environment &env) {
+    return "*** NOT FOR PUBLISHING: " + env.unpublishable_reason() + " ***";
+}
 
 enum class BookKind : std::uint8_t { Reference, Sorted, Tick };
 constexpr std::array<BookKind, 3> kAllBooks = {BookKind::Reference, BookKind::Sorted,
@@ -171,7 +174,7 @@ void print_row(std::string_view label, const Summary &s) {
 
 void print_environment(const Environment &env, const Timer &timer, const Options &o, int core) {
     if (!env.publishable()) {
-        std::cout << kBanner << "\n";
+        std::cout << banner(env) << "\n";
     }
     for (const auto &[key, value] : env.lines()) {
         std::cout << std::left << std::setw(17) << key << value << "\n";
@@ -200,7 +203,7 @@ void print_environment(const Environment &env, const Timer &timer, const Options
 void write_csv_header(std::ostream &f, const Environment &env, const Timer &timer, const Options &o,
                       int core, std::optional<double> drift) {
     if (!env.publishable()) {
-        f << "# " << kBanner << "\n";
+        f << "# " << banner(env) << "\n";
     }
     for (const auto &[key, value] : env.lines()) {
         f << "# " << key << ": " << value << "\n";
@@ -453,7 +456,7 @@ int main(int argc, char **argv) {
         std::cout << "wrote " << csv_path << " and " << histogram_path(csv_path) << "\n";
     }
     if (!env.publishable()) {
-        std::cout << kBanner << "\n";
+        std::cout << banner(env) << "\n";
     }
     return 0;
 }
