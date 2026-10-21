@@ -707,3 +707,73 @@ between rounds anyway. Below capacity the ring is never full, so the back-off ne
   so splitting moves almost no work off the engine, and every record still pays two hand-overs.
   Whether the pipeline wins on latency, or with real logging, is measured next (E1c): paced
   latency on one thread against three.
+
+---
+
+## 2026-10-21: E1c, one thread against three: latency and real logging (phase 6 step 2b)
+
+Optimise design E1c: does the pipeline pay at all? WSL2, so **not for publishing** (rule 20).
+
+### Method
+- **New in the tool:**
+  - `nanobook_pipeline --latency --sequential` runs the same paced day on one thread, pinned to
+    the engine's core (4), with the same pacer and the same latency recorder. `run_sequential`
+    now takes the stamp, as `run_pipeline` does (a test, and a planted bug, caught).
+  - `--throughput --log FILE` writes both runs' logs to a real file.
+  - The one-thread throughput run is now pinned to core 4. Before, it ran on the unpinned main
+    thread; E1's comparisons were within each session, so they stand.
+- **Session:** 20:24–20:37, idle laptop, commit `7103344` plus the E1c code
+  (`docs/data/phase6_wsl/e1c/after.diff`), one frozen binary.
+  - **Latency:** the full day, paced from 10:00:00 to 10:05:00 (5,641,949 records, every update
+    timed), at 1, 2, 4 and 5 M records/s. One thread and three alternate, so round 1 runs three
+    first and round 2 one first.
+  - **Real logging:** the first 1 GB of the day (34,337,226 messages, up to 09:47:13, the open
+    included), `--throughput --log /tmp/e1c_log.bin`, 3 rounds. The log is about 1.9 GB per run,
+    deleted afterwards.
+- One thread's latency is measured until its update is logged; three threads' until the update
+  reaches the publisher. That's the same point in the work.
+
+### Latency (ns unless marked; round 1 / round 2)
+
+| Rate | | min | p50 | p90 | p99 |
+|---|---|---|---|---|---|
+| 1 M/s | one thread | 46 / 45 | **203 / 207** | **453 / 466** | 49 / 33 µs |
+| | three threads | 207 / 189 | 541 / 502 | 1,071 / 767 | 72 / 46 µs |
+| 2 M/s | one thread | 48 / 47 | **258 / 205** | 3,974 / 477 | 163 / 132 µs |
+| | three threads | 201 / 175 | 525 / 495 | 1,247 / 768 | 113 / 55 µs |
+| 4 M/s | one thread | 47 / 46 | 566 / 582 | 148 / 242 µs | 0.87 / 1.11 ms |
+| | three threads | 178 / 170 | 647 / 683 | **10.0 / 16.0 µs** | 11.1 / 1.9 ms |
+| 5 M/s | one thread | 2.2 / 1.9 µs | 84 / 93 ms | 164 / 162 ms | 182 / 176 ms |
+| | three threads | 164 / 189 | **1.2 / 1.3 ms** | 11.9 / 4.2 ms | 23 / 5.6 ms |
+
+**Sustained rate** at 5 M/s, from the last update's lateness (as in phase 5): one thread
+5,641,949 / (1.128 s + 0.18 s) = **4.3 M records/s**; three threads at least **4.9 M records/s**
+(their 5 M/s runs fell only 6–23 ms behind).
+
+### Throughput with real logging (the 1 GB slice; ns per message)
+
+| Round | One thread | Three threads |
+|---|---|---|
+| 1 | 161.3 | 160.7 (1.00×) |
+| 2 | 154.6 | 157.4 (0.98×) |
+| 3 | 155.8 | 159.4 (0.98×) |
+
+### What these numbers say
+- **At normal load, one thread is faster per record: p50 about 205 ns against about 500.** The
+  minimum shows why: 46 ns against about 180. The pipeline's two hand-overs between cores cost
+  about 135 ns that one thread never pays. At 1–2 M/s, p90 also favours one thread, apart from
+  one noisy round.
+- **Near capacity, three threads hold up better.** One thread does every record's whole job on
+  one core: parse, pacing clock, book, log, latency record. The pipeline spreads it over three.
+  One thread saturates at about 4.3 M records/s in this window; three threads sustain 4.9 or
+  more. At 4 M/s one thread is already queueing (p90 148–242 µs); three threads aren't (10–16 µs).
+- **p99 at 1–2 M/s is mixed** (three threads look better at 2 M/s), and on WSL2 p99 varies too
+  much between rounds to rest a claim on. Bare metal (design §5, B4).
+- **Real logging is a tie.** `write()` only copies into the kernel's page cache; the disk work
+  happens later, off every core we time. Step 3's three-thread win (81.7 s against 86.0 s) also
+  had the checksum: real extra work on the publisher, moved off the engine.
+- **The trade-off, measured:** a pipeline adds two hand-overs (about 135 ns) to every record, and
+  repays them only when the stages around the book do real work, or the load nears one core's
+  capacity. NanoBook's feed (parse, 3 ns) and publisher (copy into a buffer) do little, so at
+  normal load one thread wins. Both modes stay: they share the engine code, and the right choice
+  depends on the work around the book.

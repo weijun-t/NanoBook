@@ -241,9 +241,11 @@ struct PipelineResult {
     bool publish_pinned{true};
 };
 
-// The pipeline without threads: the same encode -> apply -> sink, on the calling thread.
-template <typename Builder, typename ReadFeed, typename Sink>
-PipelineResult run_sequential(ReadFeed &&read_feed, Builder &builder, Sink &sink) {
+// The pipeline without threads: the same encode -> apply -> sink, on the calling thread. `stamp`
+// stamps each record's `sent`, as in run_pipeline (a pacer, for one-thread latency runs).
+template <typename Builder, typename ReadFeed, typename Sink, typename Stamp = NoStamp>
+PipelineResult run_sequential(ReadFeed &&read_feed, Builder &builder, Sink &sink,
+                              Stamp stamp = {}) {
     struct Direct { // stands in for ring 1: applies each record at once
         Engine<Builder> engine;
         Sink &sink;
@@ -257,7 +259,7 @@ PipelineResult run_sequential(ReadFeed &&read_feed, Builder &builder, Sink &sink
         }
     };
     Direct direct{Engine<Builder>{builder}, sink};
-    FeedEncoder<Direct, NoStamp> feed{direct, NoStamp{}};
+    FeedEncoder<Direct, Stamp> feed{direct, stamp};
     PipelineResult result;
     result.parsed = read_feed(feed);
     feed.finish();

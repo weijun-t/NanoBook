@@ -6,8 +6,9 @@
  *   one thread (run_sequential): on the golden day (hand-checked, phase 4) and on a busy day with
  *   2-record rings (constantly full and empty, so the threads hand over on almost every record),
  *   the stream of TopOfBook updates must be identical, update for update, and the final books
- *   identical to a plain phase 4 replay. Last, a broken message mid-stream: every thread must
- *   still stop, and the pipeline must say the input was broken.
+ *   identical to a plain phase 4 replay. A stamp (the pacer, in latency runs) must reach every
+ *   update alike on one thread and on three (phase 6 E1c). Last, a broken message mid-stream:
+ *   every thread must still stop, and the pipeline must say the input was broken.
  *
  * Why it exists: Threads must change nothing but speed. A lost, repeated or reordered record, or
  *   a field dropped on the way through a ring, would quietly change the books. These tests run
@@ -247,6 +248,32 @@ TEST(Pipeline, MatchesOneThreadWithTwoRecordRings) {
     EXPECT_TRUE(got.updates == expected.updates); // not EXPECT_EQ: don't print 100,000 updates
     EXPECT_GT(got.result.feed_waits + got.result.engine_waits, 0U); // the rings really filled
     expect_same_books(day, three);
+}
+
+TEST(Pipeline, OneThreadAndThreeStampEveryUpdateAlike) {
+    // A stamp that depends only on the record, so both ways of running must give the same value.
+    const auto stamp = [](const FeedRecord &r) { return (r.timestamp * 2) + 1; };
+    const std::vector<std::byte> day = golden::busy_day(2'000);
+    const auto run = [&](bool threads) {
+        Builder builder{configs_for(day), BuilderOptions{}};
+        std::vector<TopOfBook> updates;
+        updates.reserve(day.size() / 19);
+        auto sink = [&updates](const TopOfBook &t) { updates.push_back(t); };
+        if (threads) {
+            run_pipeline(whole(day), builder, sink, PipelineOptions{}, stamp);
+        } else {
+            run_sequential(whole(day), builder, sink, stamp);
+        }
+        return updates;
+    };
+    const std::vector<TopOfBook> one = run(false);
+    const std::vector<TopOfBook> three = run(true);
+    ASSERT_FALSE(one.empty());
+    ASSERT_EQ(one.size(), three.size());
+    for (std::size_t i = 0; i < one.size(); ++i) {
+        ASSERT_EQ(one[i].sent, (one[i].timestamp * 2) + 1) << i; // the stamp reached the update
+        ASSERT_EQ(one[i].sent, three[i].sent) << i;
+    }
 }
 
 TEST(Pipeline, ABrokenMessageStillStopsEveryThread) {

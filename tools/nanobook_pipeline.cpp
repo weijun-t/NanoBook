@@ -15,9 +15,13 @@
  *   report the page faults taken during each run (optimise design §3.2).
  *     nanobook_pipeline FILE [--log OUT] [--checksum] [--sequential] [--cores A,B,C]
  *                       [--window-mb N]
- *     nanobook_pipeline FILE --cores A,B,C --throughput
+ *     nanobook_pipeline FILE --cores A,B,C --throughput [--log OUT]
  *     nanobook_pipeline FILE --cores A,B,C --latency --rate R [--from HH:MM:SS]
- *                       [--until HH:MM:SS] [--csv FILE.csv]
+ *                       [--until HH:MM:SS] [--csv FILE.csv] [--sequential]
+ *   With --latency, --sequential runs the same paced day on one thread, pinned to the engine's
+ *   core B, to compare one thread with three on latency (optimise design E1c). The one-thread
+ *   throughput run is pinned to core B too. --throughput --log OUT writes both runs' logs to a
+ *   real file (the second replaces the first), to time real logging, not /dev/null.
  *
  * Why it exists: Step 3 proves the pipeline changes nothing: the same day must give the same log,
  *   byte for byte, on three threads and on one (rule 11). Comparing checksums proves it without
@@ -72,9 +76,9 @@ using nanobook::latency::Environment;
 constexpr std::string_view kUsage =
     "usage: nanobook_pipeline FILE [--log OUT] [--checksum] [--sequential] [--cores A,B,C]\n"
     "                         [--window-mb N]\n"
-    "       nanobook_pipeline FILE --cores A,B,C --throughput\n"
+    "       nanobook_pipeline FILE --cores A,B,C --throughput [--log OUT]\n"
     "       nanobook_pipeline FILE --cores A,B,C --latency --rate R [--from HH:MM:SS]\n"
-    "                         [--until HH:MM:SS] [--csv FILE.csv]\n";
+    "                         [--until HH:MM:SS] [--csv FILE.csv] [--sequential]\n";
 
 struct Options {
     std::string file;
@@ -278,7 +282,9 @@ int run_timing(const Options &o, std::span<const std::byte> bytes,
 
     if (o.throughput) {
         Builder one{configs, itch::BuilderOptions{}};
-        BinaryLog log_one{"/dev/null"};
+        BinaryLog log_one{o.log}; // --log FILE: a real file (each run replaces it); else /dev/null
+        // One core, like each stage of the pipeline (from here on this thread stays there).
+        const bool one_pinned = pin_this_thread(o.pipeline.engine_core);
         const latency::PageFaults seq_f0 = latency::page_faults_now();
         const auto start = std::chrono::steady_clock::now();
         const PipelineResult seq = run_sequential(whole, one, log_one);
@@ -287,15 +293,15 @@ int run_timing(const Options &o, std::span<const std::byte> bytes,
                 .count();
         const latency::PageFaults seq_faults = latency::page_faults_now() - seq_f0;
         Builder three{configs, itch::BuilderOptions{}};
-        BinaryLog log_three{"/dev/null"};
+        BinaryLog log_three{o.log};
         const latency::PageFaults pipe_f0 = latency::page_faults_now();
         const PipelineResult pipe = run_pipeline(whole, three, log_three, o.pipeline);
         // Read after the threads have ended, so it includes run_pipeline's start-up: the two
         // rings' slots are zero-filled there (7 MB, about 1,800 pages) and the thread stacks.
         const latency::PageFaults pipe_faults = latency::page_faults_now() - pipe_f0;
         const auto messages = static_cast<double>(seq.records + seq.skipped);
-        std::cout << "\nThroughput: the whole day, " << seq.records + seq.skipped
-                  << " messages, logs to /dev/null\n"
+        std::cout << "\nThroughput: the whole file, " << seq.records + seq.skipped
+                  << " messages, logs to " << o.log << "\n"
                   << std::setprecision(2) << "  one thread:     " << seq_ns / 1e9 << " s, "
                   << std::setprecision(1) << seq_ns / messages << " ns per message, "
                   << messages / seq_ns * 1e3 << " M messages/s\n"
@@ -308,6 +314,8 @@ int run_timing(const Options &o, std::span<const std::byte> bytes,
                   << (pipe.feed_pinned && pipe.engine_pinned && pipe.publish_pinned
                           ? "all three pinned"
                           : "NOT all pinned")
+                  << (one_pinned ? ", one thread on core " + std::to_string(o.pipeline.engine_core)
+                                 : ", one thread NOT pinned")
                   << "\n  page faults during each run: one thread " << faults_text(seq_faults)
                   << "; three threads " << faults_text(pipe_faults)
                   << " (start-up included: building the rings and threads)\n";
@@ -340,14 +348,18 @@ int run_timing(const Options &o, std::span<const std::byte> bytes,
             return itch::parse(bytes, stop).has_value();
         };
         const latency::PageFaults f0 = latency::page_faults_now();
-        const PipelineResult r = run_pipeline(until, builder, sink, o.pipeline, stamp);
+        const bool one_pinned = o.sequential && pin_this_thread(o.pipeline.engine_core);
+        const PipelineResult r = o.sequential
+                                     ? run_sequential(until, builder, sink, stamp)
+                                     : run_pipeline(until, builder, sink, o.pipeline, stamp);
         const latency::PageFaults faults = latency::page_faults_now() - f0;
         const latency::Summary s = latency::summarize(recorder, 0, rate, std::nullopt);
-        std::cout << "\nLatency: " << o.rate / 1'000 << " K records/s paced from "
-                  << time_of_day(o.from) << " to " << time_of_day(o.until) << " (" << pacer.paced()
-                  << " records paced, " << s.count
+        const std::string mode = o.sequential ? "sequential" : "pipeline"; // the CSV's names
+        std::cout << "\nLatency, " << (o.sequential ? "one thread" : "three threads") << ": "
+                  << o.rate / 1'000 << " K records/s paced from " << time_of_day(o.from) << " to "
+                  << time_of_day(o.until) << " (" << pacer.paced() << " records paced, " << s.count
                   << " updates timed; ns, from each record's intended send time to the "
-                     "publisher)\n"
+                  << (o.sequential ? "update being logged)\n" : "publisher)\n")
                   << "       min       p50       p90       p99     p99.9    p99.99       max"
                      "      mean\n";
         for (const double v : {s.min_ns, s.p50_ns, s.p90_ns, s.p99_ns, s.p999_ns}) {
@@ -361,9 +373,17 @@ int run_timing(const Options &o, std::span<const std::byte> bytes,
         print_ns(s.max_ns);
         print_ns(s.mean_ns);
         std::cout << "\n  clamped (over 1.7 s) " << recorder.clamped() << ", refused (full) "
-                  << recorder.refused() << "; ring 1 full " << r.feed_waits
-                  << " tries, ring 2 full " << r.engine_waits << " tries\n"
-                  << "  page faults during the run (start-up and warm-up included): "
+                  << recorder.refused() << "; ";
+        if (o.sequential) {
+            std::cout << (one_pinned
+                              ? "one thread on core " + std::to_string(o.pipeline.engine_core)
+                              : std::string{"one thread NOT pinned"})
+                      << "\n";
+        } else {
+            std::cout << "ring 1 full " << r.feed_waits << " tries, ring 2 full " << r.engine_waits
+                      << " tries\n";
+        }
+        std::cout << "  page faults during the run (start-up and warm-up included): "
                   << faults_text(faults) << "\n";
         if (!o.csv.empty()) {
             std::ofstream f{o.csv};
@@ -374,13 +394,14 @@ int run_timing(const Options &o, std::span<const std::byte> bytes,
                 f << "# " << key << ": " << value << "\n";
             }
             f << "# cores: " << o.pipeline.feed_core << "," << o.pipeline.engine_core << ","
-              << o.pipeline.publish_core << "\n# input: " << o.file << "\n# paced: " << o.rate
-              << " records/s from " << time_of_day(o.from) << " to " << time_of_day(o.until) << "\n"
+              << o.pipeline.publish_core << (o.sequential ? " (one thread, on the second)" : "")
+              << "\n# input: " << o.file << "\n# paced: " << o.rate << " records/s from "
+              << time_of_day(o.from) << " to " << time_of_day(o.until) << "\n"
               << "mode,scenario,book,tag,count,min_ns,p50_ns,p90_ns,p99_ns,p999_ns,p9999_ns,"
                  "max_ns,mean_ns,dropped,clamped,timed_allocations\n"
-              << std::fixed << std::setprecision(1) << "latency,pipeline_" << o.rate
-              << ",pipeline,all," << s.count << "," << s.min_ns << "," << s.p50_ns << ","
-              << s.p90_ns << "," << s.p99_ns << "," << s.p999_ns << ",";
+              << std::fixed << std::setprecision(1) << "latency," << mode << "_" << o.rate << ","
+              << mode << ",all," << s.count << "," << s.min_ns << "," << s.p50_ns << "," << s.p90_ns
+              << "," << s.p99_ns << "," << s.p999_ns << ",";
             if (s.count >= 1'000'000) {
                 f << s.p9999_ns;
             }
