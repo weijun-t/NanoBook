@@ -41,6 +41,7 @@
 #include <sched.h>
 
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -67,8 +68,9 @@ inline bool pin_this_thread(int core) {
 }
 
 // The default for a record's `sent` stamp: none. Step 4 passes the paced clock instead.
+// It sees the record, so a pacer can tell the warm-up (before a chosen time) from the timed part.
 struct NoStamp {
-    std::uint64_t operator()() const {
+    std::uint64_t operator()(const FeedRecord & /*unused*/) const {
         return 0;
     }
 };
@@ -170,7 +172,7 @@ public:
 
     template <typename Message> void on(const Message &m) {
         FeedRecord r = encode(m);
-        r.sent = stamp_();
+        r.sent = stamp_(r);
         waits_ += out_.push(r);
         ++records_;
     }
@@ -219,6 +221,7 @@ struct PipelineResult {
     std::uint64_t feed_waits{};   // times ring 1 was full
     std::uint64_t engine_waits{}; // times ring 2 was full
     std::uint64_t allocations{};  // while records flowed (0 if not counted)
+    double elapsed_ns{};          // from "go" to the last thread finishing (system clock)
     bool feed_pinned{true};
     bool engine_pinned{true};
     bool publish_pinned{true};
@@ -331,10 +334,14 @@ PipelineResult run_pipeline(ReadFeed &&read_feed, Builder &builder, Sink &sink,
             std::this_thread::yield();
         }
         const std::uint64_t before = options.allocations ? options.allocations() : 0;
+        const auto started = std::chrono::steady_clock::now(); // cold: twice per run
         go.store(true, std::memory_order_release);
         while (finished.load(std::memory_order_acquire) < 3) {
             std::this_thread::yield();
         }
+        result.elapsed_ns =
+            std::chrono::duration<double, std::nano>(std::chrono::steady_clock::now() - started)
+                .count();
         result.allocations = options.allocations ? options.allocations() - before : 0;
     } // the three threads are joined here: their writes to `result` are now visible
     return result;

@@ -4,7 +4,8 @@
 > made by an edit plus a note in the commit message. Items marked **[MEASURE]** are settled by a
 > measurement in the step named. Step 1 (2026-10-20): the assembly check and the planted
 > relaxed-store bug (§3.3, §8). Step 2: the record layouts as built (§4); spin-then-yield waiting
-> after CI timed out on 4 vCPUs (§3.5). Step 3: the log as built (§6).
+> after CI timed out on 4 vCPUs (§3.5). Step 3: the log as built (§6). Step 4a: the timing modes as
+> built, with the warm-up settle time (§9.2a); step 4 split into 4a and 4b (§11).
 
 Phases 1–4 ran everything on **one thread**: read a message, apply it to the book, then the next.
 Phase 5 splits that work into **three stages on three threads**, connected by **lock-free
@@ -337,6 +338,26 @@ second) give the classic latency-against-load curve, ending where the pipeline s
 All three cores read the same time-stamp counter: on this CPU it is invariant (`constant_tsc`,
 `nonstop_tsc`) and synchronised across cores, so a stamp taken on A can be compared on C.
 
+### 9.2a As built (step 4)
+`nanobook_pipeline FILE --cores A,B,C --throughput` and `--latency --rate R [--from HH:MM:SS]
+[--until HH:MM:SS] [--csv FILE]`:
+- **Pinned, spinning only** (`spin_only`): each stage owns a core, so no yields (§3.5).
+- **The whole file is loaded into memory first**, untimed: in the pipeline the feed thread
+  reads the file, and a window load mid-run would starve the engine and look like a slow
+  engine. 11 GB fits next to the books in WSL2's 15 GB (phase 4's runs peaked at 11.3 GB).
+- **Throughput:** the whole day on one thread (`run_sequential`), then on three, logs to
+  `/dev/null`: messages per second each, and the ratio.
+- **Latency over a slice of the day:** the feed replays unpaced up to `--from` (the warm-up that
+  builds realistic books), then paces R records per second until `--until`, and drops the rest
+  (the whole day at 1 M/s would take 6 minutes per rate). `support/pacing.hpp`'s `Pacer` stamps
+  each record with its intended time in whole-number arithmetic (no drift), after a **100 ms
+  settle time**: without it, the first paced records queued behind the warm-up's backlog (up to
+  65,536 records, 4–8 ms) and the run measured the backlog, not the pipeline (found in a trial
+  run). The stamp now receives the record, so the pacer can see the warm-up end.
+- **Each sample spans two cores** (stamped on the feed, read on the publisher), so the phase 3
+  recorder gained `record_across_cores()`: its `record()` drops samples whose two stamps come
+  from different cores, correctly for single-core timing.
+
 ### 9.3 Environment
 Phase 3's environment block and NOT FOR PUBLISHING banner, plus the three cores used. On WSL2 the
 threads go on **different physical cores** (CPUs 2, 4, 6: CPUs 2 and 3 are the two hyperthreads of
@@ -367,7 +388,8 @@ one core), so two stages never share one core's caches and execution units.
 | 1 ✓ | `SpscRing` + one- and two-thread tests + TSan in CI; the assembly check (§3.3); `nanobook_ringbench` (throughput and round trip of one ring; run in step 4's session). Built 2026-10-20 | No |
 | 2 ✓ | Records and the three stages (`records.hpp`, `stages.hpp`); pipeline = single thread on the golden day and on a busy day with 2-record rings; shutdown; zero allocations. Built 2026-10-20 | No |
 | 3 ✓ | Binary log + `nanobook_logdump`; byte-identical log against a single-threaded run, on the full day (checksums) and on a 200 MB real slice (files, `cmp`). Built 2026-10-21 | Yes |
-| 4 | `nanobook_pipeline`: unpaced throughput, paced latency at several rates, on an idle laptop (WSL2, not for publishing) | Yes |
+| 4a ✓ | Timing modes in `nanobook_pipeline` (§9.2a): throughput (one thread vs three), paced latency with a settle time; `Pacer`, `record_across_cores()`. Built 2026-10-21 | No |
+| 4b | The runs on an idle laptop: `nanobook_ringbench`, throughput, latency at several rates (WSL2, not for publishing) | Yes |
 | 5 | Phase 5 report; published numbers later, on bare metal, with phases 3 and 4 | Yes |
 
 ---

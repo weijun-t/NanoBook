@@ -121,6 +121,21 @@ TEST(Recorder, DropsASampleTakenAcrossTwoCores) {
     EXPECT_EQ(r.dropped(), 1U);
 }
 
+// Phase 5: the pipeline's end-to-end latency is stamped on one core and read on another; the
+// caller passes the duration, which is kept (not dropped), clamped and counted like any sample.
+TEST(Recorder, KeepsADurationMeasuredAcrossCores) {
+    Recorder r{2};
+    r.record_across_cores(500, Tag::Other);
+    r.record_across_cores(std::uint64_t{1} << 40, Tag::Other); // too long for 32 bits
+    r.record_across_cores(7, Tag::Other);                      // past the capacity
+    ASSERT_EQ(r.size(), 2U);
+    EXPECT_EQ(r.ticks()[0], 500U);
+    EXPECT_EQ(r.ticks()[1], 0xFFFF'FFFFU);
+    EXPECT_EQ(r.clamped(), 1U);
+    EXPECT_EQ(r.refused(), 1U);
+    EXPECT_EQ(r.dropped(), 0U);
+}
+
 TEST(Recorder, ClampsASampleTooLongFor32Bits) {
     Recorder r{8};
     record_ticks(r, std::uint64_t{1} << 40);

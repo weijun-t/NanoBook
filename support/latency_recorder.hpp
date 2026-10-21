@@ -2,7 +2,9 @@
  * latency_recorder.hpp: stores every timed operation's duration and turns them into percentiles.
  *
  * What it does: Recorder keeps one raw sample per timed operation: its duration in counter ticks
- *   and a tag saying what kind of operation it was. time_each() is the timing loop: it times one
+ *   and a tag saying what kind of operation it was (record_across_cores() for a duration whose two
+ *   ends were read on different cores: the pipeline's end-to-end latency). time_each() is the
+ *   timing loop: it times one
  *   call per sample with tsc.hpp's start()/stop(). After the run, summarize() gives min, p50, p90,
  *   p99, p99.9, p99.99, max and mean in nanoseconds (all samples, or one tag's), and histogram()
  *   groups the samples into buckets for the plot.
@@ -104,6 +106,23 @@ public:
             return;
         }
         std::uint64_t ticks = t1.ticks - t0.ticks;
+        if (ticks > std::numeric_limits<std::uint32_t>::max()) {
+            ticks = std::numeric_limits<std::uint32_t>::max();
+            ++clamped_;
+        }
+        ticks_[size_] = static_cast<std::uint32_t>(ticks);
+        tags_[size_] = tag;
+        ++size_;
+    }
+
+    // A duration whose two ends were read on different cores (the pipeline's end-to-end latency:
+    // stamped on the feed thread, read on the publisher's). Valid because this CPU's time-stamp
+    // counter is invariant and the same on every core (constant_tsc, nonstop_tsc).
+    void record_across_cores(std::uint64_t ticks, Tag tag) {
+        if (size_ == ticks_.size()) {
+            ++refused_;
+            return;
+        }
         if (ticks > std::numeric_limits<std::uint32_t>::max()) {
             ticks = std::numeric_limits<std::uint32_t>::max();
             ++clamped_;
