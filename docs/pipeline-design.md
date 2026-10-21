@@ -5,7 +5,8 @@
 > measurement in the step named. Step 1 (2026-10-20): the assembly check and the planted
 > relaxed-store bug (§3.3, §8). Step 2: the record layouts as built (§4); spin-then-yield waiting
 > after CI timed out on 4 vCPUs (§3.5). Step 3: the log as built (§6). Step 4a: the timing modes as
-> built, with the warm-up settle time (§9.2a); step 4 split into 4a and 4b (§11).
+> built, with the warm-up settle time (§9.2a); step 4 split into 4a and 4b (§11). Step 4b: how
+> full the rings get (§3.4). Step 5: the phase 5 report, `docs/phase5-report.md`.
 
 Phases 1–4 ran everything on **one thread**: read a message, apply it to the book, then the next.
 Phase 5 splits that work into **three stages on three threads**, connected by **lock-free
@@ -176,7 +177,7 @@ array is a member or allocated once).
 the record itself: the consumer reads stale or half-written data. On x86 the *hardware* keeps
 stores in order, so this might even work in tests, but the **compiler** may still reorder, and on
 ARM the hardware would too. It is a data race, which is undefined behaviour; TSan reports it. One
-of the planted bugs (§10) does exactly this, to prove TSan catches it.
+of the planted bugs (§8) does exactly this, to prove TSan catches it.
 
 **Why not `seq_cst` (the default)?** It adds a full fence (`mfence` or a locked instruction on
 x86) to every store, to keep one global order of all atomic operations across all threads. An SPSC
@@ -190,8 +191,10 @@ at 384) confirm the 128-byte padding.
 ### 3.4 Capacity
 Ring 1 and ring 2: **65,536 records** each (decision Q8). `FeedRecord` and `TopOfBook` are at most
 64 bytes (one cache line, §4), so a ring is about 4 MB: big enough to absorb bursts, small enough
-for the L3 cache (30 MB). **[MEASURE, step 4]**:
-how full the rings get.
+for the L3 cache (30 MB). **Measured (step 4b):** unpaced, ring 1 is always full (found full
+4.5 times per message: the engine is the bottleneck) and ring 2 never; paced below capacity, both
+are nearly empty. The capacity only matters for absorbing stalls (65,536 records is 33 ms at
+2 M/s); ring 2 filled once in all the paced runs, during a publisher stall.
 
 ### 3.5 When a ring is full or empty
 - **Full: the producer waits** (spins) until there is room (backpressure, decision Q3). Dropping
@@ -399,7 +402,7 @@ one core), so two stages never share one core's caches and execution units.
 | 3 ✓ | Binary log + `nanobook_logdump`; byte-identical log against a single-threaded run, on the full day (checksums) and on a 200 MB real slice (files, `cmp`). Built 2026-10-21 | Yes |
 | 4a ✓ | Timing modes in `nanobook_pipeline` (§9.2a): throughput (one thread vs three), paced latency with a settle time; `Pacer`, `record_across_cores()`. Built 2026-10-21 | No |
 | 4b ✓ | The runs on an idle laptop: `nanobook_ringbench`, throughput, latency at several rates (WSL2, not for publishing). Run 2026-10-21: results in `docs/perf-log.md`, data in `docs/data/phase5_wsl/` | Yes |
-| 5 | Phase 5 report; published numbers later, on bare metal, with phases 3 and 4 | Yes |
+| 5 ✓ | Phase 5 report (`docs/phase5-report.md`, `.pdf`; charts from `scripts/plot_phase5.py`); published numbers later, on bare metal, with phases 3 and 4. Done 2026-10-21 | Yes |
 
 ---
 
