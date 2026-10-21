@@ -519,3 +519,100 @@ dropped or clamped.
 - **Round-to-round agreement is like phase 3's:** throughput 3.4%, p50 3–5%, p99 7–10%, p99.99
   up to 18%. p50 and p99 are trustworthy on WSL2; the far tail is not, and only bare metal can
   settle it.
+
+---
+
+## 2026-10-21: Three threads, one ring and the paced pipeline (phase 5 step 4b)
+
+The first numbers for the three-thread pipeline (`docs/pipeline-design.md` §9): one ring on its
+own, the whole day unpaced (one thread against three), and end-to-end latency at five feed rates.
+WSL2, so **not for publishing** (rule 20): every file from this run carries the banner.
+
+### Method
+- Same machine, OS and compiler as above: i7-14650HX, Ubuntu 24.04 on WSL2, GCC 14.2.0,
+  `gcc-release` (`-O3 -DNDEBUG`), commit `9c2b233b68f2` (clean tree, rebuilt by the script),
+  idle laptop, plugged in. Threads pinned to CPUs 2 (feed), 4 (engine), 6 (publisher): three
+  different physical cores, not isolated, spinning only. Counter 2.4192 ticks per ns.
+- One command, 13:01–13:15: `scripts/run_pipeline_session.sh
+  data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50 docs/data/phase5_wsl`. Two rounds of:
+  `nanobook_ringbench --cores 2,4`; `nanobook_pipeline --throughput` (the whole day, logs to
+  `/dev/null`); `nanobook_pipeline --latency` at 0.5, 1, 2, 4 and 8 M records/s, paced from
+  10:00:00 to 10:05:00 (5,641,949 records, every update timed; the day before 10:00 is the
+  unpaced warm-up, then a 100 ms settle). The whole file is in memory before any clock starts.
+- Latency is from each record's **intended** send time on the feed core to its update reaching
+  the publisher core (coordinated omission counted, rule 18). Data: `docs/data/phase5_wsl/`.
+  Numbers below are the average of the two rounds, with the round-to-round difference in
+  brackets, or both rounds as "round 1 / round 2" where they disagree too much to average.
+
+### One ring between two cores (`nanobook_ringbench`, 8-byte records, 65,536 slots)
+
+| | Result |
+|---|---|
+| Throughput, 100 M records | **5.9 ns per record, 170 M records/s** (1.2%) |
+| Round trip A → B → A, min | 129 ns |
+| Round trip p50 | **185 ns** (6%): one way about 90 ns |
+| Round trip p90 / p99 | 229 ns / 283 ns (17%) |
+| Round trip p99.9 / p99.99 | 2.6 / 1.0 µs, then 12.2 / 11.5 µs |
+| Round trip max | 1.1 ms / 17.7 ms |
+
+### The whole day, unpaced (368,366,634 messages, logs to `/dev/null`)
+
+| | Time | ns per message | Messages per second |
+|---|---|---|---|
+| One thread (`run_sequential`) | 63.9 s (1.6%) | **173.5** | **5.8 M** |
+| Three threads | 93.7 s / 81.3 s (15%) | 237.4 | 4.2 M (0.69x / 0.78x) |
+
+Ring 1 (feed → engine) was found full about 1.66 billion times, **4.5 times per message**;
+ring 2 (engine → publisher) never.
+
+### End-to-end latency against feed rate (ns unless marked)
+
+| Rate (records/s) | min | p50 | p90 | p99 | p99.9 | max |
+|---|---|---|---|---|---|---|
+| 0.5 M | 183 | **515** (1%) | 833 | **65 µs** (27%) | 1.6 ms / 5.0 ms | 8.9 ms / 16.1 ms |
+| 1 M | 180 | **507** (3%) | 809 | **68 µs** (15%) | 11.4 ms / 0.65 ms | 15.6 ms / 2.8 ms |
+| 2 M | 178 | **502** (0.3%) | 799 | **72 µs** (1%) | 446 µs / 369 µs | 0.82 ms / 1.08 ms |
+| 4 M | 170 | **657** (3%) | 11.7 µs | 270 µs / 194 µs | 707 µs / 828 µs | 0.82 ms / 1.01 ms |
+| 8 M | 4–7 µs | 285 ms | 529 ms | 584 ms | 587 ms | 583 ms / 593 ms |
+
+No sample was clamped or refused. For scale: the real market sent this window at an average of
+18,800 messages per second, so 0.5 M/s is 27 times the real average (bursts are far higher).
+
+### What these numbers say
+- **The fastest a record can cross the pipeline is about two core-to-core hops.** The latency
+  minimum (170–183 ns) is close to the ring's round trip (129–185 ns), and a record makes two
+  one-way hops (feed → engine → publisher). p50 at the lower rates is about 500 ns: the two hops
+  plus the engine's book work (about 100 ns per order message on the real day, phase 4) plus the
+  encoding of the records on each side.
+- **Up to 2 M records/s, p50 and p90 don't move; at 4 M they start to.** p50 rises 30% and p90
+  jumps from 0.8 to 11.7 µs: the engine is busy about 90% of the time, so records start to queue.
+- **Above the pipeline's capacity, latency is just the backlog.** At 8 M/s the feed sends the
+  window in 0.71 s but the last update arrives about 0.59 s later, so the pipeline kept up with
+  5,641,949 / (0.705 + 0.588) = **4.4 M records/s**, matching the unpaced three-thread throughput
+  (4.2 M/s). Two separate measurements agree, which is a good check on both.
+- **p99 is 65–72 µs whatever the rate from 0.5 to 2 M/s.** That points to the machine stopping,
+  not to queueing in the pipeline. If something stops a core for S µs, f times a second, then
+  every record that arrives during the stop waits, which is a fraction f × S of all records,
+  **independent of the rate**. So about 1% of the time, some stage is stopped for tens of
+  microseconds. Candidates, not yet separated:
+  - WSL2's hypervisor taking a core away; three spinning cores give it three chances.
+  - The engine's slow messages, the phase 4 page-fault hypothesis.
+  Test both on bare metal with isolated cores (`isolcpus`, `nohz_full`), and with phase 6's
+  pre-touched level arrays.
+- **p99.9 and above are WSL2 noise here.** The rounds differ by 3–17 times (1 M/s: 11.4 ms against
+  0.65 ms), the ring's own max is 1–18 ms, and the low rates have worse tails than 2 M/s, so the
+  tails follow the host, not the load. Read no trend into them.
+- **Three threads are slower than one: 4.2 M/s against 5.8 M/s.** The one-thread run also
+  encodes and writes the log, so splitting the work should have helped. Leading hypothesis,
+  not yet tested: the engine's counter's cache line bounces between cores.
+  - Ring 1 is full 4.5 times per message, so the feed spins re-reading the engine's `tail_`.
+  - Each re-read pulls that line to the feed's core, and the engine's next `tail_` store must
+    take it back: about one one-way hop (~90 ns) on the engine's path.
+  - The gap is 237 − 174 = 64 ns per message, about that size.
+  Fix to try in phase 6, before/after (rule 10): when the ring is full, let the feed wait for a
+  batch of free slots instead of one, or have the engine publish `tail_` every N records.
+  Measure the engine's ns per message and the ring-1-full count.
+  - Step 3's runs, which wrote the 20 GB log to disk, gave three threads 81.7 s against one
+    thread's 86.0 s. There, the disk writes move off the engine's core and that win is bigger.
+- **The three-thread throughput is the noisiest number (15% between rounds)**: three spinning
+  threads on a shared host. The single-thread number agrees to 1.6%.

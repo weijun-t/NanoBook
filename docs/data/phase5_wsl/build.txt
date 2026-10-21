@@ -1,0 +1,11 @@
+[1/11] Recording the git commit
+[2/11] Building CXX object CMakeFiles/nanobook_ringbench.dir/tools/nanobook_ringbench.cpp.o
+[3/11] Linking CXX executable nanobook_ringbench
+[4/11] Building CXX object CMakeFiles/nanobook_tests.dir/tests/test_latency.cpp.o
+[5/11] Linking CXX executable nanobook_tests
+[6/11] Building CXX object CMakeFiles/nanobook_pipeline.dir/tools/nanobook_pipeline.cpp.o
+[7/11] Linking CXX executable nanobook_pipeline
+[8/11] Building CXX object CMakeFiles/nanobook_bench.dir/tools/nanobook_bench.cpp.o
+[9/11] Linking CXX executable nanobook_bench
+[10/11] Building CXX object CMakeFiles/nanobook_replay.dir/tools/nanobook_replay.cpp.o
+[11/11] Linking CXX executable nanobook_replay

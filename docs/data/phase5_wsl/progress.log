@@ -1,0 +1,31 @@
+[13:01:03] building gcc-release
+[13:01:10] start: commit 9c2b233b68f2, cores 2,4,6, rates 500000 1000000 2000000 4000000 8000000, window 10:00:00-10:05:00
+[13:01:10] round 1: ring benchmark (cores 2,4)
+[13:01:12]   exit 0
+[13:01:12] round 1: throughput, one thread then three
+[13:04:26]   exit 0
+[13:04:26] round 1: latency at 500000 records/s
+[13:05:18]   exit 0
+[13:05:18] round 1: latency at 1000000 records/s
+[13:06:05]   exit 0
+[13:06:05] round 1: latency at 2000000 records/s
+[13:06:50]   exit 0
+[13:06:50] round 1: latency at 4000000 records/s
+[13:07:32]   exit 0
+[13:07:32] round 1: latency at 8000000 records/s
+[13:08:15]   exit 0
+[13:08:15] round 2: ring benchmark (cores 2,4)
+[13:08:17]   exit 0
+[13:08:17] round 2: throughput, one thread then three
+[13:11:10]   exit 0
+[13:11:10] round 2: latency at 500000 records/s
+[13:12:03]   exit 0
+[13:12:03] round 2: latency at 1000000 records/s
+[13:12:52]   exit 0
+[13:12:52] round 2: latency at 2000000 records/s
+[13:13:38]   exit 0
+[13:13:38] round 2: latency at 4000000 records/s
+[13:14:21]   exit 0
+[13:14:21] round 2: latency at 8000000 records/s
+[13:15:05]   exit 0
+[13:15:05] done: /home/weijun/NanoBook/docs/data/phase5_wsl

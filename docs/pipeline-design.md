@@ -358,6 +358,15 @@ All three cores read the same time-stamp counter: on this CPU it is invariant (`
   recorder gained `record_across_cores()`: its `record()` drops samples whose two stamps come
   from different cores, correctly for single-core timing.
 
+**Result (step 4b, WSL2, not for publishing; details in `docs/perf-log.md`, 2026-10-21):**
+- p50 is about 500 ns end to end up to 2 M records/s. The minimum, about 175 ns, is two
+  core-to-core hops.
+- The pipeline saturates at about 4.4 M records/s.
+- p99 is 65–72 µs at every rate up to 2 M/s: the signature of the machine stopping, not of
+  queueing.
+- Three threads are slower than one unpaced (4.2 against 5.8 M messages/s). Leading
+  hypothesis: the engine's `tail_` cache line bouncing while ring 1 is full. A phase 6 candidate.
+
 ### 9.3 Environment
 Phase 3's environment block and NOT FOR PUBLISHING banner, plus the three cores used. On WSL2 the
 threads go on **different physical cores** (CPUs 2, 4, 6: CPUs 2 and 3 are the two hyperthreads of
@@ -389,7 +398,7 @@ one core), so two stages never share one core's caches and execution units.
 | 2 ✓ | Records and the three stages (`records.hpp`, `stages.hpp`); pipeline = single thread on the golden day and on a busy day with 2-record rings; shutdown; zero allocations. Built 2026-10-20 | No |
 | 3 ✓ | Binary log + `nanobook_logdump`; byte-identical log against a single-threaded run, on the full day (checksums) and on a 200 MB real slice (files, `cmp`). Built 2026-10-21 | Yes |
 | 4a ✓ | Timing modes in `nanobook_pipeline` (§9.2a): throughput (one thread vs three), paced latency with a settle time; `Pacer`, `record_across_cores()`. Built 2026-10-21 | No |
-| 4b | The runs on an idle laptop: `nanobook_ringbench`, throughput, latency at several rates (WSL2, not for publishing) | Yes |
+| 4b ✓ | The runs on an idle laptop: `nanobook_ringbench`, throughput, latency at several rates (WSL2, not for publishing). Run 2026-10-21: results in `docs/perf-log.md`, data in `docs/data/phase5_wsl/` | Yes |
 | 5 | Phase 5 report; published numbers later, on bare metal, with phases 3 and 4 | Yes |
 
 ---

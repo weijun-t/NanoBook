@@ -1,0 +1,25 @@
+*** NOT FOR PUBLISHING: measured in a virtual machine (README rule 20) ***
+cpu              Intel(R) Core(TM) i7-14650HX
+logical cores    24
+os               Ubuntu 24.04.5 LTS
+kernel           Linux 6.18.54.1-microsoft-standard-WSL2 x86_64
+virtual machine  yes: WSL2
+isolated cores   none
+nohz_full cores  unknown
+governor         unknown
+turbo            unknown
+compiler         GCC 14.2.0
+build type       Release
+flags            -std=c++23 -O3 -DNDEBUG
+commit           9c2b233b68f2
+cores            2 (producer, A), 4 (consumer, B)
+ring             65536 slots of 8 bytes
+
+Throughput: 100000000 records in 0.585 s = 5.9 ns per record, 170.9 M records/s
+  producer found the ring full 39721 times; consumer found it empty 127354 times
+
+Round trip A -> B -> A (1000000 samples; ns, timer overhead subtracted; one way is about half)
+         min       p50       p90       p99     p99.9    p99.99       max
+     131.0     179.8     218.7     258.8      1019     11537  17705095
+  dropped (moved core) 0
+*** NOT FOR PUBLISHING: measured in a virtual machine (README rule 20) ***
