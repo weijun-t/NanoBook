@@ -616,3 +616,94 @@ No sample was clamped or refused. For scale: the real market sent this window at
     thread's 86.0 s. There, the disk writes move off the engine's core and that win is bigger.
 - **The three-thread throughput is the noisiest number (15% between rounds)**: three spinning
   threads on a shared host. The single-thread number agrees to 1.6%.
+
+---
+
+## 2026-10-21: E1, the ring's ping-pong: three threads 15% faster (phase 6 step 2)
+
+Optimise design E1. **Kept: variant (b), the producer backs off when its ring is full.** WSL2,
+so **not for publishing** (rule 20). Kept on WSL2 evidence, to re-check on bare metal (design §5,
+B5).
+
+### Symptom and hypothesis
+- **Symptom (phase 5, 2026-10-21):** the whole day ran at 237 ns per message on three threads,
+  against 174 on one. Ring 1 (feed → engine) was found full 4.5 times per message.
+- **Hypothesis:** the feed, always waiting on a full ring 1, re-reads the engine's `tail_` on
+  every try. Each read pulls `tail_`'s cache line to the feed's core, and the engine's next pop
+  must pull it back: about one cross-core hop on the bottleneck's path, per record.
+
+### The variants (each about 10–16 lines; every one passed every gate below)
+- **(a) Batched `tail_`:** the engine publishes `tail_` every 64 pops, and always before it
+  waits on an empty ring. Built as `SpscRing<T, Capacity, TailBatch>`, with `TailBatch = 1`
+  compiling the old pop unchanged, plus 4 tests.
+- **(b) Producer back-off:** after finding the ring full, the feed waits 64 `pause`s before
+  looking again, instead of 1. One file (`stages.hpp`, `push_waiting`); the ring is unchanged.
+  The yield budget for shared CPUs stays 1,024 pauses.
+- **(a)+(b)** together.
+
+### Gates, every variant
+- 21 ring, pipeline and log tests in Release, under TSan, and squeezed onto 2 CPUs.
+- **The full day's log checksum unchanged:** `748abedf40533b82`, 363,118,215 updates.
+- **Planted bugs, all caught:**
+  - (a) not publishing before waiting on empty: a test fails, and the 2-slot ring hangs;
+  - (a) publishing with `relaxed`: TSan reports the race;
+  - (b) never yielding on a shared CPU: the 2-record-ring test still runs after 60 s on one CPU,
+    against 4.5 s.
+
+### Method
+- **Sessions:** `scripts/run_ab_session.sh HEAD docs/data/phase6_wsl/<variant> -- nanobook_pipeline
+  ITCH_FILE --cores 2,4,6 --throughput`: before = `695e63b`, after = the variant (`after.diff`
+  in each folder), 2 rounds in ABBA order.
+- **Machine:** idle laptop, 19:05–20:05, i7-14650HX, GCC 14.2.0 `-O3`, cores 2, 4 and 6 (not
+  isolated).
+- **Decision metric**, chosen before running: the three-thread ns per message.
+- **The control:** each run also times the whole day on one thread, which uses no ring. Dividing
+  three threads by one thread, within the same run, cancels the machine's mood: e1ab's whole
+  session ran warmer, with one thread at 162–169 ns against about 160 in the other sessions.
+- Each session's "after" is compared only with its own "before".
+
+### Results: the whole day, three threads (ns per message; round 1 / round 2)
+
+| Variant | Before | After | Gain | Three ÷ one thread, before → after |
+|---|---|---|---|---|
+| (a) batched `tail_` | 206.7 / 205.4 | 179.0 / 169.7 | **15.4%** | 1.26 / 1.30 → 1.13 / 1.05 |
+| (b) back-off | 205.7 / 202.7 | 176.8 / 177.0 | **13.4%** | 1.29 / 1.23 → 1.09 / 1.10 |
+| (a)+(b) | 220.5 / 213.9 | 182.0 / 181.2 | **16.4%** | 1.30 / 1.32 → 1.09 / 1.08 |
+
+- **The control didn't move:** one thread ran at 158–169 ns in all 12 runs, and within a
+  session the before and after runs agree within 4%.
+- **"Ring 1 full" fell from about 1.6 billion tries to about 27 million under (b).** That is by
+  design: the counter now counts looks taken after a 64-pause wait, so it isn't comparable with
+  the old number.
+
+### Guard: paced latency below capacity, (b) against before (2 M records/s, 10:00–10:05)
+
+| | p50 | p90 | p99 |
+|---|---|---|---|
+| before | 497.3 / 496.9 ns | 807.7 / 802.7 ns | 50 / 69 µs |
+| (b) | 501.0 / 495.6 ns | 817.2 / 812.3 ns | 72 / 58 µs |
+
+Unchanged: p50 and p90 are within 1%. The p99 rounds overlap, and on WSL2 p99 varies 15–27%
+between rounds anyway. Below capacity the ring is never full, so the back-off never runs. Data:
+`docs/data/phase6_wsl/e1b_latency/`.
+
+### What these numbers say
+- **The hypothesis holds.** Two opposite cures of the same traffic give the same gain:
+  - (a) makes the shared line change less often;
+  - (b) makes the waiting core read it less often.
+
+  Doing both gains nothing more. The ping-pong on `tail_` cost about 30 ns per message on the
+  engine's path, about a third of one cross-core hop: the CPU hides part of each transfer behind
+  other work.
+- **The three variants tie.** The averages differ by 3 points, inside each one's round-to-round
+  noise (up to 5% for (a)). By the decision rule (design §3.3), the simplest is kept: **(b)**,
+  which leaves the ring and its contract ("a popped slot is free at once") untouched. Variant
+  (a)'s code is not kept; its diff stays in `docs/data/phase6_wsl/e1a/after.diff`.
+- **Three threads are still about 9% slower than one** on this test (1.09×, down from about
+  1.28×). The rest of the gap is another cost. The leading suspect is the same pattern on ring 2:
+  the publisher, faster than the engine, polls ring 2's `head_`, which the engine writes on
+  every update.
+- **This test favours one thread.** The log goes to `/dev/null` and the input comes from memory,
+  so splitting moves almost no work off the engine, and every record still pays two hand-overs.
+  Whether the pipeline wins on latency, or with real logging, is measured next (E1c): paced
+  latency on one thread against three.

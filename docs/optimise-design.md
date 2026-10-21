@@ -3,7 +3,7 @@
 > **Status:** approved (2026-10-21): every decision in §8 as proposed, plus a re-check of every
 > kept change on bare metal (§5, B5). Changes from here on are made by an edit plus a note in the
 > commit message. Step 1: the A/B script as built ("after" is the working tree, §3.1); page
-> faults in the tools (§3.2).
+> faults in the tools (§3.2). Step 2: E1 measured, (b) kept; E1c and E1d added (§2).
 
 Phases 1–5 built a correct order book, a way to time it, a real Nasdaq day to feed it, and a
 three-thread pipeline around it. Phase 5 left measured **symptoms**, such as a slow tail, a pipeline
@@ -100,6 +100,15 @@ cheap and well-evidenced first, the big redesign last.
   latency must not get worse below capacity, where the ring is never full.
 - **If right:** three threads at least match one thread. Their limit is the engine's own work,
   without parsing or logging.
+- **Result (step 2, 2026-10-21; perf log "E1, the ring's ping-pong"):**
+  - The hypothesis holds: (a), (b) and (a)+(b) all cut three threads from about 205 to about
+    175 ns per message, 13–16%, and tie within noise.
+  - **(b) is kept**, the simplest (decision rule §3.3; the user's choice). Paced latency at 2 M/s
+    is unchanged.
+  - Three threads remain about 1.09× one thread on this test. Two follow-ups:
+    - **E1c:** paced latency on one thread against three, the comparison that decides whether
+      the pipeline pays at all;
+    - **E1d:** the same ping-pong on ring 2, the publisher polling the engine's `head_`.
 
 ### E2. First-touch page faults in the sorted-level arrays (phase 4)
 - **Symptom:** p99.99 of about 11 µs on the real day, against 2.3 µs for one book in cache
@@ -310,7 +319,8 @@ Every timed step needs an idle laptop, and I ask before each session.
 |---|---|---|
 | 0 ✓ | This design note, decisions recorded. Approved 2026-10-21 | No |
 | 1 ✓ | `scripts/run_ab_session.sh`; page faults in the timing tools' reports. Built 2026-10-21 | No |
-| 2 | E1: ring batching, variants (a) and (b), A/B on the pipeline | Yes |
+| 2 ✓ | E1: ring batching, variants (a) and (b), and (a)+(b) at the user's request, A/B on the pipeline. (b) kept. Done 2026-10-21 | Yes |
+| 2b | E1c: `--sequential` in the latency mode; paced latency on one thread against three (and a slice logged to a real file) | Yes |
 | 3 | E2: touch the level arrays at construction, A/B on the real day | Yes |
 | 4 | E3: hybrid search, K = 0/4/8/16, on the real day | Yes |
 | 5 | E4: LTO, PGO (trained on 9:30–12:00), `-march=native`, against the default | Yes |

@@ -25,7 +25,9 @@
  *   - Waiting: on a full or empty ring a thread spins with `pause` for kSpinsBeforeYield tries,
  *     then yields its core before each further try, so the run still progresses when there are
  *     fewer free cores than threads (a CI runner); spin_only keeps it spinning, for timed runs on
- *     pinned, dedicated cores. Every full-ring wait is counted.
+ *     pinned, dedicated cores. Every full-ring wait is counted. A producer that finds its ring
+ *     full waits kFullBackoff pauses before looking again (optimise design E1b), so it reads the
+ *     consumer's counter less often.
  *
  * Data structures: Two SpscRings of `Capacity` records (65,536 by default, design §3.4), on the
  *   heap. Each thread writes only its own fields of PipelineResult; the caller reads them after
@@ -95,12 +97,24 @@ inline void wait_once(std::uint64_t failed_tries, bool spin_only) {
     }
 }
 
+// After a push finds the ring full, the producer waits kFullBackoff pauses before looking again
+// (optimise design E1b): it then reads the consumer's tail_ far less often, so that cache line
+// stays with the consumer. The budget before yielding stays kSpinsBeforeYield pauses.
+inline constexpr std::uint64_t kFullBackoff = 64;
+
 // Push or pop, waiting as above. Return how many times the ring was full or empty.
 template <typename Ring, typename T>
 std::uint64_t push_waiting(Ring &ring, const T &item, bool spin_only) {
     std::uint64_t failed = 0;
     while (!ring.try_push(item)) {
-        wait_once(failed++, spin_only);
+        if (spin_only || failed < kSpinsBeforeYield / kFullBackoff) {
+            for (std::uint64_t i = 0; i < kFullBackoff; ++i) {
+                cpu_relax();
+            }
+        } else {
+            std::this_thread::yield();
+        }
+        ++failed;
     }
     return failed;
 }
