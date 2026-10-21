@@ -11,7 +11,8 @@
  *   --throughput runs the whole day on one thread then on three and reports messages per second;
  *   --latency replays unpaced up to --from (the warm-up that builds the books), then sends
  *   --rate records per second until --until, and reports the end-to-end latency percentiles
- *   from each record's intended send time to the publisher (pipeline design §9.2).
+ *   from each record's intended send time to the publisher (pipeline design §9.2). Both also
+ *   report the page faults taken during each run (optimise design §3.2).
  *     nanobook_pipeline FILE [--log OUT] [--checksum] [--sequential] [--cores A,B,C]
  *                       [--window-mb N]
  *     nanobook_pipeline FILE --cores A,B,C --throughput
@@ -54,6 +55,7 @@
 #include "latency_recorder.hpp"
 #include "mapped_file.hpp"
 #include "pacing.hpp"
+#include "page_faults.hpp"
 #include "tsc.hpp"
 #include "nanobook/fast/fast_book.hpp"
 #include "nanobook/itch/book_builder.hpp"
@@ -241,6 +243,10 @@ void print_ns(double ns) {
 
 // Step 4 (pipeline design §9): throughput, or end-to-end latency at a paced rate. The whole file
 // is loaded into memory first, untimed, so the feed never waits for the disk mid-run.
+std::string faults_text(const latency::PageFaults &f) {
+    return std::to_string(f.minor) + " minor, " + std::to_string(f.major) + " major";
+}
+
 int run_timing(const Options &o, std::span<const std::byte> bytes,
                const std::vector<BookConfig> &configs) {
     if (!latency::missing_tsc_flags(latency::read_cpu_flags()).empty()) {
@@ -273,14 +279,20 @@ int run_timing(const Options &o, std::span<const std::byte> bytes,
     if (o.throughput) {
         Builder one{configs, itch::BuilderOptions{}};
         BinaryLog log_one{"/dev/null"};
+        const latency::PageFaults seq_f0 = latency::page_faults_now();
         const auto start = std::chrono::steady_clock::now();
         const PipelineResult seq = run_sequential(whole, one, log_one);
         const double seq_ns =
             std::chrono::duration<double, std::nano>(std::chrono::steady_clock::now() - start)
                 .count();
+        const latency::PageFaults seq_faults = latency::page_faults_now() - seq_f0;
         Builder three{configs, itch::BuilderOptions{}};
         BinaryLog log_three{"/dev/null"};
+        const latency::PageFaults pipe_f0 = latency::page_faults_now();
         const PipelineResult pipe = run_pipeline(whole, three, log_three, o.pipeline);
+        // Read after the threads have ended, so it includes run_pipeline's start-up: the two
+        // rings' slots are zero-filled there (7 MB, about 1,800 pages) and the thread stacks.
+        const latency::PageFaults pipe_faults = latency::page_faults_now() - pipe_f0;
         const auto messages = static_cast<double>(seq.records + seq.skipped);
         std::cout << "\nThroughput: the whole day, " << seq.records + seq.skipped
                   << " messages, logs to /dev/null\n"
@@ -296,7 +308,9 @@ int run_timing(const Options &o, std::span<const std::byte> bytes,
                   << (pipe.feed_pinned && pipe.engine_pinned && pipe.publish_pinned
                           ? "all three pinned"
                           : "NOT all pinned")
-                  << "\n";
+                  << "\n  page faults during each run: one thread " << faults_text(seq_faults)
+                  << "; three threads " << faults_text(pipe_faults)
+                  << " (start-up included: building the rings and threads)\n";
         if (!seq.parsed || !pipe.parsed || seq.updates != pipe.updates) {
             std::cerr << "the two runs disagree, or the file is broken\n";
             return 1;
@@ -325,7 +339,9 @@ int run_timing(const Options &o, std::span<const std::byte> bytes,
             StopAfter<std::remove_reference_t<decltype(handler)>> stop{handler, o.until};
             return itch::parse(bytes, stop).has_value();
         };
+        const latency::PageFaults f0 = latency::page_faults_now();
         const PipelineResult r = run_pipeline(until, builder, sink, o.pipeline, stamp);
+        const latency::PageFaults faults = latency::page_faults_now() - f0;
         const latency::Summary s = latency::summarize(recorder, 0, rate, std::nullopt);
         std::cout << "\nLatency: " << o.rate / 1'000 << " K records/s paced from "
                   << time_of_day(o.from) << " to " << time_of_day(o.until) << " (" << pacer.paced()
@@ -346,7 +362,9 @@ int run_timing(const Options &o, std::span<const std::byte> bytes,
         print_ns(s.mean_ns);
         std::cout << "\n  clamped (over 1.7 s) " << recorder.clamped() << ", refused (full) "
                   << recorder.refused() << "; ring 1 full " << r.feed_waits
-                  << " tries, ring 2 full " << r.engine_waits << " tries\n";
+                  << " tries, ring 2 full " << r.engine_waits << " tries\n"
+                  << "  page faults during the run (start-up and warm-up included): "
+                  << faults_text(faults) << "\n";
         if (!o.csv.empty()) {
             std::ofstream f{o.csv};
             if (!env.publishable()) {

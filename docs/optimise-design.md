@@ -2,7 +2,8 @@
 
 > **Status:** approved (2026-10-21): every decision in §8 as proposed, plus a re-check of every
 > kept change on bare metal (§5, B5). Changes from here on are made by an edit plus a note in the
-> commit message.
+> commit message. Step 1: the A/B script as built ("after" is the working tree, §3.1); page
+> faults in the tools (§3.2).
 
 Phases 1–5 built a correct order book, a way to time it, a real Nasdaq day to feed it, and a
 three-thread pipeline around it. Phase 5 left measured **symptoms**, such as a slow tail, a pipeline
@@ -200,22 +201,39 @@ branch or load.
 ## 3. Method
 
 ### 3.1 The A/B session (step 1)
-`scripts/run_ab_session.sh BEFORE_REF AFTER_REF OUT_DIR -- COMMAND ...`:
-- **Two builds:** it builds two commits (or a commit and the working tree) into two separate
-  folders, through `git worktree`, so both binaries exist before any timing starts.
-- **Alternating runs:** it runs COMMAND with each binary in turn, A B A B, two rounds at least,
-  each run its own process, pinned.
-- **Recorded output:** every output gets a progress log with timestamps and the environment
-  block, as phase 5's session script did.
+`scripts/run_ab_session.sh BEFORE_REF OUT_DIR [--rounds N] -- TOOL ARGS...`:
+- **Two builds:**
+  - "before" is BEFORE_REF, built in a temporary `git worktree`;
+  - "after" is the current working tree, uncommitted changes included, saved as
+    `OUT_DIR/after.diff`.
+  Both binaries exist before any timing starts.
+- **Alternating runs:** two rounds at least, in the order A B, B A, A B... (ABBA), so a machine
+  warming up or cooling down hits both sides equally. Each run is its own process; the tools pin
+  their own threads.
+- **Recorded output:** each run's output goes to its own file, with a timestamped progress log.
+  `{out}` in the arguments becomes the run's own path, so `--csv {out}.csv` never overwrites
+  another run's file.
+- **A/A runs:** with BEFORE_REF = HEAD and no changes, both sides are the same code, which
+  measures the noise alone.
 
-It refuses a dirty tree for the `before` side, like the other session scripts, so every number
-names a real commit. This one script replaces the one-off worktree recipe used for the
-48-against-64-byte order slot experiment in phase 2.
+**As built:** "after" is the working tree, not a second commit as first planned. An experiment
+is measured before it is committed (the user commits), and `after.diff` records exactly what was
+measured. To compare two commits, check out the later one. This one script replaces the one-off
+worktree recipe used for the 48-against-64-byte order slot experiment in phase 2.
 
 ### 3.2 Counting page faults where they matter
-The timing tools (`nanobook_replay`, `nanobook_pipeline`) gain one line in their reports: the
-**minor and major page faults during the timed part only**, from `getrusage` before and after.
-This is cheap, works on WSL2, and E2 and E6 need it.
+The timing tools report the **minor and major page faults** of each timed part, from
+`getrusage` (`support/page_faults.hpp`), read just outside the clock. This is cheap, works on
+WSL2, and E2 and E6 need it.
+- **`nanobook_replay`:** the timed part only, window by window (`replay_in_windows`), so the
+  file's own loading is excluded.
+- **`nanobook_pipeline`:** whole runs, because its threads time themselves. A three-thread run
+  includes building the two rings (zero-filled, 7 MB, about 1,800 pages) and the thread stacks;
+  a paced run also includes the warm-up. The report says so.
+
+**First look (the first 200 MB of the day, not a measurement):** parsing alone takes 0 faults
+while timed, and the books only about 20. Those 200 MB are before the market opens, while the
+books are small; the full day decides E2.
 
 ### 3.3 The decision rule (§8 Q2)
 A change is **kept** if:
@@ -272,6 +290,8 @@ blocking** phase 6:
 | File | Change |
 |---|---|
 | `scripts/run_ab_session.sh` | New: the A/B session (§3.1) |
+| `support/page_faults.hpp`, `tests/test_page_faults.cpp` | Step 1: the page-fault counter and its tests (§3.2) |
+| `support/itch_timing.hpp` | Step 1: faults counted while timed, window by window (§3.2) |
 | `tools/nanobook_replay.cpp`, `tools/nanobook_pipeline.cpp` | Page faults during the timed part (§3.2) |
 | `include/nanobook/pipeline/spsc_ring.hpp` | E1, E5 |
 | `include/nanobook/fast/sorted_levels.hpp` | E2, E3 |
@@ -289,7 +309,7 @@ Every timed step needs an idle laptop, and I ask before each session.
 | Step | What | Data file? |
 |---|---|---|
 | 0 ✓ | This design note, decisions recorded. Approved 2026-10-21 | No |
-| 1 | `scripts/run_ab_session.sh`; page faults in the timing tools' reports | No |
+| 1 ✓ | `scripts/run_ab_session.sh`; page faults in the timing tools' reports. Built 2026-10-21 | No |
 | 2 | E1: ring batching, variants (a) and (b), A/B on the pipeline | Yes |
 | 3 | E2: touch the level arrays at construction, A/B on the real day | Yes |
 | 4 | E3: hybrid search, K = 0/4/8/16, on the real day | Yes |

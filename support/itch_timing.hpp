@@ -6,6 +6,7 @@
  *   work, then releases the pages. ParseOnly is a Handler that decodes every message and does
  *   almost nothing else, to time the parser alone. TimedOrders wraps a Handler and times every
  *   Nth order message with the phase 3 timer, tagged by kind, into a phase 3 Recorder.
+ *   replay_in_windows() also counts the page faults taken while timed (phase 6 step 1).
  *
  * Why it exists: Step 6 measures messages per second and per-message latency on the real day.
  *   Reading 11 GB from disk takes longer than the replay itself, so the disk must stay out of the
@@ -17,6 +18,10 @@
  *     page, so every page is mapped before the clock starts. Releasing = madvise(MADV_DONTNEED):
  *     the pages leave this process (the kernel's file cache may keep them), so memory stays at
  *     about one window. Cost: one pass, O(file).
+ *   - Page faults: page_faults_now() just before the clock starts and just after it stops, in
+ *     every window, summed. Loading the window's pages faults too, but before the first reading,
+ *     so what's left is the handler's own faults (the books touching new memory: optimise design
+ *     E2). Two system calls per window, outside the clock.
  *   - ParseOnly adds each message's timestamp (and order ref) into a sum, so the compiler can't
  *     skip the decoding as unused.
  *   - TimedOrders: on every Nth order message, start(), the inner handler's on(), stop(), record.
@@ -42,6 +47,7 @@
 #include "latency_recorder.hpp"
 #include "nanobook/itch/messages.hpp"
 #include "nanobook/itch/parser.hpp"
+#include "page_faults.hpp"
 #include "tsc.hpp"
 
 namespace nanobook::itch {
@@ -80,7 +86,8 @@ inline void release_pages(std::span<const std::byte> bytes) {
 }
 
 struct WindowedRun {
-    std::uint64_t timed_ticks{}; // parsing + handler work, all windows; loading excluded
+    std::uint64_t timed_ticks{};  // parsing + handler work, all windows; loading excluded
+    latency::PageFaults faults{}; // taken while timed, all windows; loading excluded
     std::size_t windows{};
     std::size_t bytes{}; // consumed: the whole file if it ends on a whole message
 };
@@ -96,9 +103,11 @@ std::expected<WindowedRun, ParseError> replay_in_windows(std::span<const std::by
         const std::span<const std::byte> window =
             file.subspan(run.bytes, std::min(window_bytes, file.size() - run.bytes));
         load_pages(window);
+        const latency::PageFaults f0 = latency::page_faults_now();
         const latency::Stamp t0 = latency::start();
         const auto parsed = parse(window, handler);
         const latency::Stamp t1 = latency::stop();
+        run.faults += latency::page_faults_now() - f0;
         if (!parsed) {
             ParseError e = parsed.error();
             e.offset += run.bytes; // from the start of the file

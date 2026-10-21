@@ -5,7 +5,10 @@
  *   for windows from barely one message up to bigger than the day, including a message cut by a
  *   window's end. A bad message must be reported at its offset in the file, not in the window.
  *   ParseOnly must see every message. TimedOrders must time exactly every Nth order message,
- *   tag each kind correctly, and leave the books exactly as an untimed replay does.
+ *   tag each kind correctly, and leave the books exactly as an untimed replay does. The page
+ *   faults a replay reports must be the handler's own: none for a parse-only replay although
+ *   loading the windows faulted, and every one for a handler that touches a fresh page per
+ *   message (phase 6 step 1).
  *
  * Why it exists: The step 6 numbers are only as good as these pieces: a window that dropped or
  *   repeated a message, or a timer that changed what it times, would give wrong numbers with no
@@ -36,6 +39,7 @@
 #include "nanobook/itch/day_stats.hpp"
 #include "nanobook/itch/parser.hpp"
 #include "nanobook/itch/sizing.hpp"
+#include "page_faults.hpp"
 
 using namespace nanobook;
 using namespace nanobook::itch;
@@ -95,7 +99,64 @@ void expect_same(const BookBuilder<FastBook> &a, const BookBuilder<FastBook> &b)
     }
 }
 
+// ASan and TSan keep "shadow" memory beside everything the program reads, and fault on it the
+// first time: those faults aren't the handler's, so a check of "no faults" holds in plain builds.
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
+constexpr bool kSanitizer = true;
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer)
+constexpr bool kSanitizer = true;
+#else
+constexpr bool kSanitizer = false;
+#endif
+#else
+constexpr bool kSanitizer = false;
+#endif
+
 constexpr std::uint64_t kGoldenMessages = 31; // 6 S, 3 R, 3 H, 8 adds, 3 E/C, 2 X, 3 D, 1 U, P, I
+
+// A handler that writes to a fresh page of its own for each of its first `pages` messages: one
+// page fault each, as a book touching new memory would take.
+class TouchesAFreshPagePerMessage {
+public:
+    explicit TouchesAFreshPagePerMessage(std::size_t pages) : pages_(pages) {
+        void *map = mmap(nullptr, pages * kPage, PROT_READ | PROT_WRITE,
+                         MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        EXPECT_NE(map, MAP_FAILED);
+        madvise(map, pages * kPage, MADV_NOHUGEPAGE); // one fault per 4 KiB page, not per 2 MiB
+        memory_ = static_cast<std::byte *>(map);
+    }
+    ~TouchesAFreshPagePerMessage() {
+        munmap(memory_, pages_ * kPage);
+    }
+    TouchesAFreshPagePerMessage(const TouchesAFreshPagePerMessage &) = delete;
+    TouchesAFreshPagePerMessage &operator=(const TouchesAFreshPagePerMessage &) = delete;
+    TouchesAFreshPagePerMessage(TouchesAFreshPagePerMessage &&) = delete;
+    TouchesAFreshPagePerMessage &operator=(TouchesAFreshPagePerMessage &&) = delete;
+
+    template <typename Message> void on(const Message & /*message*/) {
+        touch();
+    }
+    void on_skipped(char /*type*/) {
+        touch();
+    }
+    [[nodiscard]] std::size_t touched() const {
+        return touched_;
+    }
+
+private:
+    void touch() {
+        if (touched_ < pages_) {
+            volatile std::byte *p = memory_; // volatile: the write can't be skipped
+            p[touched_ * kPage] = std::byte{1};
+            ++touched_;
+        }
+    }
+
+    std::byte *memory_{};
+    std::size_t pages_;
+    std::size_t touched_{};
+};
 
 } // namespace
 
@@ -137,6 +198,32 @@ TEST(ItchWindows, ParseOnlySeesEveryMessage) {
     ASSERT_TRUE(replay_in_windows(file.bytes(), 64, handler).has_value());
     EXPECT_EQ(handler.messages, kGoldenMessages);
     EXPECT_NE(handler.sum, 0U);
+}
+
+TEST(ItchWindows, CountOnlyThePageFaultsTakenWhileTimed) {
+    const std::vector<std::byte> day = golden::busy_day(5'000); // a few hundred KB
+    const MappedCopy file{day};
+    constexpr std::size_t kWindow = std::size_t{64} * 1024;
+
+    // Parsing alone touches no new memory: loading the windows faults, but not while timed.
+    ParseOnly parse_only;
+    const latency::PageFaults before = latency::page_faults_now();
+    const auto quiet = replay_in_windows(file.bytes(), kWindow, parse_only);
+    const latency::PageFaults whole = latency::page_faults_now() - before;
+    ASSERT_TRUE(quiet.has_value());
+    EXPECT_GT(quiet->windows, 2U);
+    EXPECT_GE(whole.minor, quiet->windows); // each window's loading faulted at least once...
+    if (!kSanitizer) {
+        EXPECT_LT(quiet->faults.minor, quiet->windows); // ...outside the count (Release: 0)
+    }
+
+    // A handler that touches a fresh page per message: every one of those faults is counted.
+    TouchesAFreshPagePerMessage toucher{1'000};
+    const auto busy = replay_in_windows(file.bytes(), kWindow, toucher);
+    ASSERT_TRUE(busy.has_value());
+    ASSERT_EQ(toucher.touched(), 1'000U);
+    EXPECT_GE(busy->faults.minor, 1'000U);
+    EXPECT_EQ(busy->faults.major, 0U);
 }
 
 TEST(TimedOrders, TimesEveryOrderMessageAndTagsItsKind) {

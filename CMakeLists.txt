@@ -154,6 +154,7 @@ if(NANOBOOK_BUILD_TESTS)
         tests/test_feed.cpp
         tests/test_latency.cpp
         tests/test_latency_scenarios.cpp
+        tests/test_page_faults.cpp
         tests/fast/test_order_pool.cpp
         tests/fast/test_intrusive_queue.cpp
         tests/fast/test_id_table.cpp

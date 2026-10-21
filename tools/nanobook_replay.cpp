@@ -34,7 +34,8 @@
  *     loaded before the clock starts and released after, so only parsing and book work are
  *     timed, and memory stays near one window. Checks are off. The time-stamp counter is
  *     calibrated, its own cost subtracted from every latency sample, and the environment printed
- *     next to the numbers (rules 19, 20), as in nanobook_bench.
+ *     next to the numbers (rules 19, 20), as in nanobook_bench. Each timed pass also reports the
+ *     page faults taken while timed (window loading excluded; optimise design §3.2).
  *
  * Trade-offs: A tool, not the engine: it prints, allocates and reads the clock freely, all
  *   outside the timed regions.
@@ -81,6 +82,7 @@
 #include "itch_replay_comparison.hpp"
 #include "itch_timing.hpp"
 #include "latency_recorder.hpp"
+#include "page_faults.hpp"
 #include "tsc.hpp"
 
 namespace {
@@ -568,6 +570,10 @@ struct CsvRow {
     latency::Summary summary;
 };
 
+std::string faults_text(const latency::PageFaults &f) {
+    return std::to_string(f.minor) + " minor, " + std::to_string(f.major) + " major";
+}
+
 int run_timing(const Options &o, std::span<const std::byte> bytes) {
     using namespace nanobook::latency;
     const auto missing = missing_tsc_flags(read_cpu_flags());
@@ -648,7 +654,9 @@ int run_timing(const Options &o, std::span<const std::byte> bytes) {
                   << messages / replay_ns * 1e3 << " M messages/s\n"
                   << "  the books' share:  " << (replay_ns - parse_ns) / messages
                   << " ns per message (" << std::setprecision(0)
-                  << 100.0 * (replay_ns - parse_ns) / replay_ns << "% of the time)\n";
+                  << 100.0 * (replay_ns - parse_ns) / replay_ns << "% of the time)\n"
+                  << "  page faults while timed: parse only " << faults_text(parsed->faults)
+                  << "; parse + FastBook " << faults_text(replayed->faults) << "\n";
         rows.push_back({"throughput", "parse_only", "all",
                         Summary{.count = parse_only.messages, .mean_ns = parse_ns / messages}});
         rows.push_back({"throughput", "FastBook", "all",
@@ -660,7 +668,8 @@ int run_timing(const Options &o, std::span<const std::byte> bytes) {
         Recorder recorder{bytes.size() / (kLengthPrefix + 19) / o.every + 1};
         BookBuilder<FastBook> builder{configs, BuilderOptions{}};
         TimedOrders timed{builder, recorder, o.every};
-        if (failed(replay_in_windows(bytes, window, timed), "latency")) {
+        const auto replayed = replay_in_windows(bytes, window, timed);
+        if (failed(replayed, "latency")) {
             return 1;
         }
         std::cout << "\nLatency of every " << o.every << "th order message, FastBook ("
@@ -698,7 +707,8 @@ int run_timing(const Options &o, std::span<const std::byte> bytes) {
             }
         }
         std::cout << "  dropped (moved core) " << recorder.dropped() << ", clamped (too long) "
-                  << recorder.clamped() << ", refused (full) " << recorder.refused() << "\n";
+                  << recorder.clamped() << ", refused (full) " << recorder.refused()
+                  << "; page faults while timed: " << faults_text(replayed->faults) << "\n";
     }
 
     const Calibration after = calibrate();
