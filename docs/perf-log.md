@@ -777,3 +777,78 @@ Optimise design E1c: does the pipeline pay at all? WSL2, so **not for publishing
   capacity. NanoBook's feed (parse, 3 ns) and publisher (copy into a buffer) do little, so at
   normal load one thread wins. Both modes stay: they share the engine code, and the right choice
   depends on the work around the book.
+
+---
+
+## 2026-10-21: E2, page faults in the level arrays (phase 6 step 3)
+
+Optimise design E2. **Kept on WSL2 evidence, with a pre-agreed bare-metal re-check that reverts
+it if the result is worse** (design §5, B5). WSL2, so **not for publishing** (rule 20).
+
+### Symptom and hypothesis
+- **Symptom (phase 4):** p99.99 of about 11 µs per order message on the real day, against
+  about 2.3 µs for one book in cache (phase 3).
+- **Hypothesis (phase 4):** `SortedLevels` only `reserve()`s its arrays (161 MB for the day), so
+  each page is first touched mid-replay: a minor page fault of a few µs, guessed at "tens of
+  thousands" a day, about the p99.99 level.
+- **First check, with step 1's counter** (it doesn't depend on load): the whole day's timed
+  replay takes **4,793 page faults**, one per about 77,000 order messages. That is about 8× too
+  rare to set p99.99 on its own. Most of each reservation is never used: real books have far
+  fewer price levels than resting orders.
+
+### Change
+- `include/nanobook/fast/prefault_allocator.hpp`: `PrefaultAllocator<T>`, `std::allocator<T>`
+  plus one write per 4 KiB page (and one at the last byte) as the memory is handed out.
+- `SortedLevels` uses `std::vector<Level, PrefaultAllocator<Level>>`; nothing else changes.
+- **Cost:** the whole 161 MB becomes resident at start-up, against about 20 MB touched before.
+
+### Gates
+- **Tests:** 2 new allocator tests, plus all 528 / 510.
+- **Planted bugs, caught:**
+  - no write at the last byte: the test sees 1 fault, after its threshold was tightened from
+    "fewer than 2" to "exactly 0";
+  - no writes at all: the test sees 255 faults.
+- **The book's correctness:**
+  - `nanobook_fuzz` 10 million operations: PASS;
+  - **full-day differential replay: 363,118,215 quick and 61,354 full checks, 0 mismatches.**
+
+### Method
+- `scripts/run_ab_session.sh HEAD docs/data/phase6_wsl/e2 -- nanobook_replay ITCH_FILE
+  --throughput --latency --core 2 --csv {out}.csv`.
+- Before = `319850a`, after = the change (`after.diff`). 2 rounds in ABBA order, 21:52–22:00,
+  idle laptop.
+- **Decision metric:** page faults while timed. p99.99 is the symptom; p50, p99 and throughput
+  are the guards.
+
+### Results (ns; round 1 / round 2; every 8th order message, 45,389,776 samples)
+
+| | Before | After |
+|---|---|---|
+| Page faults while timed: throughput pass | 4,758 / 4,758 | **0 / 0** |
+| Page faults while timed: latency pass | 1,678 / 1,678 | **0 / 0** |
+| Throughput, ns per message | 108.4 / 108.2 | 108.7 / 108.9 |
+| p50 | 107.1 / 106.2 | 107.1 / 106.2 |
+| p90 | 246.4 / 245.5 | 247.2 / 246.4 |
+| p99 | 437.7 / 441.1 | **451.8 / 446.4** |
+| p99.9 | 711.4 / 736.2 | 749.4 / 730.4 |
+| **p99.99** | **12,290 / 11,916** | **11,059 / 10,320** |
+| max | 1.68 / 1.16 ms | 0.82 / 1.67 ms |
+
+(The latency pass faults less than the throughput pass because its books reuse heap memory that
+the first pass's books already touched.)
+
+### What these numbers say
+- **All the page faults were the level arrays,** and now none happen while timed.
+- **p99.99 improved about 12% in both rounds** (12,103 → 10,690 ns on average). The gain, about
+  1,400 ns, is larger than either build's round-to-round difference (370 and 740 ns).
+- **More than the fault count alone predicts.** I expected almost no change, since the faults
+  are 8× too rare. A plausible reason, not yet tested: a fault enters the kernel, which also
+  evicts cache lines and TLB entries, so the messages right after it run slower too. Hardware
+  counters on bare metal can check it (design §5, B1).
+- **p99 got about 2% worse** (about 10 ns), slightly more than its round-to-round difference
+  (about 1%). It may be real, or code-layout noise: a changed type moves code, which alone
+  shifts timings by a few percent. WSL2 can't separate them.
+- **Throughput +0.4%**, within what layout alone does. p50 and p90 are unchanged.
+- **Decision (the user's): keep, provisionally.** By the rule (design §3.3) this is marginal: the
+  symptom improved, one guard got slightly worse. The bare-metal re-check decides it, with the
+  criteria written down now, before those numbers exist (design §5, B5).

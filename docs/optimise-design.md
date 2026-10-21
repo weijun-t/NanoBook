@@ -4,7 +4,7 @@
 > kept change on bare metal (§5, B5). Changes from here on are made by an edit plus a note in the
 > commit message. Step 1: the A/B script as built ("after" is the working tree, §3.1); page
 > faults in the tools (§3.2). Step 2: E1 measured, (b) kept; E1c and E1d added (§2). Step 2b:
-> E1c measured (§2).
+> E1c measured (§2). Step 3: E2 measured, kept provisionally with its bare-metal criteria (§5).
 
 Phases 1–5 built a correct order book, a way to time it, a real Nasdaq day to feed it, and a
 three-thread pipeline around it. Phase 5 left measured **symptoms**, such as a slow tail, a pipeline
@@ -135,6 +135,13 @@ cheap and well-evidenced first, the big redesign last.
     Expected: tens of thousands → near 0.
   - **The effect:** p99.99 per message on the real day.
   - **Guards:** throughput and start-up time.
+- **Result (step 3, 2026-10-21; perf log "E2, page faults in the level arrays"):**
+  - Step 1's counter showed only 4,793 faults a day, one per about 77,000 messages: about 8×
+    too rare to set p99.99 alone.
+  - Touching the pages at start-up (`PrefaultAllocator`) took the faults to 0 and improved
+    p99.99 about 12% in both rounds, but p99 got about 2% worse, maybe code-layout noise.
+  - **Kept provisionally** (the user's decision), to be re-checked on bare metal and reverted if
+    worse (§5, B5).
 
 ### E3. The hybrid search, on real flow (phase 2, re-opened by phase 4)
 - **Symptom:** on real flow, 48% of new orders land at or improve the best price, and 35% of new
@@ -300,6 +307,7 @@ blocking** phase 6:
 | B3 | FastBook `match`: 9.3 ns in throughput mode against 13.1 ns in Google Benchmark (phase 3) | Needs `perf record` with cycle-accurate samples and `perf stat` |
 | B4 | Tails on isolated cores (`isolcpus`, `nohz_full`) | Separates the machine's stalls from the code's: the pipeline's flat 65–72 µs p99, the 11 µs p99.99 |
 | B5 | **Re-check every kept change**: re-run its A/B with `scripts/run_ab_session.sh` | A virtual machine translates every address twice (Linux's page tables, then the hypervisor's), so page faults (E2) and TLB misses (E6) cost more there and their gains can look bigger than on real hardware. E2 and E6 **must** be re-checked; the rest are a quick confirmation. Until then their perf-log entries say "kept on WSL2 evidence, to re-check on bare metal" |
+| B5-E2 | **E2's re-check, criteria fixed before the data (2026-10-21).** Check out the E2 commit, then `scripts/run_ab_session.sh <E2's parent> OUT -- nanobook_replay FILE --throughput --latency --core C --csv {out}.csv`. **Keep** if p99.99 is better in every round, by more than the noise, and p50, p99 and throughput are not worse beyond their noise. **Revert** if p99.99 isn't better beyond the noise, or if p50, p99 or throughput is worse beyond the noise in every round, unless p99.99 improves by clearly more (then weighed with the bare-metal numbers). The outcome goes in the perf log either way | E2 cost 2% at p99 on WSL2, maybe code-layout noise; bare metal's lower noise decides |
 
 ---
 
@@ -330,7 +338,7 @@ Every timed step needs an idle laptop, and I ask before each session.
 | 1 ✓ | `scripts/run_ab_session.sh`; page faults in the timing tools' reports. Built 2026-10-21 | No |
 | 2 ✓ | E1: ring batching, variants (a) and (b), and (a)+(b) at the user's request, A/B on the pipeline. (b) kept. Done 2026-10-21 | Yes |
 | 2b ✓ | E1c: `--sequential` in the latency mode; paced latency on one thread against three (and a slice logged to a real file). Done 2026-10-21 | Yes |
-| 3 | E2: touch the level arrays at construction, A/B on the real day | Yes |
+| 3 ✓ | E2: touch the level arrays at construction, A/B on the real day. Kept provisionally (bare-metal re-check, §5 B5). Done 2026-10-21 | Yes |
 | 4 | E3: hybrid search, K = 0/4/8/16, on the real day | Yes |
 | 5 | E4: LTO, PGO (trained on 9:30–12:00), `-march=native`, against the default | Yes |
 | 6 | E5: ring padding 64 against 128 | Yes |

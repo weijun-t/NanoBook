@@ -159,6 +159,7 @@ if(NANOBOOK_BUILD_TESTS)
         tests/fast/test_intrusive_queue.cpp
         tests/fast/test_id_table.cpp
         tests/fast/test_levels.cpp
+        tests/fast/test_prefault_allocator.cpp
         tests/itch/test_parser.cpp
         tests/itch/test_book_builder.cpp
         tests/itch/test_replay_comparison.cpp

@@ -1,0 +1,415 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 01df900..010a3ea 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -159,6 +159,7 @@ if(NANOBOOK_BUILD_TESTS)
+         tests/fast/test_intrusive_queue.cpp
+         tests/fast/test_id_table.cpp
+         tests/fast/test_levels.cpp
++        tests/fast/test_prefault_allocator.cpp
+         tests/itch/test_parser.cpp
+         tests/itch/test_book_builder.cpp
+         tests/itch/test_replay_comparison.cpp
+diff --git a/include/nanobook/fast/sorted_levels.hpp b/include/nanobook/fast/sorted_levels.hpp
+index 6c7e4b4..8c92d19 100644
+--- a/include/nanobook/fast/sorted_levels.hpp
++++ b/include/nanobook/fast/sorted_levels.hpp
+@@ -19,7 +19,8 @@
+  *
+  * Data structures: Two std::vector<Level> (32 bytes per level), each reserved for max_orders levels
+  *   at construction, so they never grow while trading: there can't be more levels on a side than
+- *   resting orders.
++ *   resting orders. Their PrefaultAllocator touches every page of the reservation then, so no
++ *   page is first touched while trading (optimise design E2).
+  *
+  * Trade-offs: Inserting or removing a level deep in the book shifts every better level along by
+  *   one, O(n). That's rare (activity is near the best price), but in a deep book one such insert
+@@ -39,10 +40,15 @@
+ 
+ #include "nanobook/core/types.hpp"
+ #include "nanobook/fast/level.hpp"
++#include "nanobook/fast/prefault_allocator.hpp"
+ 
+ namespace nanobook::fast {
+ 
+ class SortedLevels {
++    // PrefaultAllocator: every page of the reservation is touched at construction, so no page is
++    // first touched mid-replay (optimise design E2).
++    using Array = std::vector<Level, PrefaultAllocator<Level>>;
++
+ public:
+     explicit SortedLevels(const BookConfig &config) {
+         bids_.reserve(config.max_orders);
+@@ -51,29 +57,29 @@ public:
+ 
+     // The level at `price`, or nullptr if there is none.
+     [[nodiscard]] Level *find(Side side, Price price) {
+-        std::vector<Level> &v = levels(side);
++        Array &v = levels(side);
+         const std::size_t i = lower_bound(side, v, price);
+         return i < v.size() && v[i].price == price ? &v[i] : nullptr;
+     }
+     [[nodiscard]] const Level *find(Side side, Price price) const {
+-        const std::vector<Level> &v = levels(side);
++        const Array &v = levels(side);
+         const std::size_t i = lower_bound(side, v, price);
+         return i < v.size() && v[i].price == price ? &v[i] : nullptr;
+     }
+ 
+     // The best level of a side (highest bid, lowest ask), or nullptr if the side is empty.
+     [[nodiscard]] Level *best(Side side) {
+-        std::vector<Level> &v = levels(side);
++        Array &v = levels(side);
+         return v.empty() ? nullptr : &v.back();
+     }
+     [[nodiscard]] const Level *best(Side side) const {
+-        const std::vector<Level> &v = levels(side);
++        const Array &v = levels(side);
+         return v.empty() ? nullptr : &v.back();
+     }
+ 
+     // The level at `price`, inserted empty at its sorted position if it doesn't exist yet.
+     [[nodiscard]] Level &get_or_create(Side side, Price price) {
+-        std::vector<Level> &v = levels(side);
++        Array &v = levels(side);
+         const std::size_t i = lower_bound(side, v, price);
+         if (i < v.size() && v[i].price == price) {
+             return v[i];
+@@ -84,7 +90,7 @@ public:
+ 
+     // Removes the level at `price`. It must exist and be empty.
+     void erase(Side side, Price price) {
+-        std::vector<Level> &v = levels(side);
++        Array &v = levels(side);
+         const std::size_t i = lower_bound(side, v, price);
+         assert(i < v.size() && v[i].price == price && v[i].queue.empty() &&
+                "erasing a missing or busy level");
+@@ -95,7 +101,7 @@ public:
+     // erasing a level at `price` shifts along the array. For analysis (ITCH design step 6), not
+     // the hot path.
+     [[nodiscard]] std::size_t better_than(Side side, Price price) const {
+-        const std::vector<Level> &v = levels(side);
++        const Array &v = levels(side);
+         std::size_t i = lower_bound(side, v, price); // the first level not worse than `price`
+         if (i < v.size() && v[i].price == price) {
+             ++i; // the level at `price` itself isn't better
+@@ -105,7 +111,7 @@ public:
+ 
+     // Calls visit(level) for each level of a side, best price first, until visit returns false.
+     template <typename Visit> void for_each_best_first(Side side, Visit &&visit) const {
+-        const std::vector<Level> &v = levels(side);
++        const Array &v = levels(side);
+         for (const Level &level : std::views::reverse(v)) { // the best level is at the end
+             if (!visit(level)) {
+                 return;
+@@ -122,7 +128,7 @@ private:
+     // The first index whose level is not worse than `price`: where `price` is, or would be
+     // inserted. Binary search: the array is sorted worst to best, so everything before that index
+     // is worse than `price`, and everything from it on is not.
+-    static std::size_t lower_bound(Side side, const std::vector<Level> &v, Price price) {
++    static std::size_t lower_bound(Side side, const Array &v, Price price) {
+         std::size_t lo = 0;
+         std::size_t hi = v.size(); // the answer is always in [lo, hi]
+         while (lo < hi) {
+@@ -136,15 +142,15 @@ private:
+         return lo;
+     }
+ 
+-    [[nodiscard]] std::vector<Level> &levels(Side side) {
++    [[nodiscard]] Array &levels(Side side) {
+         return side == Side::Buy ? bids_ : asks_;
+     }
+-    [[nodiscard]] const std::vector<Level> &levels(Side side) const {
++    [[nodiscard]] const Array &levels(Side side) const {
+         return side == Side::Buy ? bids_ : asks_;
+     }
+ 
+-    std::vector<Level> bids_; // ascending price: the highest bid (best) is last
+-    std::vector<Level> asks_; // descending price: the lowest ask (best) is last
++    Array bids_; // ascending price: the highest bid (best) is last
++    Array asks_; // descending price: the lowest ask (best) is last
+ };
+ 
+ } // namespace nanobook::fast
+diff --git a/docs/data/phase6_wsl/e2/after.diff b/docs/data/phase6_wsl/e2/after.diff
+new file mode 100644
+index 0000000..fa401a3
+--- /dev/null
++++ b/docs/data/phase6_wsl/e2/after.diff
+@@ -0,0 +1,133 @@
++diff --git a/CMakeLists.txt b/CMakeLists.txt
++index 01df900..010a3ea 100644
++--- a/CMakeLists.txt
+++++ b/CMakeLists.txt
++@@ -159,6 +159,7 @@ if(NANOBOOK_BUILD_TESTS)
++         tests/fast/test_intrusive_queue.cpp
++         tests/fast/test_id_table.cpp
++         tests/fast/test_levels.cpp
+++        tests/fast/test_prefault_allocator.cpp
++         tests/itch/test_parser.cpp
++         tests/itch/test_book_builder.cpp
++         tests/itch/test_replay_comparison.cpp
++diff --git a/include/nanobook/fast/sorted_levels.hpp b/include/nanobook/fast/sorted_levels.hpp
++index 6c7e4b4..8c92d19 100644
++--- a/include/nanobook/fast/sorted_levels.hpp
+++++ b/include/nanobook/fast/sorted_levels.hpp
++@@ -19,7 +19,8 @@
++  *
++  * Data structures: Two std::vector<Level> (32 bytes per level), each reserved for max_orders levels
++  *   at construction, so they never grow while trading: there can't be more levels on a side than
++- *   resting orders.
+++ *   resting orders. Their PrefaultAllocator touches every page of the reservation then, so no
+++ *   page is first touched while trading (optimise design E2).
++  *
++  * Trade-offs: Inserting or removing a level deep in the book shifts every better level along by
++  *   one, O(n). That's rare (activity is near the best price), but in a deep book one such insert
++@@ -39,10 +40,15 @@
++ 
++ #include "nanobook/core/types.hpp"
++ #include "nanobook/fast/level.hpp"
+++#include "nanobook/fast/prefault_allocator.hpp"
++ 
++ namespace nanobook::fast {
++ 
++ class SortedLevels {
+++    // PrefaultAllocator: every page of the reservation is touched at construction, so no page is
+++    // first touched mid-replay (optimise design E2).
+++    using Array = std::vector<Level, PrefaultAllocator<Level>>;
+++
++ public:
++     explicit SortedLevels(const BookConfig &config) {
++         bids_.reserve(config.max_orders);
++@@ -51,29 +57,29 @@ public:
++ 
++     // The level at `price`, or nullptr if there is none.
++     [[nodiscard]] Level *find(Side side, Price price) {
++-        std::vector<Level> &v = levels(side);
+++        Array &v = levels(side);
++         const std::size_t i = lower_bound(side, v, price);
++         return i < v.size() && v[i].price == price ? &v[i] : nullptr;
++     }
++     [[nodiscard]] const Level *find(Side side, Price price) const {
++-        const std::vector<Level> &v = levels(side);
+++        const Array &v = levels(side);
++         const std::size_t i = lower_bound(side, v, price);
++         return i < v.size() && v[i].price == price ? &v[i] : nullptr;
++     }
++ 
++     // The best level of a side (highest bid, lowest ask), or nullptr if the side is empty.
++     [[nodiscard]] Level *best(Side side) {
++-        std::vector<Level> &v = levels(side);
+++        Array &v = levels(side);
++         return v.empty() ? nullptr : &v.back();
++     }
++     [[nodiscard]] const Level *best(Side side) const {
++-        const std::vector<Level> &v = levels(side);
+++        const Array &v = levels(side);
++         return v.empty() ? nullptr : &v.back();
++     }
++ 
++     // The level at `price`, inserted empty at its sorted position if it doesn't exist yet.
++     [[nodiscard]] Level &get_or_create(Side side, Price price) {
++-        std::vector<Level> &v = levels(side);
+++        Array &v = levels(side);
++         const std::size_t i = lower_bound(side, v, price);
++         if (i < v.size() && v[i].price == price) {
++             return v[i];
++@@ -84,7 +90,7 @@ public:
++ 
++     // Removes the level at `price`. It must exist and be empty.
++     void erase(Side side, Price price) {
++-        std::vector<Level> &v = levels(side);
+++        Array &v = levels(side);
++         const std::size_t i = lower_bound(side, v, price);
++         assert(i < v.size() && v[i].price == price && v[i].queue.empty() &&
++                "erasing a missing or busy level");
++@@ -95,7 +101,7 @@ public:
++     // erasing a level at `price` shifts along the array. For analysis (ITCH design step 6), not
++     // the hot path.
++     [[nodiscard]] std::size_t better_than(Side side, Price price) const {
++-        const std::vector<Level> &v = levels(side);
+++        const Array &v = levels(side);
++         std::size_t i = lower_bound(side, v, price); // the first level not worse than `price`
++         if (i < v.size() && v[i].price == price) {
++             ++i; // the level at `price` itself isn't better
++@@ -105,7 +111,7 @@ public:
++ 
++     // Calls visit(level) for each level of a side, best price first, until visit returns false.
++     template <typename Visit> void for_each_best_first(Side side, Visit &&visit) const {
++-        const std::vector<Level> &v = levels(side);
+++        const Array &v = levels(side);
++         for (const Level &level : std::views::reverse(v)) { // the best level is at the end
++             if (!visit(level)) {
++                 return;
++@@ -122,7 +128,7 @@ private:
++     // The first index whose level is not worse than `price`: where `price` is, or would be
++     // inserted. Binary search: the array is sorted worst to best, so everything before that index
++     // is worse than `price`, and everything from it on is not.
++-    static std::size_t lower_bound(Side side, const std::vector<Level> &v, Price price) {
+++    static std::size_t lower_bound(Side side, const Array &v, Price price) {
++         std::size_t lo = 0;
++         std::size_t hi = v.size(); // the answer is always in [lo, hi]
++         while (lo < hi) {
++@@ -136,15 +142,15 @@ private:
++         return lo;
++     }
++ 
++-    [[nodiscard]] std::vector<Level> &levels(Side side) {
+++    [[nodiscard]] Array &levels(Side side) {
++         return side == Side::Buy ? bids_ : asks_;
++     }
++-    [[nodiscard]] const std::vector<Level> &levels(Side side) const {
+++    [[nodiscard]] const Array &levels(Side side) const {
++         return side == Side::Buy ? bids_ : asks_;
++     }
++ 
++-    std::vector<Level> bids_; // ascending price: the highest bid (best) is last
++-    std::vector<Level> asks_; // descending price: the lowest ask (best) is last
+++    Array bids_; // ascending price: the highest bid (best) is last
+++    Array asks_; // descending price: the lowest ask (best) is last
++ };
++ 
++ } // namespace nanobook::fast
+diff --git a/include/nanobook/fast/prefault_allocator.hpp b/include/nanobook/fast/prefault_allocator.hpp
+new file mode 100644
+index 0000000..40f7aec
+--- /dev/null
++++ b/include/nanobook/fast/prefault_allocator.hpp
+@@ -0,0 +1,67 @@
++/*
++ * prefault_allocator.hpp: an allocator that touches every page of its memory as it hands it out.
++ *
++ * What it does: PrefaultAllocator<T> is std::allocator<T> plus one step: after getting the
++ *   memory, it writes a byte into every 4 KiB page of it. A std::vector using it, reserved at
++ *   start-up, then has all its pages mapped before the first element is ever stored.
++ *
++ * Why it exists: Phase 6 experiment E2 (optimise design §2). The operating system maps a page of
++ *   new memory only when the program first touches it, stopping the program for a few
++ *   microseconds (a minor page fault). SortedLevels only reserves its arrays, so a page was first
++ *   touched mid-replay, when a book grew: a possible cause of the slow tail. Touching every page
++ *   at construction moves those faults to start-up, where rule 1 says the costs belong.
++ *
++ * How it works: allocate(n) asks std::allocator for n * sizeof(T) bytes, then writes 0 at every
++ *   4,096th byte and at the last byte, through a volatile pointer so the compiler can't drop the
++ *   writes. Every page the range spans gets one write: the writes are one page apart, starting
++ *   at the first byte. These are writes to raw storage, before any T exists, through unsigned
++ *   char, which may alias anything. Cost: one write per page at start-up, O(bytes / 4 KiB).
++ *
++ * Trade-offs: The whole reservation becomes resident memory, used or not (for the real day's
++ *   books, about 161 MB instead of about 20 MB actually touched). Nothing else changes: it is
++ *   stateless, every instance compares equal, and the vector's element code is the same.
++ */
++
++#pragma once
++
++#include <cstddef>
++#include <memory>
++
++namespace nanobook::fast {
++
++template <typename T> class PrefaultAllocator {
++public:
++    using value_type = T;
++
++    PrefaultAllocator() = default;
++    template <typename U>
++    explicit(false) PrefaultAllocator(const PrefaultAllocator<U> & /*other*/) {
++    }
++
++    [[nodiscard]] T *allocate(std::size_t n) {
++        T *memory = std::allocator<T>{}.allocate(n);
++        const std::size_t size = n * sizeof(T);
++        if (size != 0) {
++            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): raw storage as bytes
++            auto *bytes = reinterpret_cast<volatile unsigned char *>(memory);
++            for (std::size_t i = 0; i < size; i += kPageBytes) {
++                bytes[i] = 0;
++            }
++            bytes[size - 1] = 0; // the last page, if the range doesn't start on a page boundary
++        }
++        return memory;
++    }
++
++    void deallocate(T *memory, std::size_t n) noexcept {
++        std::allocator<T>{}.deallocate(memory, n);
++    }
++
++    template <typename U> bool operator==(const PrefaultAllocator<U> & /*other*/) const noexcept {
++        return true; // stateless: memory from one can be freed by any other
++    }
++
++private:
++    static constexpr std::size_t kPageBytes = 4096;
++};
++
++} // namespace nanobook::fast
+diff --git a/tests/fast/test_prefault_allocator.cpp b/tests/fast/test_prefault_allocator.cpp
+new file mode 100644
+index 0000000..b5db029
+--- /dev/null
++++ b/tests/fast/test_prefault_allocator.cpp
+@@ -0,0 +1,64 @@
++/*
++ * test_prefault_allocator.cpp: tests for the page-touching allocator
++ * (include/nanobook/fast/prefault_allocator.hpp).
++ *
++ * What it does: After allocate(), writing to every page of the memory must cost (almost) no page
++ *   fault, including the last page of a range that doesn't start on a page boundary: allocate()
++ *   has already touched them all. A std::vector using it must behave like any vector, and two
++ *   allocators must compare equal (they're stateless).
++ *
++ * Why it exists: Phase 6 experiment E2 relies on it to move the level arrays' page faults to
++ *   start-up (optimise design §2). An allocator that missed a page would leave a fault mid-replay.
++ *
++ * How it works: The page-fault counter (support/page_faults.hpp) is read around the writes. The
++ *   memory is exactly 1 MiB, which usually starts 16 bytes past a page boundary, so its last page
++ *   is a partial one that only the allocator's last-byte write reaches.
++ */
++
++#include <gtest/gtest.h>
++
++#include <cstddef>
++#include <vector>
++
++#include "nanobook/fast/level.hpp"
++#include "nanobook/fast/prefault_allocator.hpp"
++#include "page_faults.hpp"
++
++using nanobook::fast::Level;
++using nanobook::fast::PrefaultAllocator;
++using nanobook::latency::page_faults_now;
++using nanobook::latency::PageFaults;
++
++TEST(PrefaultAllocator, EveryPageIsTouchedWhenTheMemoryIsHandedOut) {
++    constexpr std::size_t kPage = 4096;
++    // Exactly 1 MiB. glibc usually hands out a block this big 16 bytes past a page boundary, so
++    // it spans 257 pages, and only the write at its last byte reaches the 257th.
++    constexpr std::size_t kLevels = (std::size_t{1} << 20U) / sizeof(Level);
++    PrefaultAllocator<Level> allocator;
++    Level *memory = allocator.allocate(kLevels);
++    const std::size_t size = kLevels * sizeof(Level);
++
++    const PageFaults before = page_faults_now();
++    volatile unsigned char *bytes = reinterpret_cast<unsigned char *>(memory); // NOLINT: raw bytes
++    for (std::size_t i = 0; i < size; i += kPage) {
++        bytes[i] = 1;
++    }
++    bytes[size - 1] = 1;
++    const PageFaults taken = page_faults_now() - before;
++    EXPECT_EQ(taken.minor, 0U); // 256 or 257 pages written; all were already mapped
++    allocator.deallocate(memory, kLevels);
++}
++
++TEST(PrefaultAllocator, AVectorUsingItBehavesLikeAnyVector) {
++    std::vector<Level, PrefaultAllocator<Level>> levels;
++    levels.reserve(1'000);
++    for (int i = 0; i < 10; ++i) {
++        levels.insert(levels.begin(), Level{.price = nanobook::Price{i}});
++    }
++    levels.erase(levels.begin() + 3);
++    ASSERT_EQ(levels.size(), 9U);
++    EXPECT_EQ(levels.front().price, nanobook::Price{9});
++    EXPECT_EQ(levels[3].price, nanobook::Price{5}); // 6 was erased
++    EXPECT_EQ(levels.back().price, nanobook::Price{0});
++    EXPECT_TRUE(PrefaultAllocator<Level>{} == PrefaultAllocator<int>{}); // stateless
++}
