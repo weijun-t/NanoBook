@@ -54,6 +54,21 @@
       }
     },
     {
+      "name": "lto",
+      "hidden": true,
+      "cacheVariables": { "NANOBOOK_LTO": "ON" }
+    },
+    {
+      "name": "native",
+      "hidden": true,
+      "cacheVariables": { "NANOBOOK_NATIVE_OPTIMIZATION": "ON" }
+    },
+    {
+      "name": "pgo",
+      "hidden": true,
+      "cacheVariables": { "NANOBOOK_PGO": "use" }
+    },
+    {
       "name": "profile",
       "hidden": true,
       "cacheVariables": {
@@ -67,6 +82,9 @@
     { "name": "clang-tsan",       "displayName": "Clang TSan",                 "inherits": ["tsan", "clang", "base"] },
     { "name": "gcc-release",      "displayName": "GCC Release (-O3)",          "inherits": ["release", "gcc", "base"] },
     { "name": "clang-release",    "displayName": "Clang Release (-O3)",        "inherits": ["release", "clang", "base"] },
+    { "name": "gcc-release-lto",    "displayName": "GCC Release + LTO",           "inherits": ["lto", "release", "gcc", "base"] },
+    { "name": "gcc-release-native", "displayName": "GCC Release + -march=native", "inherits": ["native", "release", "gcc", "base"] },
+    { "name": "gcc-release-pgo",    "displayName": "GCC Release + PGO (scripts/build_pgo.sh)", "inherits": ["pgo", "release", "gcc", "base"] },
     { "name": "gcc-profile",      "displayName": "GCC Profile (perf)",         "inherits": ["profile", "gcc", "base"] },
     { "name": "clang-profile",    "displayName": "Clang Profile (perf)",       "inherits": ["profile", "clang", "base"] }
   ],
@@ -77,6 +95,9 @@
     { "name": "clang-tsan",       "configurePreset": "clang-tsan" },
     { "name": "gcc-release",      "configurePreset": "gcc-release" },
     { "name": "clang-release",    "configurePreset": "clang-release" },
+    { "name": "gcc-release-lto",    "configurePreset": "gcc-release-lto" },
+    { "name": "gcc-release-native", "configurePreset": "gcc-release-native" },
+    { "name": "gcc-release-pgo",    "configurePreset": "gcc-release-pgo" },
     { "name": "gcc-profile",      "configurePreset": "gcc-profile" },
     { "name": "clang-profile",    "configurePreset": "clang-profile" }
   ],

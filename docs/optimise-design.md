@@ -5,7 +5,8 @@
 > commit message. Step 1: the A/B script as built ("after" is the working tree, §3.1); page
 > faults in the tools (§3.2). Step 2: E1 measured, (b) kept; E1c and E1d added (§2). Step 2b:
 > E1c measured (§2). Step 3: E2 measured, kept provisionally with its bare-metal criteria (§5).
-> Step 4: E3 measured, K = 4 kept (§2).
+> Step 4: E3 measured, K = 4 kept (§2). Step 5: E4 measured, none kept as the default; PGO
+> trains on the day up to 12:00, not 9:30–12:00, so the books build as on the day (§2).
 
 Phases 1–5 built a correct order book, a way to time it, a real Nasdaq day to feed it, and a
 three-thread pipeline around it. Phase 5 left measured **symptoms**, such as a slow tail, a pipeline
@@ -176,6 +177,11 @@ cheap and well-evidenced first, the big redesign last.
     and the flag must be stated next to any published number.
 - **Measure:** each option against the default build, on the real day (throughput and p50/p99),
   and on the phase 3 scenarios.
+- **Result (step 5, 2026-10-22; perf log "E4, compiler options"):** none kept as the default.
+  - LTO gained nothing (the engine is header-only, as predicted).
+  - `-march=native` was 1.8% slower, mostly in parsing (`movbe`, AVX2).
+  - PGO gained 1.4% throughput but made replaces 25% slower at p50 and p99 3–5% worse.
+  - The options, presets and scripts stay as tools for the bare-metal re-check.
 
 ### E5. Ring padding: 64 against 128 bytes (phase 5 decision Q4)
 - **Symptom:** none measured: 128 bytes was chosen on the README's advice (Intel CPUs fetch
@@ -345,7 +351,7 @@ Every timed step needs an idle laptop, and I ask before each session.
 | 2b ✓ | E1c: `--sequential` in the latency mode; paced latency on one thread against three (and a slice logged to a real file). Done 2026-10-21 | Yes |
 | 3 ✓ | E2: touch the level arrays at construction, A/B on the real day. Kept provisionally (bare-metal re-check, §5 B5). Done 2026-10-21 | Yes |
 | 4 ✓ | E3: hybrid search, K = 0/4/8/16, on the real day. K = 4 kept. Done 2026-10-21 | Yes |
-| 5 | E4: LTO, PGO (trained on 9:30–12:00), `-march=native`, against the default | Yes |
+| 5 ✓ | E4: LTO, PGO (trained on the day up to 12:00), `-march=native`, against the default. None kept as the default; kept as presets. Done 2026-10-22 | Yes |
 | 6 | E5: ring padding 64 against 128 | Yes |
 | 7 | E6: huge pages for the books' memory | Yes |
 | 8a, 8b, 8c | E7: moving window: design section; code, tests and fuzzing; measurement | Yes |

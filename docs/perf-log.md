@@ -921,3 +921,56 @@ Under K = 8 and 16, add p50 rose to 100.9 and 103.3, and p99 rose in most rounds
 - **This is the measurement phase 2 asked for** (fast-book design §13): the synthetic benchmark
   that dropped the hybrid had orders spread evenly over 100 levels; the real day has them
   clustered at the best of books thousands of levels deep.
+
+---
+
+## 2026-10-22: E4, compiler options: LTO, -march=native, PGO (phase 6 step 5)
+
+Optimise design E4. **None kept in the default build:** it stays portable `-O3`. The options stay
+as presets for the bare-metal re-check. WSL2, so **not for publishing** (rule 20).
+
+### What was tried
+- **`gcc-release-lto`:** `NANOBOOK_LTO`. CMake adds `-flto=auto -fno-fat-lto-objects` and
+  archives with `gcc-ar-14`.
+- **`gcc-release-native`:** `-march=native`, on the i7-14650HX.
+- **`gcc-release-pgo`:** `scripts/build_pgo.sh`. It builds with counters, trains on the day up to
+  12:00, and rebuilds in the same folder with `-fprofile-use`.
+  - The training data was 151,453,346 messages (4.6 GB), cut by `scripts/itch_slice.py`.
+  - It ran the measurement's own command, `--throughput --latency`.
+  - The whole day was measured, so the afternoon was never trained on.
+- **Each against `gcc-release`, same code:** `scripts/run_ab_session.sh HEAD
+  docs/data/phase6_wsl/e4_X --after-preset gcc-release-X -- nanobook_replay ITCH_FILE
+  --throughput --latency --core 2 --csv {out}.csv`. 2 rounds in ABBA order, 23:42–00:06, idle
+  laptop. Before = `71f5dc9`.
+
+### Gates
+- **All three:** the full day's correctness report is identical to the default build's (every
+  message count, every result, the biggest books).
+- **LTO and native:** all 528 tests and `nanobook_fuzz` 10 million operations.
+- **PGO:** the full-day differential replay, run by the PGO binary itself, 0 mismatches.
+
+### Results (round 1 / round 2; ns)
+
+| | Throughput, before → after | Parse only | p50 all | p99 all | Notable |
+|---|---|---|---|---|---|
+| LTO | 95.9 / 97.8 → 97.2 / 100.0 | 3.0 → 3.0 | 102.1 / 105.0 → 104.2 / 105.0 | 420.8 / 438.6 → 446.4 / 445.2 | add p99 296 / 307 → 316 / 313 |
+| native | 97.6 / 97.4 → 99.5 / 99.0 | **3.0 / 3.0 → 3.7 / 3.8** | 104.2 / 104.6 → 105.0 / 104.6 | 436.9 / 442.7 → 445.2 / 441.9 | execute p50 92.6 → 95.9 / 95.1 |
+| PGO | 98.9 / 98.8 → **97.1 / 97.9** | 2.9 / 3.0 → 3.1 / 3.1 | 107.1 / 104.6 → 105.8 / 107.1 | 446.4 / 445.6 → **456.3 / 467.1** | **replace p50 167.8 / 165.8 → 207.5 / 208.7** |
+
+### What these numbers say
+- **LTO gains nothing, as predicted** (design E4). The book's code lives in headers, so each
+  tool already compiles it in one file; there's nothing across files for LTO to inline. The
+  1.8% loss is about the size of this machine's noise.
+- **`-march=native` is slower:** 1.8% on throughput in both rounds, mostly in parsing (+25%).
+  - The machine code differs a lot: 65 byte-swapped loads become `movbe` (load and byte swap in
+    one instruction), and 344 AVX2 instructions appear where the portable build has none.
+  - Which of the two costs the time is a hypothesis for a profile on bare metal.
+  - The lesson stands either way: "use every instruction the CPU has" is not automatically faster.
+- **PGO gains 1.4% throughput but makes replaces 25% slower at p50,** and p99 3–5% worse.
+  - PGO arranges the code for the paths the training ran most, and the replace path paid for it.
+  - A guard got clearly worse, so by the rule (design §3.3) it's not kept.
+  - PGO optimises the common case on average: a poor fit for a system judged on its tail.
+- **Kept as tools, not defaults:** the options (`NANOBOOK_LTO`, `NANOBOOK_PGO`), the three presets,
+  `scripts/build_pgo.sh`, `scripts/itch_slice.py` and `run_ab_session.sh --after-preset`. They cost
+  nothing unless chosen, reproduce this entry, and let the bare-metal session repeat it (design
+  §5, B5).

@@ -1,0 +1,13 @@
+[23:58:53] before: 71f5dc9ff9ab (HEAD), preset gcc-release; after: 71f5dc9ff9ab plus the uncommitted changes in after.diff, preset gcc-release-pgo
+[23:58:53] building before (worktree at /home/weijun/NanoBook/build/ab-before)
+[23:59:04] building after (this working tree)
+[23:59:04] start: nanobook_replay data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50 --throughput --latency --core 2 --csv {out}.csv; 2 rounds, order ABBA; the laptop must stay idle
+[23:59:04] round 1: before
+[00:01:01]   exit 0
+[00:01:01] round 1: after
+[00:02:56]   exit 0
+[00:02:56] round 2: after
+[00:04:52]   exit 0
+[00:04:52] round 2: before
+[00:06:49]   exit 0
+[00:06:49] done: /home/weijun/NanoBook/docs/data/phase6_wsl/e4_pgo

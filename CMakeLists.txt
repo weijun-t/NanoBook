@@ -8,8 +8,10 @@
 #   Benchmark at pinned versions, checked by SHA256.
 #
 # How it works: Options come from CMakePresets.json. Sanitizer flags are global, so third-party code
-#   is built the same way as ours. The strict warnings (-Werror) apply to our code only. The engine
-#   library is built with -fno-exceptions. The git commit is written into a generated header on
+#   is built the same way as ours. The strict warnings (-Werror) apply to our code only, as do the
+#   phase 6 compiler experiments (optimise design E4): link-time optimisation (NANOBOOK_LTO),
+#   -march=native, and profile-guided optimisation (NANOBOOK_PGO, GCC; scripts/build_pgo.sh). The
+#   engine library is built with -fno-exceptions. The git commit is written into a generated header on
 #   every build (cmake/git_commit.cmake), for the latency harness's environment block.
 
 cmake_minimum_required(VERSION 3.25) # CMakePresets.json version 6 needs 3.25
@@ -30,6 +32,23 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # compile_commands.json for clang-tidy / e
 option(NANOBOOK_BUILD_TESTS "Build the test suite" OFF)
 option(NANOBOOK_BUILD_BENCH "Build benchmarks" OFF)
 option(NANOBOOK_NATIVE_OPTIMIZATION "Compile own targets with -march=native" OFF)
+option(NANOBOOK_LTO "Link-time optimisation for our own targets" OFF)
+set(NANOBOOK_PGO "" CACHE STRING "Profile-guided optimisation (GCC): empty, generate or use")
+set(NANOBOOK_PGO_DIR "${CMAKE_BINARY_DIR}/pgo-data" CACHE PATH "Where PGO profiles are written/read")
+
+if(NANOBOOK_LTO)
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT nanobook_ipo_ok OUTPUT nanobook_ipo_error)
+    if(NOT nanobook_ipo_ok)
+        message(FATAL_ERROR "NANOBOOK_LTO: this compiler can't do LTO: ${nanobook_ipo_error}")
+    endif()
+endif()
+if(NANOBOOK_PGO AND NOT NANOBOOK_PGO MATCHES "^(generate|use)$")
+    message(FATAL_ERROR "NANOBOOK_PGO must be empty, generate or use (got ${NANOBOOK_PGO})")
+endif()
+if(NANOBOOK_PGO AND NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    message(FATAL_ERROR "NANOBOOK_PGO uses GCC's profile files; Clang's need llvm-profdata")
+endif()
 set(NANOBOOK_SANITIZER "" CACHE STRING "Comma-separated -fsanitize= list, e.g. address,undefined or thread")
 
 # ---------------------------------------------------------------------------
@@ -65,6 +84,19 @@ function(nanobook_configure_target target)
     )
     if(NANOBOOK_NATIVE_OPTIMIZATION)
         target_compile_options(${target} PRIVATE -march=native)
+    endif()
+    if(NANOBOOK_LTO) # CMake adds -flto and uses gcc-ar for the static library
+        set_property(TARGET ${target} PROPERTY INTERPROCEDURAL_OPTIMIZATION ON)
+    endif()
+    # PGO: "generate" builds counters into the code, and a run writes them to NANOBOOK_PGO_DIR;
+    # "use" recompiles in the same build folder with those counts (GCC names a profile after its
+    # object file's path). -Wno-missing-profile: code the training never ran has no profile.
+    if(NANOBOOK_PGO STREQUAL "generate")
+        target_compile_options(${target} PRIVATE -fprofile-generate=${NANOBOOK_PGO_DIR})
+        target_link_options(${target} PRIVATE -fprofile-generate=${NANOBOOK_PGO_DIR})
+    elseif(NANOBOOK_PGO STREQUAL "use")
+        target_compile_options(${target} PRIVATE -fprofile-use=${NANOBOOK_PGO_DIR}
+            -Wno-missing-profile)
     endif()
 endfunction()
 
@@ -113,6 +145,12 @@ if(NANOBOOK_BUILD_TESTS OR NANOBOOK_BUILD_BENCH)
         "-std=c++${CMAKE_CXX_STANDARD} ${CMAKE_CXX_FLAGS} ${CMAKE_CXX_FLAGS_${NANOBOOK_BUILD_TYPE_UPPER}}")
     if(NANOBOOK_NATIVE_OPTIMIZATION)
         string(APPEND NANOBOOK_FLAGS_TEXT " -march=native")
+    endif()
+    if(NANOBOOK_LTO)
+        string(APPEND NANOBOOK_FLAGS_TEXT " -flto")
+    endif()
+    if(NANOBOOK_PGO)
+        string(APPEND NANOBOOK_FLAGS_TEXT " -fprofile-${NANOBOOK_PGO}")
     endif()
     string(REGEX REPLACE " +" " " NANOBOOK_FLAGS_TEXT "${NANOBOOK_FLAGS_TEXT}")
     string(STRIP "${NANOBOOK_FLAGS_TEXT}" NANOBOOK_FLAGS_TEXT)

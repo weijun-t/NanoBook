@@ -11,12 +11,14 @@
 #   Each run's output goes to OUT_DIR/before_roundN.txt or after_roundN.txt, with a timestamped
 #   OUT_DIR/progress.log. "{out}" in the tool's arguments becomes that run's own path without
 #   the extension (e.g. --csv {out}.csv), so runs never overwrite each other's files.
-#     scripts/run_ab_session.sh BEFORE_REF OUT_DIR [--rounds N] [--preset P] [--timeout S]
-#                               -- TOOL [ARGS...]
+#     scripts/run_ab_session.sh BEFORE_REF OUT_DIR [--rounds N] [--preset P] [--after-preset Q]
+#                               [--timeout S] -- TOOL [ARGS...]
 #     e.g. scripts/run_ab_session.sh HEAD docs/data/phase6_e1 -- nanobook_pipeline ITCH_FILE
 #            --cores 2,4,6 --throughput
 #   Defaults: 2 rounds, preset gcc-release, 1,800 s per run. With BEFORE_REF = HEAD and no
 #   uncommitted changes, both sides are the same code: an A/A run, which measures the noise alone.
+#   --after-preset Q builds "after" with another preset: the same code built differently (LTO,
+#   -march=native, PGO: optimise design E4). "before" always uses --preset.
 #
 # Why it exists: README rules 10 and 22: no optimisation without a before/after table. Timing
 #   "before" today and "after" tomorrow would blame the laptop's mood on the change.
@@ -39,7 +41,7 @@ set -u
 
 usage() {
     echo "usage: scripts/run_ab_session.sh BEFORE_REF OUT_DIR [--rounds N] [--preset P]" \
-        "[--timeout S] -- TOOL [ARGS...]" >&2
+        "[--after-preset Q] [--timeout S] -- TOOL [ARGS...]" >&2
     exit 2
 }
 
@@ -49,11 +51,13 @@ OUT=$2
 shift 2
 ROUNDS=2
 PRESET=gcc-release
+AFTER_PRESET=
 TIMEOUT=1800
 while [ $# -gt 0 ]; do
     case $1 in
     --rounds) ROUNDS=${2:?}; shift 2 ;;
     --preset) PRESET=${2:?}; shift 2 ;;
+    --after-preset) AFTER_PRESET=${2:?}; shift 2 ;;
     --timeout) TIMEOUT=${2:?}; shift 2 ;;
     --) shift; break ;;
     *) usage ;;
@@ -64,6 +68,7 @@ TOOL=$1
 shift
 ARGS=("$@")
 
+AFTER_PRESET=${AFTER_PRESET:-$PRESET}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT" || exit 1
 mkdir -p "$OUT" || exit 1
@@ -95,8 +100,10 @@ else
     AFTER_TEXT="$(git rev-parse --short=12 HEAD), no uncommitted changes"
     rm "$OUT/after.diff"
 fi
-log "before: $(git rev-parse --short=12 "$BEFORE_SHA") ($BEFORE); after: $AFTER_TEXT"
-if [ "$BEFORE_SHA" = "$AFTER_SHA" ] && [ ! -e "$OUT/after.diff" ]; then
+log "before: $(git rev-parse --short=12 "$BEFORE_SHA") ($BEFORE), preset $PRESET; after:" \
+    "$AFTER_TEXT, preset $AFTER_PRESET"
+if [ "$BEFORE_SHA" = "$AFTER_SHA" ] && [ ! -e "$OUT/after.diff" ] &&
+    [ "$PRESET" = "$AFTER_PRESET" ]; then
     log "before and after are the same code: an A/A run, which measures the noise alone"
 fi
 
@@ -125,15 +132,16 @@ if ! (cd "$WORKTREE" && cmake --preset "$PRESET" "${DEP_ARGS[@]}" &&
 fi
 
 log "building after (this working tree)"
-if ! { { [ -d "build/$PRESET" ] || cmake --preset "$PRESET"; } &&
-    cmake --build --preset "$PRESET" --target "$TOOL"; } > "$OUT/build_after.txt" 2>&1; then
+if ! { { [ -d "build/$AFTER_PRESET" ] || cmake --preset "$AFTER_PRESET"; } &&
+    cmake --build --preset "$AFTER_PRESET" --target "$TOOL"; } > "$OUT/build_after.txt" 2>&1; then
     log "after: build failed, see build_after.txt"
     exit 1
 fi
 
 rm -rf "$BIN"
 mkdir -p "$BIN/before" "$BIN/after"
-cp "$WORKTREE/build/$PRESET/$TOOL" "$BIN/before/" && cp "build/$PRESET/$TOOL" "$BIN/after/" || {
+cp "$WORKTREE/build/$PRESET/$TOOL" "$BIN/before/" &&
+    cp "build/$AFTER_PRESET/$TOOL" "$BIN/after/" || {
     log "could not copy the binaries"
     exit 1
 }

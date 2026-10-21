@@ -1,0 +1,376 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 010a3ea..8683ff8 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -8,8 +8,10 @@
+ #   Benchmark at pinned versions, checked by SHA256.
+ #
+ # How it works: Options come from CMakePresets.json. Sanitizer flags are global, so third-party code
+-#   is built the same way as ours. The strict warnings (-Werror) apply to our code only. The engine
+-#   library is built with -fno-exceptions. The git commit is written into a generated header on
++#   is built the same way as ours. The strict warnings (-Werror) apply to our code only, as do the
++#   phase 6 compiler experiments (optimise design E4): link-time optimisation (NANOBOOK_LTO),
++#   -march=native, and profile-guided optimisation (NANOBOOK_PGO, GCC; scripts/build_pgo.sh). The
++#   engine library is built with -fno-exceptions. The git commit is written into a generated header on
+ #   every build (cmake/git_commit.cmake), for the latency harness's environment block.
+ 
+ cmake_minimum_required(VERSION 3.25) # CMakePresets.json version 6 needs 3.25
+@@ -30,6 +32,23 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # compile_commands.json for clang-tidy / e
+ option(NANOBOOK_BUILD_TESTS "Build the test suite" OFF)
+ option(NANOBOOK_BUILD_BENCH "Build benchmarks" OFF)
+ option(NANOBOOK_NATIVE_OPTIMIZATION "Compile own targets with -march=native" OFF)
++option(NANOBOOK_LTO "Link-time optimisation for our own targets" OFF)
++set(NANOBOOK_PGO "" CACHE STRING "Profile-guided optimisation (GCC): empty, generate or use")
++set(NANOBOOK_PGO_DIR "${CMAKE_BINARY_DIR}/pgo-data" CACHE PATH "Where PGO profiles are written/read")
++
++if(NANOBOOK_LTO)
++    include(CheckIPOSupported)
++    check_ipo_supported(RESULT nanobook_ipo_ok OUTPUT nanobook_ipo_error)
++    if(NOT nanobook_ipo_ok)
++        message(FATAL_ERROR "NANOBOOK_LTO: this compiler can't do LTO: ${nanobook_ipo_error}")
++    endif()
++endif()
++if(NANOBOOK_PGO AND NOT NANOBOOK_PGO MATCHES "^(generate|use)$")
++    message(FATAL_ERROR "NANOBOOK_PGO must be empty, generate or use (got ${NANOBOOK_PGO})")
++endif()
++if(NANOBOOK_PGO AND NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
++    message(FATAL_ERROR "NANOBOOK_PGO uses GCC's profile files; Clang's need llvm-profdata")
++endif()
+ set(NANOBOOK_SANITIZER "" CACHE STRING "Comma-separated -fsanitize= list, e.g. address,undefined or thread")
+ 
+ # ---------------------------------------------------------------------------
+@@ -66,6 +85,19 @@ function(nanobook_configure_target target)
+     if(NANOBOOK_NATIVE_OPTIMIZATION)
+         target_compile_options(${target} PRIVATE -march=native)
+     endif()
++    if(NANOBOOK_LTO) # CMake adds -flto and uses gcc-ar for the static library
++        set_property(TARGET ${target} PROPERTY INTERPROCEDURAL_OPTIMIZATION ON)
++    endif()
++    # PGO: "generate" builds counters into the code, and a run writes them to NANOBOOK_PGO_DIR;
++    # "use" recompiles in the same build folder with those counts (GCC names a profile after its
++    # object file's path). -Wno-missing-profile: code the training never ran has no profile.
++    if(NANOBOOK_PGO STREQUAL "generate")
++        target_compile_options(${target} PRIVATE -fprofile-generate=${NANOBOOK_PGO_DIR})
++        target_link_options(${target} PRIVATE -fprofile-generate=${NANOBOOK_PGO_DIR})
++    elseif(NANOBOOK_PGO STREQUAL "use")
++        target_compile_options(${target} PRIVATE -fprofile-use=${NANOBOOK_PGO_DIR}
++            -Wno-missing-profile)
++    endif()
+ endfunction()
+ 
+ # ---------------------------------------------------------------------------
+@@ -114,6 +146,12 @@ if(NANOBOOK_BUILD_TESTS OR NANOBOOK_BUILD_BENCH)
+     if(NANOBOOK_NATIVE_OPTIMIZATION)
+         string(APPEND NANOBOOK_FLAGS_TEXT " -march=native")
+     endif()
++    if(NANOBOOK_LTO)
++        string(APPEND NANOBOOK_FLAGS_TEXT " -flto")
++    endif()
++    if(NANOBOOK_PGO)
++        string(APPEND NANOBOOK_FLAGS_TEXT " -fprofile-${NANOBOOK_PGO}")
++    endif()
+     string(REGEX REPLACE " +" " " NANOBOOK_FLAGS_TEXT "${NANOBOOK_FLAGS_TEXT}")
+     string(STRIP "${NANOBOOK_FLAGS_TEXT}" NANOBOOK_FLAGS_TEXT)
+ 
+diff --git a/CMakePresets.json b/CMakePresets.json
+index 7750868..fb5f891 100644
+--- a/CMakePresets.json
++++ b/CMakePresets.json
+@@ -53,6 +53,21 @@
+         "NANOBOOK_NATIVE_OPTIMIZATION": "OFF"
+       }
+     },
++    {
++      "name": "lto",
++      "hidden": true,
++      "cacheVariables": { "NANOBOOK_LTO": "ON" }
++    },
++    {
++      "name": "native",
++      "hidden": true,
++      "cacheVariables": { "NANOBOOK_NATIVE_OPTIMIZATION": "ON" }
++    },
++    {
++      "name": "pgo",
++      "hidden": true,
++      "cacheVariables": { "NANOBOOK_PGO": "use" }
++    },
+     {
+       "name": "profile",
+       "hidden": true,
+@@ -67,6 +82,9 @@
+     { "name": "clang-tsan",       "displayName": "Clang TSan",                 "inherits": ["tsan", "clang", "base"] },
+     { "name": "gcc-release",      "displayName": "GCC Release (-O3)",          "inherits": ["release", "gcc", "base"] },
+     { "name": "clang-release",    "displayName": "Clang Release (-O3)",        "inherits": ["release", "clang", "base"] },
++    { "name": "gcc-release-lto",    "displayName": "GCC Release + LTO",           "inherits": ["lto", "release", "gcc", "base"] },
++    { "name": "gcc-release-native", "displayName": "GCC Release + -march=native", "inherits": ["native", "release", "gcc", "base"] },
++    { "name": "gcc-release-pgo",    "displayName": "GCC Release + PGO (scripts/build_pgo.sh)", "inherits": ["pgo", "release", "gcc", "base"] },
+     { "name": "gcc-profile",      "displayName": "GCC Profile (perf)",         "inherits": ["profile", "gcc", "base"] },
+     { "name": "clang-profile",    "displayName": "Clang Profile (perf)",       "inherits": ["profile", "clang", "base"] }
+   ],
+@@ -77,6 +95,9 @@
+     { "name": "clang-tsan",       "configurePreset": "clang-tsan" },
+     { "name": "gcc-release",      "configurePreset": "gcc-release" },
+     { "name": "clang-release",    "configurePreset": "clang-release" },
++    { "name": "gcc-release-lto",    "configurePreset": "gcc-release-lto" },
++    { "name": "gcc-release-native", "configurePreset": "gcc-release-native" },
++    { "name": "gcc-release-pgo",    "configurePreset": "gcc-release-pgo" },
+     { "name": "gcc-profile",      "configurePreset": "gcc-profile" },
+     { "name": "clang-profile",    "configurePreset": "clang-profile" }
+   ],
+diff --git a/scripts/run_ab_session.sh b/scripts/run_ab_session.sh
+index 7ccf27e..71bf5a2 100644
+--- a/scripts/run_ab_session.sh
++++ b/scripts/run_ab_session.sh
+@@ -11,12 +11,14 @@
+ #   Each run's output goes to OUT_DIR/before_roundN.txt or after_roundN.txt, with a timestamped
+ #   OUT_DIR/progress.log. "{out}" in the tool's arguments becomes that run's own path without
+ #   the extension (e.g. --csv {out}.csv), so runs never overwrite each other's files.
+-#     scripts/run_ab_session.sh BEFORE_REF OUT_DIR [--rounds N] [--preset P] [--timeout S]
+-#                               -- TOOL [ARGS...]
++#     scripts/run_ab_session.sh BEFORE_REF OUT_DIR [--rounds N] [--preset P] [--after-preset Q]
++#                               [--timeout S] -- TOOL [ARGS...]
+ #     e.g. scripts/run_ab_session.sh HEAD docs/data/phase6_e1 -- nanobook_pipeline ITCH_FILE
+ #            --cores 2,4,6 --throughput
+ #   Defaults: 2 rounds, preset gcc-release, 1,800 s per run. With BEFORE_REF = HEAD and no
+ #   uncommitted changes, both sides are the same code: an A/A run, which measures the noise alone.
++#   --after-preset Q builds "after" with another preset: the same code built differently (LTO,
++#   -march=native, PGO: optimise design E4). "before" always uses --preset.
+ #
+ # Why it exists: README rules 10 and 22: no optimisation without a before/after table. Timing
+ #   "before" today and "after" tomorrow would blame the laptop's mood on the change.
+@@ -39,7 +41,7 @@ set -u
+ 
+ usage() {
+     echo "usage: scripts/run_ab_session.sh BEFORE_REF OUT_DIR [--rounds N] [--preset P]" \
+-        "[--timeout S] -- TOOL [ARGS...]" >&2
++        "[--after-preset Q] [--timeout S] -- TOOL [ARGS...]" >&2
+     exit 2
+ }
+ 
+@@ -49,11 +51,13 @@ OUT=$2
+ shift 2
+ ROUNDS=2
+ PRESET=gcc-release
++AFTER_PRESET=
+ TIMEOUT=1800
+ while [ $# -gt 0 ]; do
+     case $1 in
+     --rounds) ROUNDS=${2:?}; shift 2 ;;
+     --preset) PRESET=${2:?}; shift 2 ;;
++    --after-preset) AFTER_PRESET=${2:?}; shift 2 ;;
+     --timeout) TIMEOUT=${2:?}; shift 2 ;;
+     --) shift; break ;;
+     *) usage ;;
+@@ -64,6 +68,7 @@ TOOL=$1
+ shift
+ ARGS=("$@")
+ 
++AFTER_PRESET=${AFTER_PRESET:-$PRESET}
+ ROOT=$(cd "$(dirname "$0")/.." && pwd)
+ cd "$ROOT" || exit 1
+ mkdir -p "$OUT" || exit 1
+@@ -95,8 +100,10 @@ else
+     AFTER_TEXT="$(git rev-parse --short=12 HEAD), no uncommitted changes"
+     rm "$OUT/after.diff"
+ fi
+-log "before: $(git rev-parse --short=12 "$BEFORE_SHA") ($BEFORE); after: $AFTER_TEXT"
+-if [ "$BEFORE_SHA" = "$AFTER_SHA" ] && [ ! -e "$OUT/after.diff" ]; then
++log "before: $(git rev-parse --short=12 "$BEFORE_SHA") ($BEFORE), preset $PRESET; after:" \
++    "$AFTER_TEXT, preset $AFTER_PRESET"
++if [ "$BEFORE_SHA" = "$AFTER_SHA" ] && [ ! -e "$OUT/after.diff" ] &&
++    [ "$PRESET" = "$AFTER_PRESET" ]; then
+     log "before and after are the same code: an A/A run, which measures the noise alone"
+ fi
+ 
+@@ -125,15 +132,16 @@ if ! (cd "$WORKTREE" && cmake --preset "$PRESET" "${DEP_ARGS[@]}" &&
+ fi
+ 
+ log "building after (this working tree)"
+-if ! { { [ -d "build/$PRESET" ] || cmake --preset "$PRESET"; } &&
+-    cmake --build --preset "$PRESET" --target "$TOOL"; } > "$OUT/build_after.txt" 2>&1; then
++if ! { { [ -d "build/$AFTER_PRESET" ] || cmake --preset "$AFTER_PRESET"; } &&
++    cmake --build --preset "$AFTER_PRESET" --target "$TOOL"; } > "$OUT/build_after.txt" 2>&1; then
+     log "after: build failed, see build_after.txt"
+     exit 1
+ fi
+ 
+ rm -rf "$BIN"
+ mkdir -p "$BIN/before" "$BIN/after"
+-cp "$WORKTREE/build/$PRESET/$TOOL" "$BIN/before/" && cp "build/$PRESET/$TOOL" "$BIN/after/" || {
++cp "$WORKTREE/build/$PRESET/$TOOL" "$BIN/before/" &&
++    cp "build/$AFTER_PRESET/$TOOL" "$BIN/after/" || {
+     log "could not copy the binaries"
+     exit 1
+ }
+diff --git a/scripts/build_pgo.sh b/scripts/build_pgo.sh
+new file mode 100755
+index 0000000..31d8174
+--- /dev/null
++++ b/scripts/build_pgo.sh
+@@ -0,0 +1,94 @@
++#!/usr/bin/env bash
++# build_pgo.sh: builds nanobook_replay with profile-guided optimisation, trained on the morning.
++#
++# What it does: Leaves build/gcc-release-pgo/nanobook_replay compiled with GCC's profile of a real
++#   run (optimise design E4), ready for scripts/run_ab_session.sh --after-preset gcc-release-pgo.
++#     scripts/build_pgo.sh ITCH_FILE [--until HH:MM:SS] [--core C] [--preset P]
++#   Defaults: train on the day up to 12:00:00, pinned to core 2, preset gcc-release-pgo.
++#
++# Why it exists: PGO is two builds with a training run between them, done in a fixed order and
++#   in one build folder. Written down once, so the training is the same every time it is redone,
++#   on WSL2 now and on bare metal later.
++#
++# How it works:
++#   1. scripts/itch_slice.py copies the day up to --until: the training data. It is the start of
++#      the day, so the books build as on the real day, but it is not the data measured later
++#      (the whole day), so PGO can't be flattered by training on its own test.
++#   2. Configure with NANOBOOK_PGO=generate (counters compiled in) and build nanobook_replay.
++#   3. Train: the same command the measurement runs (--throughput --latency), so the profile
++#      covers the code that will be timed. GCC treats code the training never ran as cold and
++#      optimises it for size, so training on other code paths would mislead it.
++#   4. Reconfigure the SAME folder with NANOBOOK_PGO=use and rebuild: GCC finds each profile by its
++#      object file's path, so a different folder would find none.
++#   The training slice is deleted at the end; the profiles stay in build/P/pgo-data.
++#
++# Trade-offs: GCC only (CMakeLists.txt refuses PGO with Clang). The training run writes several
++#   GB (the slice) and takes a few minutes; it needs no idle laptop, since only counts matter.
++
++set -u
++
++usage() {
++    echo "usage: scripts/build_pgo.sh ITCH_FILE [--until HH:MM:SS] [--core C] [--preset P]" >&2
++    exit 2
++}
++
++[ $# -ge 1 ] || usage
++FILE=$1
++shift
++UNTIL=12:00:00
++CORE=2
++PRESET=gcc-release-pgo
++while [ $# -gt 0 ]; do
++    case $1 in
++    --until) UNTIL=${2:?}; shift 2 ;;
++    --core) CORE=${2:?}; shift 2 ;;
++    --preset) PRESET=${2:?}; shift 2 ;;
++    *) usage ;;
++    esac
++done
++
++ROOT=$(cd "$(dirname "$0")/.." && pwd)
++cd "$ROOT" || exit 1
++BUILD=build/$PRESET
++TRAIN=build/pgo-train.itch
++LOG=build/pgo-build.log
++: > "$LOG"
++log() { echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG"; }
++fail() {
++    log "$1 (details in $LOG)"
++    exit 1
++}
++
++# Reuse this tree's downloaded GoogleTest and Google Benchmark, if any (no new download).
++DEP_ARGS=()
++if [ -d build/gcc-release/_deps/googletest-src ]; then
++    DEP_ARGS+=("-DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=$ROOT/build/gcc-release/_deps/googletest-src")
++fi
++if [ -d build/gcc-release/_deps/benchmark-src ]; then
++    DEP_ARGS+=("-DFETCHCONTENT_SOURCE_DIR_BENCHMARK=$ROOT/build/gcc-release/_deps/benchmark-src")
++fi
++
++log "1. training slice: $FILE up to $UNTIL"
++python3 scripts/itch_slice.py "$FILE" "$TRAIN" --until "$UNTIL" | tee -a "$LOG" ||
++    fail "slicing failed"
++
++log "2. instrumented build (NANOBOOK_PGO=generate)"
++rm -rf "$BUILD/pgo-data"
++{ cmake --preset "$PRESET" -DNANOBOOK_PGO=generate "${DEP_ARGS[@]}" &&
++    cmake --build --preset "$PRESET" --target nanobook_replay; } >> "$LOG" 2>&1 ||
++    fail "instrumented build failed"
++
++log "3. training run (the measurement's own command, on the slice)"
++"$BUILD/nanobook_replay" "$TRAIN" --throughput --latency --core "$CORE" >> "$LOG" 2>&1 ||
++    fail "training run failed"
++PROFILES=$(find "$BUILD/pgo-data" -name '*.gcda' | wc -l)
++[ "$PROFILES" -gt 0 ] || fail "the training wrote no profiles"
++log "   $PROFILES profile files in $BUILD/pgo-data"
++
++log "4. optimised build (NANOBOOK_PGO=use, same folder)"
++{ cmake --preset "$PRESET" -DNANOBOOK_PGO=use "${DEP_ARGS[@]}" &&
++    cmake --build --preset "$PRESET" --target nanobook_replay; } >> "$LOG" 2>&1 ||
++    fail "optimised build failed"
++
++rm -f "$TRAIN"
++log "done: $BUILD/nanobook_replay (trained on the day up to $UNTIL)"
+diff --git a/scripts/itch_slice.py b/scripts/itch_slice.py
+new file mode 100644
+index 0000000..6c61f23
+--- /dev/null
++++ b/scripts/itch_slice.py
+@@ -0,0 +1,65 @@
++"""itch_slice.py: copies an ITCH 5.0 day from its start up to a chosen time of day.
++
++What it does: Writes every message of ITCH_FILE before the first one stamped at or after --until
++  (HH:MM:SS) to OUT, and prints how many messages and bytes that is and the last one's time.
++  Usage: python3 scripts/itch_slice.py ITCH_FILE OUT --until 12:00:00
++
++Why it exists: Profile-guided optimisation must not train on the data it is measured on
++  (optimise design E4): scripts/build_pgo.sh trains on the day up to 12:00 and the measurement
++  replays the whole day. A slice from the start, not from the middle, keeps every stock directory
++  message and every order the later messages refer to, so the books build exactly as on the day.
++
++How it works: Walks the file message by message through a memory map: each message is a 2-byte
++  big-endian length, then the message; its time (nanoseconds since midnight) is the 6-byte
++  big-endian field 5 bytes into the message (after type, locate and tracking number). Stops at
++  the first time >= --until and copies the bytes before it in one write. O(messages); about two
++  minutes for the morning of a full day (pure Python, a one-off).
++
++Trade-offs: Messages are in time order on the feed, so the first late one ends the slice. A
++  truncated last message ends the walk too.
++"""
++
++import argparse
++import mmap
++import sys
++from pathlib import Path
++
++
++def nanoseconds(hhmmss: str) -> int:
++    hours, minutes, seconds = (int(part) for part in hhmmss.split(":"))
++    return ((hours * 60 + minutes) * 60 + seconds) * 1_000_000_000
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
++    parser.add_argument("itch_file", type=Path)
++    parser.add_argument("out", type=Path)
++    parser.add_argument("--until", required=True, help="HH:MM:SS, exclusive")
++    args = parser.parse_args()
++    until = nanoseconds(args.until)
++
++    with open(args.itch_file, "rb") as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as m:
++        size = len(m)
++        pos = 0
++        count = 0
++        last = 0
++        while pos + 2 <= size:
++            length = (m[pos] << 8) | m[pos + 1]
++            if pos + 2 + length > size or length < 11:
++                break  # truncated (or not a stamped message): the file's end
++            stamp = int.from_bytes(m[pos + 7 : pos + 13], "big")
++            if stamp >= until:
++                break
++            last = stamp
++            pos += 2 + length
++            count += 1
++        args.out.write_bytes(m[:pos])
++
++    seconds = last // 1_000_000_000
++    print(f"wrote {args.out}: {count:,} messages, {pos:,} bytes, last at "
++          f"{seconds // 3600:02}:{seconds // 60 % 60:02}:{seconds % 60:02}")
++    return 0
++
++
++if __name__ == "__main__":
++    sys.exit(main())
