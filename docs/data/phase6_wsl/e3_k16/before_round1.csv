@@ -1,0 +1,29 @@
+# *** NOT FOR PUBLISHING: measured in a virtual machine (README rule 20) ***
+# cpu: Intel(R) Core(TM) i7-14650HX
+# logical cores: 24
+# os: Ubuntu 24.04.5 LTS
+# kernel: Linux 6.18.54.1-microsoft-standard-WSL2 x86_64
+# virtual machine: yes: WSL2
+# isolated cores: none
+# nohz_full cores: unknown
+# governor: unknown
+# turbo: unknown
+# compiler: GCC 14.2.0
+# build type: Release
+# flags: -std=c++23 -O3 -DNDEBUG
+# commit: 8fd676adf6d2
+# pinned to core: 2
+# counter ticks per ns: 2.419199
+# counter drift during the run (parts per million): 0.005622
+# timer overhead min (ticks, subtracted): 27
+# input: data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50
+# latency: every 8th order message; windows of 1024 MiB
+mode,scenario,book,tag,count,min_ns,p50_ns,p90_ns,p99_ns,p999_ns,p9999_ns,max_ns,mean_ns,dropped,clamped,timed_allocations
+throughput,itch_day,parse_only,all,368366634,,,,,,,,3.2,,,
+throughput,itch_day,FastBook,all,368366634,,,,,,,,108.2,,,
+latency,itch_day,FastBook,add,20584856,10.7,100.4,181.1,303.0,491.9,9531.3,1490502.0,112.9,,,
+latency,itch_day,FastBook,match,1030612,9.1,106.6,265.8,467.1,725.4,9474.6,154528.0,135.3,,,
+latency,itch_day,FastBook,cancel,19786668,9.9,113.7,274.5,465.9,726.7,10219.1,1080668.8,142.7,,,
+latency,itch_day,FastBook,modify,584111,8.3,54.6,195.5,374.1,626.2,8449.1,288879.1,89.4,,,
+latency,itch_day,FastBook,replace,3403529,14.1,172.8,341.0,547.7,947.4,12622.8,233313.2,199.5,,,
+latency,itch_day,FastBook,all,45389776,8.3,107.1,244.7,434.9,697.8,10018.2,1490502.0,132.6,,,

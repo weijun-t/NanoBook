@@ -5,6 +5,7 @@
 > commit message. Step 1: the A/B script as built ("after" is the working tree, §3.1); page
 > faults in the tools (§3.2). Step 2: E1 measured, (b) kept; E1c and E1d added (§2). Step 2b:
 > E1c measured (§2). Step 3: E2 measured, kept provisionally with its bare-metal criteria (§5).
+> Step 4: E3 measured, K = 4 kept (§2).
 
 Phases 1–5 built a correct order book, a way to time it, a real Nasdaq day to feed it, and a
 three-thread pipeline around it. Phase 5 left measured **symptoms**, such as a slow tail, a pipeline
@@ -154,6 +155,10 @@ cheap and well-evidenced first, the big redesign last.
 - **Measure:** the real day, `nanobook_replay --throughput --latency`, for K = 0, 4, 8 and 16.
   The decision metric is throughput; p50 and p99 per message kind are guards. Synthetic phase 3
   scenarios check that nothing else regresses.
+- **Result (step 4, 2026-10-21; perf log "E3, the hybrid search on real flow"):**
+  - **K = 4 kept**: 10% more throughput in both rounds, with every latency guard equal or better.
+  - K = 8 and 16 gave no more throughput and slowed adds.
+  - Phase 2's verdict is reversed by real data (fast-book design §13).
 
 ### E4. Compiler options: LTO, PGO, `-march=native`
 - **Symptom:** none specific: the README lists these as phase 6 tools. They change no code,
@@ -339,7 +344,7 @@ Every timed step needs an idle laptop, and I ask before each session.
 | 2 ✓ | E1: ring batching, variants (a) and (b), and (a)+(b) at the user's request, A/B on the pipeline. (b) kept. Done 2026-10-21 | Yes |
 | 2b ✓ | E1c: `--sequential` in the latency mode; paced latency on one thread against three (and a slice logged to a real file). Done 2026-10-21 | Yes |
 | 3 ✓ | E2: touch the level arrays at construction, A/B on the real day. Kept provisionally (bare-metal re-check, §5 B5). Done 2026-10-21 | Yes |
-| 4 | E3: hybrid search, K = 0/4/8/16, on the real day | Yes |
+| 4 ✓ | E3: hybrid search, K = 0/4/8/16, on the real day. K = 4 kept. Done 2026-10-21 | Yes |
 | 5 | E4: LTO, PGO (trained on 9:30–12:00), `-march=native`, against the default | Yes |
 | 6 | E5: ring padding 64 against 128 | Yes |
 | 7 | E6: huge pages for the books' memory | Yes |

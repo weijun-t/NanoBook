@@ -227,6 +227,11 @@ So the one-by-one phase never paid for itself, and plain binary search is simple
 real order flow in phase 4** (§13): if real lookups cluster near the best price much more tightly
 than these benchmarks do, a hybrid could win, and it would be re-added only with numbers.
 
+**Re-added (2026-10-21, phase 6 experiment E3):** on the real Nasdaq day, `K` = 4 gave 10% more
+throughput than binary search only, with every latency guard equal or better; `K` = 8 and 16
+were no faster and slowed adds (`docs/perf-log.md`, "E3"). Real orders cluster at the best, in
+books thousands of levels deep.
+
 **Known weakness: inserting a level deep in a deep book.** An insert shifts every better level along
 by one, O(levels). It's rare (activity is near the best price), but in a book with thousands of
 levels a single deep insert costs microseconds, a tail-latency spike. Found when a benchmark setup
@@ -481,7 +486,8 @@ Each is re-measured once phase 4 can feed a real trading day through the books.
 `docs/itch-design.md` §9.1):**
 - **Clustering near the best: yes.** 48% of new orders land at or improve the best price, 93%
   within $1, and 35% of new levels are created at the best end of the array. The hybrid search is
-  worth re-measuring on real flow (phase 6).
+  worth re-measuring on real flow (phase 6). **Re-measured (phase 6 E3): `K` = 4 kept, 10% more
+  throughput** (§6.1).
 - **Price ranges: as wide as the spec allows.** Stub quotes stretch a stock's range from $0.0001
   to $199,999.99 (AAPL at the close: 3,053 bid and 2,602 ask levels; its peak, 42,774 resting
   orders). A fixed tick array is ruled out (about 489,000 GB for the day); a window of tick slots

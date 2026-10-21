@@ -1,0 +1,33 @@
+diff --git a/include/nanobook/fast/sorted_levels.hpp b/include/nanobook/fast/sorted_levels.hpp
+index 8c92d19..5f4e207 100644
+--- a/include/nanobook/fast/sorted_levels.hpp
++++ b/include/nanobook/fast/sorted_levels.hpp
+@@ -125,12 +125,28 @@ private:
+         return side == Side::Buy ? a < b : a > b;
+     }
+ 
++    // Experiment E3 (optimise design §2): check the kNearBest levels nearest the best one by one
++    // before the binary search, betting that real orders land near the best price. 0: binary
++    // search only (the code compiles to exactly the search without this experiment).
++    static constexpr std::size_t kNearBest = 4;
++
+     // The first index whose level is not worse than `price`: where `price` is, or would be
+     // inserted. Binary search: the array is sorted worst to best, so everything before that index
+     // is worse than `price`, and everything from it on is not.
+     static std::size_t lower_bound(Side side, const Array &v, Price price) {
+         std::size_t lo = 0;
+         std::size_t hi = v.size(); // the answer is always in [lo, hi]
++        if constexpr (kNearBest > 0) {
++            // From the best end down: the first level found worse than `price` has the answer
++            // just after it. If none of the kNearBest is worse, the answer is at or before them.
++            const std::size_t stop = hi > kNearBest ? hi - kNearBest : 0;
++            for (std::size_t j = hi; j > stop; --j) {
++                if (worse(side, v[j - 1].price, price)) {
++                    return j;
++                }
++            }
++            hi = stop;
++        }
+         while (lo < hi) {
+             const std::size_t mid = lo + (hi - lo) / 2;
+             if (worse(side, v[mid].price, price)) {

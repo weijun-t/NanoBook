@@ -852,3 +852,72 @@ the first pass's books already touched.)
 - **Decision (the user's): keep, provisionally.** By the rule (design §3.3) this is marginal: the
   symptom improved, one guard got slightly worse. The bare-metal re-check decides it, with the
   criteria written down now, before those numbers exist (design §5, B5).
+
+---
+
+## 2026-10-21: E3, the hybrid search on real flow: 10% more throughput (phase 6 step 4)
+
+Optimise design E3. **Kept: K = 4.** WSL2, so **not for publishing** (rule 20). Kept on WSL2
+evidence, to re-check on bare metal (design §5, B5).
+
+### Symptom and hypothesis
+- **Phase 2 (2026-10-17)** dropped the hybrid search (check the K levels nearest the best one
+  by one, then binary search): on evenly spread synthetic orders over 100 levels, binary only
+  was fastest.
+- **Phase 4's real day:** 48% of new orders land at or improve the best price; 35% of new levels
+  are created at the best end; books run to thousands of levels (AAPL 5,655 at the close).
+- **Hypothesis:** on real flow, a few one-by-one checks at the best end beat a binary search.
+  That search takes 12–13 dependent steps across a deep array.
+
+### Change
+- `SortedLevels::lower_bound`: when `kNearBest > 0`, scan from the best end for at most
+  `kNearBest` levels; the first level worse than the price puts the answer just after it.
+  Otherwise, binary-search the rest.
+- `kNearBest = 0` compiles to **exactly** the old machine code: every `FastBook` function
+  matches, 5,527 lines of assembly.
+
+### Gates
+- **Each of K = 4, 8 and 16:** all 509 tests and `nanobook_fuzz` 10 million operations.
+- **Planted off-by-one (`return j - 1`):** the tests and the fuzzer both crash (exit 139).
+- **K = 4, the kept one:** the full-day differential replay, 0 mismatches.
+
+### Method
+- Three sessions, 22:20–22:45, idle laptop: `scripts/run_ab_session.sh HEAD
+  docs/data/phase6_wsl/e3_kK -- nanobook_replay ITCH_FILE --throughput --latency --core 2 --csv
+  {out}.csv`.
+- Before = `8fd676a` (binary only), after = K. 2 rounds each, in ABBA order.
+- **Decision metric:** throughput. **Guards:** p50 and p99 per message kind (every 8th order
+  message timed).
+
+### Results (round 1 / round 2)
+
+| K | Throughput before (ns/msg) | after | Gain | p50 all, before → after | p99 all, before → after |
+|---|---|---|---|---|---|
+| **4** | 108.4 / 108.5 | **98.6 / 97.0** | **10.0%** | 104.6 / 105.4 → **103.3 / 102.5** | 430.3 / 436.5 → **427.8 / 424.1** |
+| 8 | 109.1 / 115.9 | 97.7 / 100.8 | 10–12% | 105.4 / 107.9 → 105.4 / 106.2 | 432.0 / 448.9 → 440.6 / 446.8 |
+| 16 | 108.2 / 107.9 | 100.3 / 100.2 | 7.3% | 107.1 / 105.8 → 108.3 / 103.8 | 434.9 / 432.0 → 452.2 / 430.3 |
+
+**K = 4 by message kind (p50, ns):**
+
+| Kind | Before | After |
+|---|---|---|
+| delete (D) | 111.2 / 111.2 | 107.9 / 107.1 |
+| replace (U) | 169.9 / 170.7 | 164.9 / 163.3 |
+| add (A, F) | 98.4 / 98.8 | 98.4 / 98.4 |
+
+Under K = 8 and 16, add p50 rose to 100.9 and 103.3, and p99 rose in most rounds.
+
+### What these numbers say
+- **Real flow reverses phase 2's verdict.** On the real day, K = 4 gives 10% more throughput in
+  both rounds: a gain of about 10.6 ns per message against 0.1–1.6 ns of round-to-round noise.
+  Every guard is equal or better.
+- **Small K is best.** Most lookups hit within the 4 levels nearest the best. K = 8 and 16 add
+  checks that rarely hit, and the extra compares show up in adds and in p99.
+- **Throughput gained 10%, but the timed messages' p50 only 1–3%.** A plausible reason, not
+  yet tested: the timer's fences stop the CPU from overlapping one message's memory reads with
+  the next one's. That overlap is where the short scan pays: its 4 loads sit side by side and
+  don't depend on each other, while each binary-search step must wait for the one before.
+  Counters on bare metal can check it (design §5, B1).
+- **This is the measurement phase 2 asked for** (fast-book design §13): the synthetic benchmark
+  that dropped the hybrid had orders spread evenly over 100 levels; the real day has them
+  clustered at the best of books thousands of levels deep.

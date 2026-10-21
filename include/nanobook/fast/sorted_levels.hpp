@@ -13,9 +13,11 @@
  *   the last element: best() is O(1), and adding or removing near the best price only shifts the
  *   few elements after it (like adding a book at the end of a shelf). Finding a price is a binary
  *   search: look at the middle, keep the half the price must be in, repeat (O(log n): about 7 looks
- *   for 100 levels). A hybrid that first checks the levels nearest the best one by one was
- *   measured and dropped: it was slower or no faster (design §6.1). It is to be re-checked on
- *   real Nasdaq order flow in phase 4.
+ *   for 100 levels), after first checking the kNearBest = 4 levels nearest the best one by one.
+ *   That hybrid was dropped in phase 2 (slower on evenly spread synthetic orders, design §6.1),
+ *   then re-measured on the real Nasdaq day, where orders cluster at the best and books are
+ *   thousands of levels deep: 10% more throughput (optimise design E3). Cost: up to 4 compares,
+ *   then O(log n).
  *
  * Data structures: Two std::vector<Level> (32 bytes per level), each reserved for max_orders levels
  *   at construction, so they never grow while trading: there can't be more levels on a side than
@@ -125,12 +127,28 @@ private:
         return side == Side::Buy ? a < b : a > b;
     }
 
+    // Check the kNearBest levels nearest the best one by one before the binary search: real
+    // orders land near the best price. 4 won on the real day (optimise design E3: 10% more
+    // throughput; 8 and 16 were no faster and slowed adds). 0 would be binary search only.
+    static constexpr std::size_t kNearBest = 4;
+
     // The first index whose level is not worse than `price`: where `price` is, or would be
     // inserted. Binary search: the array is sorted worst to best, so everything before that index
     // is worse than `price`, and everything from it on is not.
     static std::size_t lower_bound(Side side, const Array &v, Price price) {
         std::size_t lo = 0;
         std::size_t hi = v.size(); // the answer is always in [lo, hi]
+        if constexpr (kNearBest > 0) {
+            // From the best end down: the first level found worse than `price` has the answer
+            // just after it. If none of the kNearBest is worse, the answer is at or before them.
+            const std::size_t stop = hi > kNearBest ? hi - kNearBest : 0;
+            for (std::size_t j = hi; j > stop; --j) {
+                if (worse(side, v[j - 1].price, price)) {
+                    return j;
+                }
+            }
+            hi = stop;
+        }
         while (lo < hi) {
             const std::size_t mid = lo + (hi - lo) / 2;
             if (worse(side, v[mid].price, price)) {

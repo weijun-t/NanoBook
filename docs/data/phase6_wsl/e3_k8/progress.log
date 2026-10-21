@@ -1,0 +1,13 @@
+[22:28:53] before: 8fd676adf6d2 (HEAD); after: 8fd676adf6d2 plus the uncommitted changes in after.diff
+[22:28:53] building before (worktree at /home/weijun/NanoBook/build/ab-before)
+[22:29:05] building after (this working tree)
+[22:29:10] start: nanobook_replay data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50 --throughput --latency --core 2 --csv {out}.csv; 2 rounds, order ABBA; the laptop must stay idle
+[22:29:10] round 1: before
+[22:31:11]   exit 0
+[22:31:11] round 1: after
+[22:33:05]   exit 0
+[22:33:05] round 2: after
+[22:35:05]   exit 0
+[22:35:05] round 2: before
+[22:37:13]   exit 0
+[22:37:13] done: /home/weijun/NanoBook/docs/data/phase6_wsl/e3_k8
