@@ -1,0 +1,21 @@
+[00:22:51] before: d645e1fb6ec7 (HEAD), preset gcc-release; after: d645e1fb6ec7 plus the uncommitted changes in after.diff, preset gcc-release
+[00:22:51] building before (worktree at /home/weijun/NanoBook/build/ab-before)
+[00:22:59] building after (this working tree)
+[00:22:59] start: nanobook_ringbench --cores 2,4; 4 rounds, order ABBA; the laptop must stay idle
+[00:22:59] round 1: before
+[00:23:02]   exit 0
+[00:23:02] round 1: after
+[00:23:06]   exit 0
+[00:23:06] round 2: after
+[00:23:10]   exit 0
+[00:23:10] round 2: before
+[00:23:12]   exit 0
+[00:23:12] round 3: before
+[00:23:13]   exit 0
+[00:23:13] round 3: after
+[00:23:18]   exit 0
+[00:23:18] round 4: after
+[00:23:21]   exit 0
+[00:23:21] round 4: before
+[00:23:25]   exit 0
+[00:23:25] done: /home/weijun/NanoBook/docs/data/phase6_wsl/e5_ringbench

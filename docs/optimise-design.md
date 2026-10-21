@@ -6,7 +6,8 @@
 > faults in the tools (§3.2). Step 2: E1 measured, (b) kept; E1c and E1d added (§2). Step 2b:
 > E1c measured (§2). Step 3: E2 measured, kept provisionally with its bare-metal criteria (§5).
 > Step 4: E3 measured, K = 4 kept (§2). Step 5: E4 measured, none kept as the default; PGO
-> trains on the day up to 12:00, not 9:30–12:00, so the books build as on the day (§2).
+> trains on the day up to 12:00, not 9:30–12:00, so the books build as on the day (§2). Step 6:
+> E5 measured, 128 stays (§2).
 
 Phases 1–5 built a correct order book, a way to time it, a real Nasdaq day to feed it, and a
 three-thread pipeline around it. Phase 5 left measured **symptoms**, such as a slow tail, a pipeline
@@ -190,6 +191,11 @@ cheap and well-evidenced first, the big redesign last.
   with `kNoFalseSharing` = 64 against 128. `perf c2c` on bare metal would show the line traffic
   directly (§5).
 - **Expect:** a small difference either way. This is a cheap check of a rule we followed blindly.
+- **Result (step 6, 2026-10-22; perf log "E5, ring padding"):** 64 bytes is worse.
+  - On the ring alone: round trip worse in all 4 pairs, throughput in 3 of 4.
+  - On the pipeline: no difference.
+  - **128 stays.** The ring benchmark turned out bimodal on WSL2: virtual CPUs land on P-cores,
+    E-cores or hyperthread twins. So between-core numbers wait for bare metal (B2).
 
 ### E6. Huge pages for the books' memory
 - **Symptom:** the same book is 2.5–5× slower per message on the real day than in cache
@@ -352,7 +358,7 @@ Every timed step needs an idle laptop, and I ask before each session.
 | 3 ✓ | E2: touch the level arrays at construction, A/B on the real day. Kept provisionally (bare-metal re-check, §5 B5). Done 2026-10-21 | Yes |
 | 4 ✓ | E3: hybrid search, K = 0/4/8/16, on the real day. K = 4 kept. Done 2026-10-21 | Yes |
 | 5 ✓ | E4: LTO, PGO (trained on the day up to 12:00), `-march=native`, against the default. None kept as the default; kept as presets. Done 2026-10-22 | Yes |
-| 6 | E5: ring padding 64 against 128 | Yes |
+| 6 ✓ | E5: ring padding 64 against 128. 128 stays. Done 2026-10-22 | Yes |
 | 7 | E6: huge pages for the books' memory | Yes |
 | 8a, 8b, 8c | E7: moving window: design section; code, tests and fuzzing; measurement | Yes |
 | 9 | E8: deep inserts, only if the flow analysis still shows them after step 8 | Yes |

@@ -1,0 +1,13 @@
+diff --git a/include/nanobook/pipeline/spsc_ring.hpp b/include/nanobook/pipeline/spsc_ring.hpp
+index 348a5de..0265f7a 100644
+--- a/include/nanobook/pipeline/spsc_ring.hpp
++++ b/include/nanobook/pipeline/spsc_ring.hpp
+@@ -48,7 +48,7 @@
+ namespace nanobook::pipeline {
+ 
+ // Rule 9: two 64-byte lines, because Intel CPUs prefetch the adjacent line in pairs.
+-inline constexpr std::size_t kNoFalseSharing = 128;
++inline constexpr std::size_t kNoFalseSharing = 64; // E5 experiment: 64 against 128
+ 
+ // Tells the CPU this is a spin-wait loop: it saves power and avoids a costly pipeline flush when
+ // the awaited value changes. Not a system call; the thread keeps its core.

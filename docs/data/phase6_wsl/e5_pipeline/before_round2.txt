@@ -1,0 +1,23 @@
+*** NOT FOR PUBLISHING: measured in a virtual machine (README rule 20) ***
+cpu              Intel(R) Core(TM) i7-14650HX
+logical cores    24
+os               Ubuntu 24.04.5 LTS
+kernel           Linux 6.18.54.1-microsoft-standard-WSL2 x86_64
+virtual machine  yes: WSL2
+isolated cores   none
+nohz_full cores  unknown
+governor         unknown
+turbo            unknown
+compiler         GCC 14.2.0
+build type       Release
+flags            -std=c++23 -O3 -DNDEBUG
+commit           d645e1fb6ec7
+cores            2 (feed), 4 (engine), 6 (publisher), spinning only
+counter          2.4192 ticks per ns
+
+Throughput: the whole file, 368366634 messages, logs to /dev/null
+  one thread:     52.70 s, 143.1 ns per message, 7.0 M messages/s
+  three threads:  57.37 s, 155.7 ns per message, 6.4 M messages/s (0.92x)
+  ring 1 full 22613876 tries, ring 2 full 2057 tries; all three pinned, one thread on core 4
+  page faults during each run: one thread 1 minor, 0 major; three threads 1804 minor, 0 major (start-up included: building the rings and threads)
+*** NOT FOR PUBLISHING: measured in a virtual machine (README rule 20) ***

@@ -974,3 +974,61 @@ as presets for the bare-metal re-check. WSL2, so **not for publishing** (rule 20
   `scripts/build_pgo.sh`, `scripts/itch_slice.py` and `run_ab_session.sh --after-preset`. They cost
   nothing unless chosen, reproduce this entry, and let the bare-metal session repeat it (design
   §5, B5).
+
+---
+
+## 2026-10-22: E5, ring padding: 64 against 128 bytes (phase 6 step 6)
+
+Optimise design E5. **Not kept: 128 bytes stays** (README rule 9, decision Q4 of the pipeline
+design). WSL2, so **not for publishing** (rule 20).
+
+### Question
+The ring's four counters (`head_`, `cached_tail_`, `tail_`, `cached_head_`) each get their own
+128-byte block, because Intel CPUs often fetch 64-byte cache lines in pairs (the adjacent-line
+prefetcher). With 64 bytes, a core reading the other side's counter could pull in that side's
+private copy too, and that line would start moving between cores. It had never been measured.
+
+### Change and gates
+- `kNoFalseSharing = 64`. The ring's control block shrinks from 640 to 320 bytes (checked
+  with `sizeof`).
+- **Gates:** 18 ring, pipeline and log tests in Release, on 2 CPUs and under TSan; the full-day
+  checksum unchanged, `748abedf40533b82`.
+
+### Method
+- `scripts/run_ab_session.sh HEAD docs/data/phase6_wsl/e5_ringbench --rounds 4 --
+  nanobook_ringbench --cores 2,4`, then `... e5_pipeline -- nanobook_pipeline ITCH_FILE --cores
+  2,4,6 --throughput` (2 rounds).
+- Before = `d645e1f` (128 bytes), after = 64 bytes. ABBA order, 00:15–00:32, idle laptop.
+
+### Results
+
+| Ring benchmark round | Throughput (ns/record), 128 B → 64 B | Round trip p50 (ns), 128 B → 64 B |
+|---|---|---|
+| 1 | 19.0 → 18.3 | 171.5 → 218.3 |
+| 2 | 6.5 → 29.1 | 83.1 → 181.5 |
+| 3 | 5.0 → 28.0 | 195.1 → 199.2 |
+| 4 | 19.8 → 25.1 | 170.3 → 178.2 |
+
+| Pipeline, whole day (ns/message) | 128 B | 64 B |
+|---|---|---|
+| Three threads | 152.5 / 155.7 | 153.9 / 155.4 |
+| One thread (the control) | 135.7 / 143.1 | 132.9 / 141.6 |
+
+### What these numbers say
+- **64 bytes is worse for the ring alone:** round-trip p50 is worse in all 4 pairs, throughput in
+  3 of 4 (the 4th is a tie). This fits the prefetcher pulling each side's private counter into
+  the other's cache.
+- **The pipeline doesn't notice.** The book's work dominates, and since E1 the feed reads the
+  counters far less often.
+- **Reverted** (design §3.3: not better). Rule 9's 128 bytes is confirmed on this machine, as far
+  as WSL2 can show it.
+- **A WSL2 caveat, new here: the ring benchmark is bimodal.**
+  - The same 128-byte binary ran at 5–6.5 ns/record in two runs and at 19–20 in the other two.
+  - One round trip took only 39 ns, faster than two separate cores can exchange a cache line.
+  - Likely reason: pinning to "CPU 2" in WSL2 pins to a virtual CPU, and Windows chooses the
+    physical core under it: a P-core, an E-core (this CPU has both), or even the hyperthread twin
+    of the other thread's core.
+  - Every WSL2 number between cores carries this. Bare metal pins for real (design §5, B2,
+    with `perf c2c`).
+- **Since E2 and E3,** one thread now takes 133–143 ns per message on the whole day, against
+  about 160 in E1. Three threads are still about 10% slower than one (E1c's finding holds).
