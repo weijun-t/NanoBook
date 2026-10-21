@@ -21,6 +21,7 @@
 
 #include <gtest/gtest.h>
 #include "alloc_counter.hpp"
+#include "binary_log.hpp"
 #include "differential_fuzz.hpp"
 #include "feed_fuzz.hpp"
 #include "itch_golden_day.hpp"
@@ -251,6 +252,21 @@ template <typename Book> std::uint64_t allocations_while_replaying_itch() {
 TEST(ZeroAlloc, ItchReplayNeverAllocates) {
     EXPECT_EQ(allocations_while_replaying_itch<FastBook>(), 0U);
     EXPECT_EQ(allocations_while_replaying_itch<TickFastBook>(), 0U);
+}
+
+// Phase 5: the publisher's binary log. Its buffer is made in the constructor; appending (and the
+// write() system calls when the buffer fills) must not allocate.
+TEST(ZeroAlloc, BinaryLogNeverAllocatesWhileAppending) {
+    pipeline::BinaryLog log{"/dev/null", true};
+    const std::uint64_t n = allocations_during([&] {
+        for (std::uint64_t i = 1; i <= 100'000; ++i) { // 5.6 MB: about five buffer flushes
+            log.append(pipeline::TopOfBook{.sequence = i, .bid_price = 1, .ask_price = 2});
+        }
+    });
+    log.close();
+    EXPECT_TRUE(log.ok());
+    EXPECT_EQ(log.records(), 100'000U);
+    EXPECT_EQ(n, 0U);
 }
 
 // Phase 5: the three-thread pipeline. Rings, books and threads are made before records flow;

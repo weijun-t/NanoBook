@@ -4,7 +4,7 @@
 > made by an edit plus a note in the commit message. Items marked **[MEASURE]** are settled by a
 > measurement in the step named. Step 1 (2026-10-20): the assembly check and the planted
 > relaxed-store bug (§3.3, §8). Step 2: the record layouts as built (§4); spin-then-yield waiting
-> after CI timed out on 4 vCPUs (§3.5).
+> after CI timed out on 4 vCPUs (§3.5). Step 3: the log as built (§6).
 
 Phases 1–4 ran everything on **one thread**: read a message, apply it to the book, then the next.
 Phase 5 splits that work into **three stages on three threads**, connected by **lock-free
@@ -255,6 +255,29 @@ later is how production loggers work (decision Q6).
 The log is **deterministic** (rule 11): it holds only fields that come from the input (no TSC
 times), so the same day must give a **byte-identical** log however the threads were scheduled.
 
+**As built (step 3):** `support/binary_log.hpp`. A 16-byte header (`NBLOG001`, the record size)
+then one 56-byte `LogRecord` per update: sequence, ITCH time, locate, best bid and ask with their
+sizes, and two reserved fields always 0, so the struct has **no padding** (padding bytes hold
+whatever was in memory and would make identical updates give different bytes;
+`static_assert(std::has_unique_object_representations_v<LogRecord>)` proves there is none).
+`write()` is retried until every byte is out (a write may take part of the buffer, or be
+interrupted). An optional FNV-1a checksum of every byte lets two runs be compared without keeping
+their files: a full day's log is about 20 GB, and WSL2's disk grows but never shrinks on its own.
+`nanobook_pipeline FILE [--log OUT] [--checksum] [--sequential] [--cores A,B,C]` runs a day;
+`nanobook_logdump LOG [--head N]` prints it as CSV, streaming record by record.
+
+**Result (step 3, 2026-10-21):**
+
+| Input | One thread | Three threads (cores 2, 4, 6) |
+|---|---|---|
+| Golden day, busy day (tests) | log file | **byte-identical** file |
+| 200 MB real slice (6,590,504 updates) | 369 MB log, checksum `bede88f09b98acb5` | **identical** (`cmp`), same checksum |
+| Full day (363,118,215 updates, logs to `/dev/null`) | 20,334,620,056 bytes, checksum `748abedf40533b82` | **same bytes, same checksum** |
+
+The full-day runs took 86.0 s (one thread) and 81.7 s (three threads): barely faster, as expected
+when the engine's book work is 97% of everything (phase 4); not benchmarks (checksums on, laptop
+not idle). Ring 1 was constantly full: the feed outruns the engine. Step 4 measures it properly.
+
 ---
 
 ## 7. Proving it right
@@ -343,7 +366,7 @@ one core), so two stages never share one core's caches and execution units.
 | 0 | This design note, decisions recorded | No |
 | 1 ✓ | `SpscRing` + one- and two-thread tests + TSan in CI; the assembly check (§3.3); `nanobook_ringbench` (throughput and round trip of one ring; run in step 4's session). Built 2026-10-20 | No |
 | 2 ✓ | Records and the three stages (`records.hpp`, `stages.hpp`); pipeline = single thread on the golden day and on a busy day with 2-record rings; shutdown; zero allocations. Built 2026-10-20 | No |
-| 3 | Binary log + `nanobook_logdump`; byte-identical log against a single-threaded run, on the full day | Yes |
+| 3 ✓ | Binary log + `nanobook_logdump`; byte-identical log against a single-threaded run, on the full day (checksums) and on a 200 MB real slice (files, `cmp`). Built 2026-10-21 | Yes |
 | 4 | `nanobook_pipeline`: unpaced throughput, paced latency at several rates, on an idle laptop (WSL2, not for publishing) | Yes |
 | 5 | Phase 5 report; published numbers later, on bare metal, with phases 3 and 4 | Yes |
 

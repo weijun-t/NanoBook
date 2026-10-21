@@ -3,8 +3,9 @@
 # What it does: Builds the engine library (nanobook), the tests (nanobook_tests, plus
 #   nanobook_alloc_tests in builds without sanitizers), the differential fuzzer (nanobook_fuzz),
 #   the benchmarks (nanobook_microbench), the rdtsc latency harness (nanobook_bench), the ring
-#   benchmark (nanobook_ringbench) and the ITCH day replay (nanobook_replay). Downloads GoogleTest
-#   and Google Benchmark at pinned versions, checked by SHA256.
+#   benchmark (nanobook_ringbench), the ITCH day replay (nanobook_replay), the pipeline
+#   (nanobook_pipeline) and its log reader (nanobook_logdump). Downloads GoogleTest and Google
+#   Benchmark at pinned versions, checked by SHA256.
 #
 # How it works: Options come from CMakePresets.json. Sanitizer flags are global, so third-party code
 #   is built the same way as ours. The strict warnings (-Werror) apply to our code only. The engine
@@ -164,6 +165,7 @@ if(NANOBOOK_BUILD_TESTS)
         tests/itch/test_itch_flow.cpp
         tests/pipeline/test_spsc_ring.cpp
         tests/pipeline/test_pipeline.cpp
+        tests/pipeline/test_binary_log.cpp
     )
     target_link_libraries(nanobook_tests PRIVATE nanobook nanobook_testing GTest::gtest_main)
     nanobook_configure_target(nanobook_tests)
@@ -191,6 +193,14 @@ if(NANOBOOK_BUILD_TESTS)
     target_link_libraries(nanobook_replay PRIVATE nanobook nanobook_testing)
     nanobook_configure_target(nanobook_replay)
     nanobook_uses_environment(nanobook_replay)
+
+    # The three-thread pipeline into a binary log, and the log back to CSV (pipeline design §6).
+    add_executable(nanobook_pipeline tools/nanobook_pipeline.cpp)
+    target_link_libraries(nanobook_pipeline PRIVATE nanobook nanobook_testing)
+    nanobook_configure_target(nanobook_pipeline)
+    add_executable(nanobook_logdump tools/nanobook_logdump.cpp)
+    target_link_libraries(nanobook_logdump PRIVATE nanobook nanobook_testing)
+    nanobook_configure_target(nanobook_logdump)
 endif()
 
 # ---------------------------------------------------------------------------

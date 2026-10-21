@@ -76,6 +76,7 @@
 #include "nanobook/reference/reference_book.hpp"
 
 #include "environment.hpp" // support/: test and tool code
+#include "mapped_file.hpp"
 #include "itch_flow.hpp"
 #include "itch_replay_comparison.hpp"
 #include "itch_timing.hpp"
@@ -200,47 +201,6 @@ std::optional<Options> parse_args(int argc, char **argv) {
     }
     return o;
 }
-
-// The file, mapped read-only. Unmapped when it goes out of scope.
-class MappedFile {
-public:
-    explicit MappedFile(const std::string &path) {
-        const int fd = open(path.c_str(), O_RDONLY);
-        struct stat st{};
-        if (fd < 0 || fstat(fd, &st) != 0 || st.st_size == 0) {
-            if (fd >= 0) {
-                close(fd);
-            }
-            return;
-        }
-        size_ = static_cast<std::size_t>(st.st_size);
-        void *map = mmap(nullptr, size_, PROT_READ, MAP_PRIVATE, fd, 0);
-        close(fd); // the mapping keeps the file open
-        if (map == MAP_FAILED) {
-            size_ = 0;
-            return;
-        }
-        madvise(map, size_, MADV_SEQUENTIAL); // read ahead, drop pages behind
-        data_ = static_cast<const std::byte *>(map);
-    }
-    ~MappedFile() {
-        if (data_ != nullptr) {
-            munmap(const_cast<std::byte *>(data_), size_);
-        }
-    }
-    MappedFile(const MappedFile &) = delete;
-    MappedFile &operator=(const MappedFile &) = delete;
-    MappedFile(MappedFile &&) = delete;
-    MappedFile &operator=(MappedFile &&) = delete;
-
-    [[nodiscard]] std::span<const std::byte> bytes() const {
-        return {data_, size_};
-    }
-
-private:
-    const std::byte *data_{nullptr};
-    std::size_t size_{0};
-};
 
 // Passes messages to `inner` up to the first one stamped after `until`, then drops the rest
 // (skipped types carry no decoded time, so they're dropped from that point on too).
@@ -812,7 +772,7 @@ int main(int argc, char **argv) {
         return 2;
     }
     const Options &o = *parsed;
-    const MappedFile file{o.file};
+    const support::MappedFile file{o.file};
     const std::span<const std::byte> bytes = file.bytes();
     if (bytes.empty()) {
         std::cerr << "can't read " << o.file << "\n";
