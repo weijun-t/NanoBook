@@ -22,7 +22,10 @@
  *     stops when it sees that. No shared flags: the end travels through the rings like data.
  *   - The per-message work (Engine::apply) is one function used by both run_pipeline() and
  *     run_sequential(), so the only difference between them is the threads.
- *   - Waiting: a full or empty ring spins (SpscRing::push/pop); every full-ring wait is counted.
+ *   - Waiting: on a full or empty ring a thread spins with `pause` for kSpinsBeforeYield tries,
+ *     then yields its core before each further try, so the run still progresses when there are
+ *     fewer free cores than threads (a CI runner); spin_only keeps it spinning, for timed runs on
+ *     pinned, dedicated cores. Every full-ring wait is counted.
  *
  * Data structures: Two SpscRings of `Capacity` records (65,536 by default, design §3.4), on the
  *   heap. Each thread writes only its own fields of PipelineResult; the caller reads them after
@@ -69,6 +72,43 @@ struct NoStamp {
         return 0;
     }
 };
+
+// ---------------------------------------------------------------------------
+// Waiting on a full or empty ring: spin first, then give the core away
+// ---------------------------------------------------------------------------
+
+// A pure spin is fastest when each thread owns a core. But if the thread being waited for isn't
+// running (fewer cores than threads, as on a 4-vCPU CI runner), a spinner burns its whole time
+// slice for nothing, on every hand-over: a test that takes 0.04 s on 24 CPUs took over 100 s on
+// 2. So after kSpinsBeforeYield failed tries (tens of microseconds of `pause`), each further try
+// first yields the core to the operating system. spin_only: never yield (timed runs on pinned,
+// dedicated cores, where yielding could only add latency).
+inline constexpr std::uint64_t kSpinsBeforeYield = 1'024;
+
+inline void wait_once(std::uint64_t failed_tries, bool spin_only) {
+    if (spin_only || failed_tries < kSpinsBeforeYield) {
+        cpu_relax();
+    } else {
+        std::this_thread::yield();
+    }
+}
+
+// Push or pop, waiting as above. Return how many times the ring was full or empty.
+template <typename Ring, typename T>
+std::uint64_t push_waiting(Ring &ring, const T &item, bool spin_only) {
+    std::uint64_t failed = 0;
+    while (!ring.try_push(item)) {
+        wait_once(failed++, spin_only);
+    }
+    return failed;
+}
+template <typename Ring, typename T> std::uint64_t pop_waiting(Ring &ring, T &out, bool spin_only) {
+    std::uint64_t failed = 0;
+    while (!ring.try_pop(out)) {
+        wait_once(failed++, spin_only);
+    }
+    return failed;
+}
 
 // ---------------------------------------------------------------------------
 // The engine's per-message work, shared by both ways of running
@@ -168,6 +208,7 @@ struct PipelineOptions {
     int engine_core{-1};
     int publish_core{-1};
     std::uint64_t (*allocations)(){nullptr}; // if set, counts allocations while records flow
+    bool spin_only{false}; // never yield while waiting (pinned, dedicated cores only)
 };
 
 struct PipelineResult {
@@ -224,17 +265,26 @@ PipelineResult run_pipeline(ReadFeed &&read_feed, Builder &builder, Sink &sink,
     std::atomic<int> finished{0};
     PipelineResult result;
 
-    const auto start_together = [&ready, &go] {
+    const bool spin_only = options.spin_only;
+    const auto start_together = [&ready, &go, spin_only] {
         ready.fetch_add(1, std::memory_order_acq_rel);
-        while (!go.load(std::memory_order_acquire)) {
-            cpu_relax();
+        for (std::uint64_t tries = 0; !go.load(std::memory_order_acquire); ++tries) {
+            wait_once(tries, spin_only);
+        }
+    };
+    struct RecordOut { // ring 1 as the feed's output, waiting as above
+        RecordRing &ring;
+        bool spin_only;
+        std::uint64_t push(const FeedRecord &r) {
+            return push_waiting(ring, r, spin_only);
         }
     };
     {
         std::jthread feed_thread{[&] {
             result.feed_pinned = pin_this_thread(options.feed_core);
             start_together();
-            FeedEncoder<RecordRing, Stamp> feed{*records, stamp};
+            RecordOut out{*records, spin_only};
+            FeedEncoder<RecordOut, Stamp> feed{out, stamp};
             result.parsed = read_feed(feed);
             feed.finish(); // End goes out even if the input was broken
             result.records = feed.records();
@@ -249,12 +299,14 @@ PipelineResult run_pipeline(ReadFeed &&read_feed, Builder &builder, Sink &sink,
             std::uint64_t waits = 0;
             FeedRecord r;
             for (;;) {
-                records->pop(r);
-                if (!engine.apply(r, [&](const TopOfBook &t) { waits += updates->push(t); })) {
+                pop_waiting(*records, r, spin_only);
+                if (!engine.apply(r, [&](const TopOfBook &t) {
+                        waits += push_waiting(*updates, t, spin_only);
+                    })) {
                     break;
                 }
             }
-            waits += updates->push(TopOfBook{.end = true});
+            waits += push_waiting(*updates, TopOfBook{.end = true}, spin_only);
             result.engine_waits = waits;
             finished.fetch_add(1, std::memory_order_acq_rel);
         }};
@@ -264,7 +316,7 @@ PipelineResult run_pipeline(ReadFeed &&read_feed, Builder &builder, Sink &sink,
             std::uint64_t count = 0;
             TopOfBook t;
             for (;;) {
-                updates->pop(t);
+                pop_waiting(*updates, t, spin_only);
                 if (t.end) {
                     break;
                 }

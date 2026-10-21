@@ -3,7 +3,8 @@
 > **Status:** approved (2026-10-20): every decision in §12 as proposed. Changes from here on are
 > made by an edit plus a note in the commit message. Items marked **[MEASURE]** are settled by a
 > measurement in the step named. Step 1 (2026-10-20): the assembly check and the planted
-> relaxed-store bug (§3.3, §8). Step 2: the record layouts as built (§4).
+> relaxed-store bug (§3.3, §8). Step 2: the record layouts as built (§4); spin-then-yield waiting
+> after CI timed out on 4 vCPUs (§3.5).
 
 Phases 1–4 ran everything on **one thread**: read a message, apply it to the book, then the next.
 Phase 5 splits that work into **three stages on three threads**, connected by **lock-free
@@ -198,6 +199,15 @@ how full the rings get.
 - **Empty: the consumer spins** with the `pause` instruction (`_mm_pause`), which tells the CPU
   "this is a wait loop": it saves power and avoids a costly pipeline flush when the value finally
   changes. No sleeping, no system call (rule 6): each stage owns a core.
+- **Changed in step 2 (CI found it): spin, then yield.** A pure spin assumes every thread has its
+  own core. GitHub's runners have 4 shared vCPUs; when the thread being waited for isn't running,
+  a spinner burns its whole time slice on every hand-over, and the 2-record-ring test hit CI's
+  60 s limit (0.04 s on 24 CPUs; over 100 s when squeezed onto 2 with `taskset`). Now the stages
+  spin with `pause` for 1,024 failed tries (tens of microseconds), then call
+  `std::this_thread::yield()` before each further try, so the waited-for thread gets the core
+  (2 CPUs: 3.3 s; 1 CPU: 5 s; under ASan on 2 CPUs: 7 s). `PipelineOptions::spin_only` keeps the
+  pure spin for timed runs on pinned, dedicated cores, where a yield could only add latency. The
+  ring's own `push`/`pop` stay pure spin (the ring tests and `nanobook_ringbench`).
 
 ---
 
