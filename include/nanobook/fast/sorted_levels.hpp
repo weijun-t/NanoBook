@@ -21,8 +21,9 @@
  *
  * Data structures: Two std::vector<Level> (32 bytes per level), each reserved for max_orders levels
  *   at construction, so they never grow while trading: there can't be more levels on a side than
- *   resting orders. Their PrefaultAllocator touches every page of the reservation then, so no
- *   page is first touched while trading (optimise design E2).
+ *   resting orders. std::pmr::vector: the memory comes from the default memory resource when the
+ *   book is built. In the timed tools that is a huge-page arena that touches every page at
+ *   start-up (optimise design E6), so no page is first touched while trading (E2's finding).
  *
  * Trade-offs: Inserting or removing a level deep in the book shifts every better level along by
  *   one, O(n). That's rare (activity is near the best price), but in a deep book one such insert
@@ -37,24 +38,28 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <memory_resource>
 #include <ranges>
 #include <vector>
 
 #include "nanobook/core/types.hpp"
 #include "nanobook/fast/level.hpp"
-#include "nanobook/fast/prefault_allocator.hpp"
 
 namespace nanobook::fast {
 
 class SortedLevels {
-    // PrefaultAllocator: every page of the reservation is touched at construction, so no page is
-    // first touched mid-replay (optimise design E2).
-    using Array = std::vector<Level, PrefaultAllocator<Level>>;
+    // pmr: memory from the default resource at construction (optimise design E6).
+    using Array = std::pmr::vector<Level>;
 
 public:
     explicit SortedLevels(const BookConfig &config) {
         bids_.reserve(config.max_orders);
         asks_.reserve(config.max_orders);
+    }
+
+    // The bytes both sides' arrays take from their memory resource.
+    [[nodiscard]] static std::size_t arena_bytes(const BookConfig &config) {
+        return 2 * std::size_t{config.max_orders} * sizeof(Level);
     }
 
     // The level at `price`, or nullptr if there is none.

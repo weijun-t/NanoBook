@@ -21,7 +21,8 @@
  *   With --latency, --sequential runs the same paced day on one thread, pinned to the engine's
  *   core B, to compare one thread with three on latency (optimise design E1c). The one-thread
  *   throughput run is pinned to core B too. --throughput --log OUT writes both runs' logs to a
- *   real file (the second replaces the first), to time real logging, not /dev/null.
+ *   real file (the second replaces the first), to time real logging, not /dev/null. The timed
+ *   runs build their books in a huge-page arena (support/huge_page_arena.hpp, optimise design E6).
  *
  * Why it exists: Step 3 proves the pipeline changes nothing: the same day must give the same log,
  *   byte for byte, on three threads and on one (rule 11). Comparing checksums proves it without
@@ -56,6 +57,7 @@
 #include "binary_log.hpp" // support/
 #include "environment.hpp"
 #include "itch_timing.hpp"
+#include "huge_page_arena.hpp"
 #include "latency_recorder.hpp"
 #include "mapped_file.hpp"
 #include "pacing.hpp"
@@ -281,7 +283,9 @@ int run_timing(const Options &o, std::span<const std::byte> bytes,
     };
 
     if (o.throughput) {
-        Builder one{configs, itch::BuilderOptions{}};
+        support::HugePageArena one_arena{support::arena_bytes(configs)}; // outlive the books
+        support::HugePageArena three_arena{support::arena_bytes(configs)};
+        auto one = support::build_books<Builder>(one_arena, configs, itch::BuilderOptions{});
         BinaryLog log_one{o.log}; // --log FILE: a real file (each run replaces it); else /dev/null
         // One core, like each stage of the pipeline (from here on this thread stays there).
         const bool one_pinned = pin_this_thread(o.pipeline.engine_core);
@@ -292,7 +296,7 @@ int run_timing(const Options &o, std::span<const std::byte> bytes,
             std::chrono::duration<double, std::nano>(std::chrono::steady_clock::now() - start)
                 .count();
         const latency::PageFaults seq_faults = latency::page_faults_now() - seq_f0;
-        Builder three{configs, itch::BuilderOptions{}};
+        auto three = support::build_books<Builder>(three_arena, configs, itch::BuilderOptions{});
         BinaryLog log_three{o.log};
         const latency::PageFaults pipe_f0 = latency::page_faults_now();
         const PipelineResult pipe = run_pipeline(whole, three, log_three, o.pipeline);
@@ -318,7 +322,9 @@ int run_timing(const Options &o, std::span<const std::byte> bytes,
                                  : ", one thread NOT pinned")
                   << "\n  page faults during each run: one thread " << faults_text(seq_faults)
                   << "; three threads " << faults_text(pipe_faults)
-                  << " (start-up included: building the rings and threads)\n";
+                  << " (start-up included: building the rings and threads)\n"
+                  << "  books (each run): " << support::arena_text(one_arena) << "; "
+                  << support::arena_text(three_arena) << "\n";
         if (!seq.parsed || !pipe.parsed || seq.updates != pipe.updates) {
             std::cerr << "the two runs disagree, or the file is broken\n";
             return 1;
@@ -332,7 +338,8 @@ int run_timing(const Options &o, std::span<const std::byte> bytes,
             return 1;
         }
         latency::Recorder recorder{window.count + 1'000};
-        Builder builder{configs, itch::BuilderOptions{}};
+        support::HugePageArena arena{support::arena_bytes(configs)}; // outlives the books
+        auto builder = support::build_books<Builder>(arena, configs, itch::BuilderOptions{});
         BinaryLog log{"/dev/null"};
         auto sink = [&](const TopOfBook &t) {
             log.append(t);
@@ -384,7 +391,7 @@ int run_timing(const Options &o, std::span<const std::byte> bytes,
                       << " tries\n";
         }
         std::cout << "  page faults during the run (start-up and warm-up included): "
-                  << faults_text(faults) << "\n";
+                  << faults_text(faults) << "\n  books: " << support::arena_text(arena) << "\n";
         if (!o.csv.empty()) {
             std::ofstream f{o.csv};
             if (!env.publishable()) {

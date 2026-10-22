@@ -1032,3 +1032,90 @@ private copy too, and that line would start moving between cores. It had never b
     with `perf c2c`).
 - **Since E2 and E3,** one thread now takes 133–143 ns per message on the whole day, against
   about 160 in E1. Three threads are still about 10% slower than one (E1c's finding holds).
+
+---
+
+## 2026-10-22: E6, huge pages for the books: 5.6% more throughput, p99 11% better (phase 6 step 7)
+
+Optimise design E6. **Kept: a huge-page arena for the books' arrays.** WSL2, so **not for
+publishing** (rule 20). VM-sensitive: re-check on bare metal is required, with criteria fixed
+below (design §5, B5-E6).
+
+### Symptom and hypothesis
+- **Symptom (phase 4):** the same book runs 2.5–5× slower per message on the real day than in
+  cache. The day jumps between 8,713 books.
+- **Hypothesis:** besides cache misses, TLB misses. The books' arrays take about 400 MB: about
+  100,000 pages of 4 KiB, far more than the TLB holds. With 2 MiB pages it is about 200.
+
+### Step 1: test the hypothesis with no code (glibc's switch)
+- `GLIBC_TUNABLES=glibc.malloc.hugetlb=1` makes `malloc` ask for huge pages (glibc 2.39; the
+  kernel's `transparent_hugepage` is `madvise`). Checked first: 412 of 417 MB on huge pages,
+  against 0 without.
+- **Session:** `scripts/run_ab_session.sh HEAD docs/data/phase6_wsl/e6_thp --after-env
+  GLIBC_TUNABLES=glibc.malloc.hugetlb=1 -- nanobook_replay ITCH_FILE --throughput --latency
+  --core 2 --csv {out}.csv`. The same binary on both sides; 01:39–01:46.
+- **Result:** throughput 96.4 / 95.7 → 92.8 / 90.1 ns per message (**4.8%**); p99 415.8 / 421.2
+  → 390.2 / 381.5 (**7.6%**). Every guard is equal or better. Hypothesis confirmed on WSL2.
+- (A single unrepeated run beforehand had shown huge pages *slower*, 109.8 against 102.9 ns.
+  One run each is not evidence; this is why the A/B exists.)
+
+### Step 2: make it part of the program (decision Q7, the user's choice)
+- **`support/huge_page_arena.hpp`, `HugePageArena`:** one `mmap`'d region, aligned to 2 MiB,
+  `madvise(MADV_HUGEPAGE)`, every 4 KiB page touched at start-up, with a standard
+  `std::pmr::monotonic_buffer_resource` on top.
+  - Its upstream is `null_memory_resource`, so a size estimate that is too small throws instead
+    of quietly falling back to normal pages.
+  - It reports how much of it the kernel backed with 2 MiB pages.
+- **`DefaultResourceScope` and `build_books()`:** the arena is the default memory resource only
+  while the books are built.
+- **The order pool, id table and level arrays are now `std::pmr::vector`.** They take their
+  memory from whatever resource is the default when they are built: plain `new`/`delete`
+  normally (tests, correctness runs), the arena in the timed tools.
+- **Each structure reports its size (`arena_bytes`),** and the arena is sized from those numbers.
+- **E2's `PrefaultAllocator` is removed:** the arena touches every page at start-up, which does
+  the same job.
+
+### Gates
+- **Tests:** 7 arena tests:
+  - the memory comes from the arena's own aligned region;
+  - a too-small arena throws;
+  - the default resource is restored;
+  - `arena_bytes` equals what a book asks for, counted exactly;
+  - one book fits and a second doesn't;
+  - writing to the arena's pages costs 0 faults;
+  - **a whole day's books built in the arena end identical to books built normally** (the golden
+    day and a busy day, stock by stock).
+- **Planted bugs, both caught:** `arena_bytes` forgetting the id table, and the arena not
+  touching its pages.
+- **The real day:** the full-day differential replay, 0 mismatches (the normal path, now `pmr`);
+  the pipeline checksum unchanged, `748abedf40533b82`; `nanobook_fuzz` 10 million operations;
+  all 533 / 515 tests on the 6 presets.
+- **The full day in the arena:** 384 MB, all on 2 MiB pages, 0 page faults while timed.
+
+### Result: the arena against normal pages
+- **Session:** `scripts/run_ab_session.sh HEAD docs/data/phase6_wsl/e6_arena --
+  nanobook_replay ITCH_FILE --throughput --latency --core 2 --csv {out}.csv`. Before =
+  `82557e6`; 02:09–02:16, idle laptop.
+
+| (ns; round 1 / round 2) | Normal pages | Arena |
+|---|---|---|
+| **Throughput, ns per message** | 97.4 / 97.6 | **92.5 / 91.5** |
+| p50, all kinds | 104.2 / 104.2 | 98.0 / 99.2 |
+| **p99, all kinds** | 434.9 / 445.6 | **389.8 / 392.3** |
+| p99.99 | 10,419 / 10,368 | 11,169 / 10,084 |
+| delete (D) p50 / p99 | 108.7 / 470.0, 108.7 / 484.0 | 97.6 / 415.4, 99.2 / 417.9 |
+| execute (E, C) p50 / p99 | 93.0 / 454.3, 91.8 / 466.7 | 85.2 / 389.4, 86.8 / 393.5 |
+| replace (U) p50 | 165.3 / 165.8 | 157.9 / 159.6 |
+| add (A, F) p50 | 99.6 / 99.2 | 95.9 / 97.6 |
+
+### What these numbers say
+- **Kept: 5.6% more throughput, p50 5.3% and p99 11% better,** in both rounds, by far more than
+  the noise. p99.99 is unchanged within its usual round-to-round noise.
+- **TLB misses were a real part of the real-day cost on WSL2.** The kinds that jump around memory
+  most gain most: a delete or an execution finds its order through the id table, then its level.
+- **The arena beats the glibc switch slightly** (5.6% against 4.8%; p99 11% against 7.6%). A
+  plausible reason: the arena packs each book's arrays side by side in one region, while `malloc`
+  spreads them over its own pools. That is a hypothesis.
+- **VM-sensitive (design §5, B5):** in a VM every TLB miss walks two sets of page tables, so the
+  gain may be smaller on bare metal. Re-check criteria are fixed now, before those numbers exist
+  (design §5, B5-E6).

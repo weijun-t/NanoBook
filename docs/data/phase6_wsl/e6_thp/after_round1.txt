@@ -1,0 +1,39 @@
+File: data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50 (11245883092 bytes)
+*** NOT FOR PUBLISHING: measured in a virtual machine (README rule 20) ***
+cpu              Intel(R) Core(TM) i7-14650HX
+logical cores    24
+os               Ubuntu 24.04.5 LTS
+kernel           Linux 6.18.54.1-microsoft-standard-WSL2 x86_64
+virtual machine  yes: WSL2
+isolated cores   none
+nohz_full cores  unknown
+governor         unknown
+turbo            unknown
+compiler         GCC 14.2.0
+build type       Release
+flags            -std=c++23 -O3 -DNDEBUG
+commit           82557e6274eb-dirty
+pinned to core   2
+counter          2.4192 ticks per ns
+timer overhead   min 28 ticks (subtracted from every latency sample)
+windows          1024 MiB, loaded before the clock starts
+
+Throughput (checks off; 368366634 messages, 11 windows; checksum 13154425643777011431)
+  parse only:        1.18 s, 3.2 ns per message, 312.2 M messages/s
+  parse + FastBook:  34.17 s, 92.8 ns per message, 10.8 M messages/s
+  the books' share:  89.6 ns per message (97% of the time)
+  page faults while timed: parse only 0 minor, 0 major; parse + FastBook 0 minor, 0 major
+
+Latency of every 8th order message, FastBook (45389776 samples; ns, timer overhead subtracted)
+tag      ITCH       count       min       p50       p90       p99     p99.9    p99.99       max      mean
+add      A, F    20584856       9.9      96.7     157.5     275.7     468.8      9973  11728335     105.3
+match    E, C     1030612       7.9      86.8     220.3     386.5     599.8     11517    314450     110.0
+cancel   D       19786668       9.5      96.7     241.4     415.0     674.2     10819   1772847     125.2
+modify   X         584111       7.4      43.8     167.4     333.6     583.3         -    140237      74.0
+replace  U        3403529      12.8     159.1     314.6     503.5      1115     12897    341745     186.9
+all              45389776       7.4      98.4     218.7     390.2     651.0     10618  11728335     119.8
+  dropped (moved core) 0, clamped (too long) 0, refused (full) 0; page faults while timed: 0 minor, 0 major
+
+counter drift during the run: 0.075 parts per million
+wrote /home/weijun/NanoBook/docs/data/phase6_wsl/e6_thp/after_round1.csv and /home/weijun/NanoBook/docs/data/phase6_wsl/e6_thp/after_round1_histogram.csv
+*** NOT FOR PUBLISHING: measured in a virtual machine (README rule 20) ***

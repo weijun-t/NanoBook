@@ -35,7 +35,8 @@
  *     timed, and memory stays near one window. Checks are off. The time-stamp counter is
  *     calibrated, its own cost subtracted from every latency sample, and the environment printed
  *     next to the numbers (rules 19, 20), as in nanobook_bench. Each timed pass also reports the
- *     page faults taken while timed (window loading excluded; optimise design §3.2).
+ *     page faults taken while timed (window loading excluded; optimise design §3.2). The timed
+ *     passes build their books in a huge-page arena (support/huge_page_arena.hpp, design E6).
  *
  * Trade-offs: A tool, not the engine: it prints, allocates and reads the clock freely, all
  *   outside the timed regions.
@@ -81,6 +82,7 @@
 #include "itch_flow.hpp"
 #include "itch_replay_comparison.hpp"
 #include "itch_timing.hpp"
+#include "huge_page_arena.hpp"
 #include "latency_recorder.hpp"
 #include "page_faults.hpp"
 #include "tsc.hpp"
@@ -636,7 +638,9 @@ int run_timing(const Options &o, std::span<const std::byte> bytes) {
         if (failed(parsed, "parse only")) {
             return 1;
         }
-        BookBuilder<FastBook> builder{configs, BuilderOptions{}};
+        support::HugePageArena arena{support::arena_bytes(configs)}; // outlives the books
+        auto builder =
+            support::build_books<BookBuilder<FastBook>>(arena, configs, BuilderOptions{});
         const auto replayed = replay_in_windows(bytes, window, builder);
         if (failed(replayed, "replay")) {
             return 1;
@@ -656,7 +660,8 @@ int run_timing(const Options &o, std::span<const std::byte> bytes) {
                   << " ns per message (" << std::setprecision(0)
                   << 100.0 * (replay_ns - parse_ns) / replay_ns << "% of the time)\n"
                   << "  page faults while timed: parse only " << faults_text(parsed->faults)
-                  << "; parse + FastBook " << faults_text(replayed->faults) << "\n";
+                  << "; parse + FastBook " << faults_text(replayed->faults) << "\n"
+                  << "  books:             " << support::arena_text(arena) << "\n";
         rows.push_back({"throughput", "parse_only", "all",
                         Summary{.count = parse_only.messages, .mean_ns = parse_ns / messages}});
         rows.push_back({"throughput", "FastBook", "all",
@@ -666,7 +671,9 @@ int run_timing(const Options &o, std::span<const std::byte> bytes) {
     if (o.latency) {
         // Room for every Nth of the most order messages the file could hold (21 bytes each).
         Recorder recorder{bytes.size() / (kLengthPrefix + 19) / o.every + 1};
-        BookBuilder<FastBook> builder{configs, BuilderOptions{}};
+        support::HugePageArena arena{support::arena_bytes(configs)}; // outlives the books
+        auto builder =
+            support::build_books<BookBuilder<FastBook>>(arena, configs, BuilderOptions{});
         TimedOrders timed{builder, recorder, o.every};
         const auto replayed = replay_in_windows(bytes, window, timed);
         if (failed(replayed, "latency")) {
@@ -708,7 +715,8 @@ int run_timing(const Options &o, std::span<const std::byte> bytes) {
         }
         std::cout << "  dropped (moved core) " << recorder.dropped() << ", clamped (too long) "
                   << recorder.clamped() << ", refused (full) " << recorder.refused()
-                  << "; page faults while timed: " << faults_text(replayed->faults) << "\n";
+                  << "; page faults while timed: " << faults_text(replayed->faults) << "\n"
+                  << "  books: " << support::arena_text(arena) << "\n";
     }
 
     const Calibration after = calibrate();

@@ -1,0 +1,924 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 8683ff8..5df80e6 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -197,7 +197,7 @@ if(NANOBOOK_BUILD_TESTS)
+         tests/fast/test_intrusive_queue.cpp
+         tests/fast/test_id_table.cpp
+         tests/fast/test_levels.cpp
+-        tests/fast/test_prefault_allocator.cpp
++        tests/test_huge_page_arena.cpp
+         tests/itch/test_parser.cpp
+         tests/itch/test_book_builder.cpp
+         tests/itch/test_replay_comparison.cpp
+diff --git a/include/nanobook/fast/fast_book.hpp b/include/nanobook/fast/fast_book.hpp
+index 18877d7..ea61ec4 100644
+--- a/include/nanobook/fast/fast_book.hpp
++++ b/include/nanobook/fast/fast_book.hpp
+@@ -34,6 +34,7 @@
+ 
+ #include <algorithm>
+ #include <cassert>
++#include <concepts>
+ #include <cstddef>
+ #include <cstdint>
+ #include <limits>
+@@ -62,6 +63,16 @@ public:
+         assert(config_.is_valid());
+     }
+ 
++    // The bytes this book's arrays (pool, levels, id table) take from the memory resource that
++    // is the default while it is built: the timed tools size their huge-page arena with it
++    // (optimise design E6). SortedLevels only: TickLevels keeps plain std::vector.
++    [[nodiscard]] static std::size_t arena_bytes(const BookConfig &config)
++        requires std::same_as<Levels, SortedLevels>
++    {
++        return OrderPool::arena_bytes(config.max_orders) + SortedLevels::arena_bytes(config) +
++               IdTable::arena_bytes(config.max_orders);
++    }
++
+     // Each call clears `out`, then writes this input's events (design §4). `out` must hold at
+     // least config.max_events_per_input() events.
+     void handle(const NewOrder &order, EventBuffer &out);
+diff --git a/include/nanobook/fast/id_table.hpp b/include/nanobook/fast/id_table.hpp
+index d31cadf..089d1bf 100644
+--- a/include/nanobook/fast/id_table.hpp
++++ b/include/nanobook/fast/id_table.hpp
+@@ -18,8 +18,10 @@
+  *   in the same run slide back into the hole when that brings them closer to home, so a search can
+  *   never stop early at a gap, and no "deleted" markers pile up over a trading day.
+  *
+- * Data structures: std::vector<Entry>, sized once to a power of two. Entry = {id, slot}, 16 bytes
+- *   with padding. id 0 marks an empty entry: the exchange never issues id 0.
++ * Data structures: std::pmr::vector<Entry>, sized once to a power of two. Entry = {id, slot}, 16
++ *   bytes with padding. id 0 marks an empty entry: the exchange never issues id 0. pmr: the memory
++ *   comes from the default memory resource when the table is built (plain new/delete, or the
++ *   timed tools' huge-page arena: optimise design E6).
+  *
+  * Trade-offs: Memory is 2 x max_orders (rounded up to a power of two) x 16 bytes: 32 MB for 1M
+  *   orders. A 12-byte packed entry, or storing only the slot and reading the id from the pool,
+@@ -33,6 +35,7 @@
+ #include <cassert>
+ #include <cstddef>
+ #include <cstdint>
++#include <memory_resource>
+ #include <vector>
+ 
+ #include "nanobook/core/types.hpp"
+@@ -43,8 +46,13 @@ namespace nanobook::fast {
+ class IdTable {
+ public:
+     explicit IdTable(std::uint32_t max_orders)
+-        : entries_(std::bit_ceil(std::max<std::uint64_t>(2 * std::uint64_t{max_orders}, 2))),
+-          mask_(entries_.size() - 1), shift_(64 - std::countr_zero(entries_.size())) {
++        : entries_(table_size(max_orders)), mask_(entries_.size() - 1),
++          shift_(64 - std::countr_zero(entries_.size())) {
++    }
++
++    // The bytes a table for `max_orders` takes from its memory resource.
++    [[nodiscard]] static std::size_t arena_bytes(std::uint32_t max_orders) {
++        return table_size(max_orders) * sizeof(Entry);
+     }
+ 
+     // Adds `id` -> `slot`. `id` must not be 0 and must not already be in the table.
+@@ -133,14 +141,19 @@ private:
+         std::uint32_t slot{kNone};
+     };
+ 
++    // At least twice max_orders, rounded up to a power of two (so "& mask_" can wrap).
++    [[nodiscard]] static std::size_t table_size(std::uint32_t max_orders) {
++        return std::bit_ceil(std::max<std::uint64_t>(2 * std::uint64_t{max_orders}, 2));
++    }
++
+     // Is k in (from, to], going round the end of the array if needed?
+     [[nodiscard]] static bool in_cyclic_range(std::size_t k, std::size_t from, std::size_t to) {
+         return from <= to ? (from < k && k <= to) : (k > from || k <= to);
+     }
+ 
+-    std::vector<Entry> entries_; // sized once; never resized
+-    std::size_t mask_;           // entries_.size() - 1, so "& mask_" wraps at the end
+-    int shift_;                  // 64 - log2(entries_.size()): keeps the top bits of the scramble
++    std::pmr::vector<Entry> entries_; // sized once; never resized
++    std::size_t mask_;                // entries_.size() - 1, so "& mask_" wraps at the end
++    int shift_; // 64 - log2(entries_.size()): keeps the top bits of the scramble
+     std::size_t size_{0};
+ };
+ 
+diff --git a/include/nanobook/fast/order_pool.hpp b/include/nanobook/fast/order_pool.hpp
+index 2c12281..7448cb8 100644
+--- a/include/nanobook/fast/order_pool.hpp
++++ b/include/nanobook/fast/order_pool.hpp
+@@ -14,8 +14,10 @@
+  *   it is the one most likely to still be in the CPU cache. At the start the list runs 0, 1, 2,
+  * ..., so the first orders sit next to each other in memory.
+  *
+- * Data structures: std::vector<Order>, sized once in the constructor and never resized, plus the
+- *   free-list head and a count of slots in use.
++ * Data structures: std::pmr::vector<Order>, sized once in the constructor and never resized, plus
++ *   the free-list head and a count of slots in use. pmr: the memory comes from whatever memory
++ *   resource is the default when the pool is built: plain new/delete normally, a huge-page arena
++ *   in the timed tools (optimise design E6). arena_bytes() says how much that is.
+  *
+  * Trade-offs: Which slot an order gets never appears in any event, so slot reuse can't change the
+  *   output (rule 11). Releasing a free slot twice is a bug: caught by assert in Debug builds, using
+@@ -25,7 +27,9 @@
+ #pragma once
+ 
+ #include <cassert>
++#include <cstddef>
+ #include <cstdint>
++#include <memory_resource>
+ #include <vector>
+ 
+ #include "nanobook/fast/order.hpp"
+@@ -43,6 +47,11 @@ public:
+         free_head_ = capacity > 0 ? 0 : kNone;
+     }
+ 
++    // The bytes a pool of `capacity` slots takes from its memory resource.
++    [[nodiscard]] static std::size_t arena_bytes(std::uint32_t capacity) {
++        return std::size_t{capacity} * sizeof(Order);
++    }
++
+     // A free slot, reset and ready to fill in, or kNone if every slot is in use.
+     [[nodiscard]] std::uint32_t acquire() {
+         const std::uint32_t slot = free_head_;
+@@ -100,7 +109,7 @@ public:
+     }
+ 
+ private:
+-    std::vector<Order> slots_; // sized once; never resized
++    std::pmr::vector<Order> slots_; // sized once; never resized
+     std::uint32_t free_head_{kNone};
+     std::uint32_t used_{0};
+ };
+diff --git a/include/nanobook/fast/prefault_allocator.hpp b/include/nanobook/fast/prefault_allocator.hpp
+deleted file mode 100644
+index 40f7aec..0000000
+--- a/include/nanobook/fast/prefault_allocator.hpp
++++ /dev/null
+@@ -1,67 +0,0 @@
+-/*
+- * prefault_allocator.hpp: an allocator that touches every page of its memory as it hands it out.
+- *
+- * What it does: PrefaultAllocator<T> is std::allocator<T> plus one step: after getting the
+- *   memory, it writes a byte into every 4 KiB page of it. A std::vector using it, reserved at
+- *   start-up, then has all its pages mapped before the first element is ever stored.
+- *
+- * Why it exists: Phase 6 experiment E2 (optimise design §2). The operating system maps a page of
+- *   new memory only when the program first touches it, stopping the program for a few
+- *   microseconds (a minor page fault). SortedLevels only reserves its arrays, so a page was first
+- *   touched mid-replay, when a book grew: a possible cause of the slow tail. Touching every page
+- *   at construction moves those faults to start-up, where rule 1 says the costs belong.
+- *
+- * How it works: allocate(n) asks std::allocator for n * sizeof(T) bytes, then writes 0 at every
+- *   4,096th byte and at the last byte, through a volatile pointer so the compiler can't drop the
+- *   writes. Every page the range spans gets one write: the writes are one page apart, starting
+- *   at the first byte. These are writes to raw storage, before any T exists, through unsigned
+- *   char, which may alias anything. Cost: one write per page at start-up, O(bytes / 4 KiB).
+- *
+- * Trade-offs: The whole reservation becomes resident memory, used or not (for the real day's
+- *   books, about 161 MB instead of about 20 MB actually touched). Nothing else changes: it is
+- *   stateless, every instance compares equal, and the vector's element code is the same.
+- */
+-
+-#pragma once
+-
+-#include <cstddef>
+-#include <memory>
+-
+-namespace nanobook::fast {
+-
+-template <typename T> class PrefaultAllocator {
+-public:
+-    using value_type = T;
+-
+-    PrefaultAllocator() = default;
+-    template <typename U>
+-    explicit(false) PrefaultAllocator(const PrefaultAllocator<U> & /*other*/) {
+-    }
+-
+-    [[nodiscard]] T *allocate(std::size_t n) {
+-        T *memory = std::allocator<T>{}.allocate(n);
+-        const std::size_t size = n * sizeof(T);
+-        if (size != 0) {
+-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): raw storage as bytes
+-            auto *bytes = reinterpret_cast<volatile unsigned char *>(memory);
+-            for (std::size_t i = 0; i < size; i += kPageBytes) {
+-                bytes[i] = 0;
+-            }
+-            bytes[size - 1] = 0; // the last page, if the range doesn't start on a page boundary
+-        }
+-        return memory;
+-    }
+-
+-    void deallocate(T *memory, std::size_t n) noexcept {
+-        std::allocator<T>{}.deallocate(memory, n);
+-    }
+-
+-    template <typename U> bool operator==(const PrefaultAllocator<U> & /*other*/) const noexcept {
+-        return true; // stateless: memory from one can be freed by any other
+-    }
+-
+-private:
+-    static constexpr std::size_t kPageBytes = 4096;
+-};
+-
+-} // namespace nanobook::fast
+diff --git a/include/nanobook/fast/sorted_levels.hpp b/include/nanobook/fast/sorted_levels.hpp
+index 9ba0e86..07ab8ff 100644
+--- a/include/nanobook/fast/sorted_levels.hpp
++++ b/include/nanobook/fast/sorted_levels.hpp
+@@ -21,8 +21,9 @@
+  *
+  * Data structures: Two std::vector<Level> (32 bytes per level), each reserved for max_orders levels
+  *   at construction, so they never grow while trading: there can't be more levels on a side than
+- *   resting orders. Their PrefaultAllocator touches every page of the reservation then, so no
+- *   page is first touched while trading (optimise design E2).
++ *   resting orders. std::pmr::vector: the memory comes from the default memory resource when the
++ *   book is built. In the timed tools that is a huge-page arena that touches every page at
++ *   start-up (optimise design E6), so no page is first touched while trading (E2's finding).
+  *
+  * Trade-offs: Inserting or removing a level deep in the book shifts every better level along by
+  *   one, O(n). That's rare (activity is near the best price), but in a deep book one such insert
+@@ -37,19 +38,18 @@
+ #include <cassert>
+ #include <cstddef>
+ #include <cstdint>
++#include <memory_resource>
+ #include <ranges>
+ #include <vector>
+ 
+ #include "nanobook/core/types.hpp"
+ #include "nanobook/fast/level.hpp"
+-#include "nanobook/fast/prefault_allocator.hpp"
+ 
+ namespace nanobook::fast {
+ 
+ class SortedLevels {
+-    // PrefaultAllocator: every page of the reservation is touched at construction, so no page is
+-    // first touched mid-replay (optimise design E2).
+-    using Array = std::vector<Level, PrefaultAllocator<Level>>;
++    // pmr: memory from the default resource at construction (optimise design E6).
++    using Array = std::pmr::vector<Level>;
+ 
+ public:
+     explicit SortedLevels(const BookConfig &config) {
+@@ -57,6 +57,11 @@ public:
+         asks_.reserve(config.max_orders);
+     }
+ 
++    // The bytes both sides' arrays take from their memory resource.
++    [[nodiscard]] static std::size_t arena_bytes(const BookConfig &config) {
++        return 2 * std::size_t{config.max_orders} * sizeof(Level);
++    }
++
+     // The level at `price`, or nullptr if there is none.
+     [[nodiscard]] Level *find(Side side, Price price) {
+         Array &v = levels(side);
+diff --git a/scripts/run_ab_session.sh b/scripts/run_ab_session.sh
+index 71bf5a2..9909c71 100644
+--- a/scripts/run_ab_session.sh
++++ b/scripts/run_ab_session.sh
+@@ -12,13 +12,15 @@
+ #   OUT_DIR/progress.log. "{out}" in the tool's arguments becomes that run's own path without
+ #   the extension (e.g. --csv {out}.csv), so runs never overwrite each other's files.
+ #     scripts/run_ab_session.sh BEFORE_REF OUT_DIR [--rounds N] [--preset P] [--after-preset Q]
+-#                               [--timeout S] -- TOOL [ARGS...]
++#                               [--after-env NAME=VALUE] [--timeout S] -- TOOL [ARGS...]
+ #     e.g. scripts/run_ab_session.sh HEAD docs/data/phase6_e1 -- nanobook_pipeline ITCH_FILE
+ #            --cores 2,4,6 --throughput
+ #   Defaults: 2 rounds, preset gcc-release, 1,800 s per run. With BEFORE_REF = HEAD and no
+ #   uncommitted changes, both sides are the same code: an A/A run, which measures the noise alone.
+ #   --after-preset Q builds "after" with another preset: the same code built differently (LTO,
+-#   -march=native, PGO: optimise design E4). "before" always uses --preset.
++#   -march=native, PGO: optimise design E4). "before" always uses --preset. --after-env runs
++#   "after" with one more environment variable, e.g. GLIBC_TUNABLES=glibc.malloc.hugetlb=1 (huge
++#   pages from malloc, optimise design E6): the same code, run differently.
+ #
+ # Why it exists: README rules 10 and 22: no optimisation without a before/after table. Timing
+ #   "before" today and "after" tomorrow would blame the laptop's mood on the change.
+@@ -41,7 +43,7 @@ set -u
+ 
+ usage() {
+     echo "usage: scripts/run_ab_session.sh BEFORE_REF OUT_DIR [--rounds N] [--preset P]" \
+-        "[--after-preset Q] [--timeout S] -- TOOL [ARGS...]" >&2
++        "[--after-preset Q] [--after-env NAME=VALUE] [--timeout S] -- TOOL [ARGS...]" >&2
+     exit 2
+ }
+ 
+@@ -52,12 +54,14 @@ shift 2
+ ROUNDS=2
+ PRESET=gcc-release
+ AFTER_PRESET=
++AFTER_ENV=
+ TIMEOUT=1800
+ while [ $# -gt 0 ]; do
+     case $1 in
+     --rounds) ROUNDS=${2:?}; shift 2 ;;
+     --preset) PRESET=${2:?}; shift 2 ;;
+     --after-preset) AFTER_PRESET=${2:?}; shift 2 ;;
++    --after-env) AFTER_ENV=${2:?}; shift 2 ;;
+     --timeout) TIMEOUT=${2:?}; shift 2 ;;
+     --) shift; break ;;
+     *) usage ;;
+@@ -101,9 +105,9 @@ else
+     rm "$OUT/after.diff"
+ fi
+ log "before: $(git rev-parse --short=12 "$BEFORE_SHA") ($BEFORE), preset $PRESET; after:" \
+-    "$AFTER_TEXT, preset $AFTER_PRESET"
++    "$AFTER_TEXT, preset $AFTER_PRESET${AFTER_ENV:+, environment $AFTER_ENV}"
+ if [ "$BEFORE_SHA" = "$AFTER_SHA" ] && [ ! -e "$OUT/after.diff" ] &&
+-    [ "$PRESET" = "$AFTER_PRESET" ]; then
++    [ "$PRESET" = "$AFTER_PRESET" ] && [ -z "$AFTER_ENV" ]; then
+     log "before and after are the same code: an A/A run, which measures the noise alone"
+ fi
+ 
+@@ -153,8 +157,13 @@ run() {
+     local side=$1 round=$2
+     local prefix=$OUT/${side}_round$round
+     local args=("${ARGS[@]//\{out\}/$prefix}")
++    local environment=() # "after" may run with one more variable (--after-env)
++    if [ "$side" = after ] && [ -n "$AFTER_ENV" ]; then
++        environment=("$AFTER_ENV")
++    fi
+     log "round $round: $side"
+-    timeout "$TIMEOUT" stdbuf -oL "$BIN/$side/$TOOL" "${args[@]}" > "$prefix.txt" 2>&1
++    env "${environment[@]}" timeout "$TIMEOUT" stdbuf -oL "$BIN/$side/$TOOL" "${args[@]}" \
++        > "$prefix.txt" 2>&1
+     log "  exit $?"
+ }
+ 
+diff --git a/tests/fast/test_prefault_allocator.cpp b/tests/fast/test_prefault_allocator.cpp
+deleted file mode 100644
+index b5db029..0000000
+--- a/tests/fast/test_prefault_allocator.cpp
++++ /dev/null
+@@ -1,64 +0,0 @@
+-/*
+- * test_prefault_allocator.cpp: tests for the page-touching allocator
+- * (include/nanobook/fast/prefault_allocator.hpp).
+- *
+- * What it does: After allocate(), writing to every page of the memory must cost (almost) no page
+- *   fault, including the last page of a range that doesn't start on a page boundary: allocate()
+- *   has already touched them all. A std::vector using it must behave like any vector, and two
+- *   allocators must compare equal (they're stateless).
+- *
+- * Why it exists: Phase 6 experiment E2 relies on it to move the level arrays' page faults to
+- *   start-up (optimise design §2). An allocator that missed a page would leave a fault mid-replay.
+- *
+- * How it works: The page-fault counter (support/page_faults.hpp) is read around the writes. The
+- *   memory is exactly 1 MiB, which usually starts 16 bytes past a page boundary, so its last page
+- *   is a partial one that only the allocator's last-byte write reaches.
+- */
+-
+-#include <gtest/gtest.h>
+-
+-#include <cstddef>
+-#include <vector>
+-
+-#include "nanobook/fast/level.hpp"
+-#include "nanobook/fast/prefault_allocator.hpp"
+-#include "page_faults.hpp"
+-
+-using nanobook::fast::Level;
+-using nanobook::fast::PrefaultAllocator;
+-using nanobook::latency::page_faults_now;
+-using nanobook::latency::PageFaults;
+-
+-TEST(PrefaultAllocator, EveryPageIsTouchedWhenTheMemoryIsHandedOut) {
+-    constexpr std::size_t kPage = 4096;
+-    // Exactly 1 MiB. glibc usually hands out a block this big 16 bytes past a page boundary, so
+-    // it spans 257 pages, and only the write at its last byte reaches the 257th.
+-    constexpr std::size_t kLevels = (std::size_t{1} << 20U) / sizeof(Level);
+-    PrefaultAllocator<Level> allocator;
+-    Level *memory = allocator.allocate(kLevels);
+-    const std::size_t size = kLevels * sizeof(Level);
+-
+-    const PageFaults before = page_faults_now();
+-    volatile unsigned char *bytes = reinterpret_cast<unsigned char *>(memory); // NOLINT: raw bytes
+-    for (std::size_t i = 0; i < size; i += kPage) {
+-        bytes[i] = 1;
+-    }
+-    bytes[size - 1] = 1;
+-    const PageFaults taken = page_faults_now() - before;
+-    EXPECT_EQ(taken.minor, 0U); // 256 or 257 pages written; all were already mapped
+-    allocator.deallocate(memory, kLevels);
+-}
+-
+-TEST(PrefaultAllocator, AVectorUsingItBehavesLikeAnyVector) {
+-    std::vector<Level, PrefaultAllocator<Level>> levels;
+-    levels.reserve(1'000);
+-    for (int i = 0; i < 10; ++i) {
+-        levels.insert(levels.begin(), Level{.price = nanobook::Price{i}});
+-    }
+-    levels.erase(levels.begin() + 3);
+-    ASSERT_EQ(levels.size(), 9U);
+-    EXPECT_EQ(levels.front().price, nanobook::Price{9});
+-    EXPECT_EQ(levels[3].price, nanobook::Price{5}); // 6 was erased
+-    EXPECT_EQ(levels.back().price, nanobook::Price{0});
+-    EXPECT_TRUE(PrefaultAllocator<Level>{} == PrefaultAllocator<int>{}); // stateless
+-}
+diff --git a/tools/nanobook_pipeline.cpp b/tools/nanobook_pipeline.cpp
+index 684367c..d00c35d 100644
+--- a/tools/nanobook_pipeline.cpp
++++ b/tools/nanobook_pipeline.cpp
+@@ -21,7 +21,8 @@
+  *   With --latency, --sequential runs the same paced day on one thread, pinned to the engine's
+  *   core B, to compare one thread with three on latency (optimise design E1c). The one-thread
+  *   throughput run is pinned to core B too. --throughput --log OUT writes both runs' logs to a
+- *   real file (the second replaces the first), to time real logging, not /dev/null.
++ *   real file (the second replaces the first), to time real logging, not /dev/null. The timed
++ *   runs build their books in a huge-page arena (support/huge_page_arena.hpp, optimise design E6).
+  *
+  * Why it exists: Step 3 proves the pipeline changes nothing: the same day must give the same log,
+  *   byte for byte, on three threads and on one (rule 11). Comparing checksums proves it without
+@@ -56,6 +57,7 @@
+ #include "binary_log.hpp" // support/
+ #include "environment.hpp"
+ #include "itch_timing.hpp"
++#include "huge_page_arena.hpp"
+ #include "latency_recorder.hpp"
+ #include "mapped_file.hpp"
+ #include "pacing.hpp"
+@@ -281,7 +283,9 @@ int run_timing(const Options &o, std::span<const std::byte> bytes,
+     };
+ 
+     if (o.throughput) {
+-        Builder one{configs, itch::BuilderOptions{}};
++        support::HugePageArena one_arena{support::arena_bytes(configs)}; // outlive the books
++        support::HugePageArena three_arena{support::arena_bytes(configs)};
++        auto one = support::build_books<Builder>(one_arena, configs, itch::BuilderOptions{});
+         BinaryLog log_one{o.log}; // --log FILE: a real file (each run replaces it); else /dev/null
+         // One core, like each stage of the pipeline (from here on this thread stays there).
+         const bool one_pinned = pin_this_thread(o.pipeline.engine_core);
+@@ -292,7 +296,7 @@ int run_timing(const Options &o, std::span<const std::byte> bytes,
+             std::chrono::duration<double, std::nano>(std::chrono::steady_clock::now() - start)
+                 .count();
+         const latency::PageFaults seq_faults = latency::page_faults_now() - seq_f0;
+-        Builder three{configs, itch::BuilderOptions{}};
++        auto three = support::build_books<Builder>(three_arena, configs, itch::BuilderOptions{});
+         BinaryLog log_three{o.log};
+         const latency::PageFaults pipe_f0 = latency::page_faults_now();
+         const PipelineResult pipe = run_pipeline(whole, three, log_three, o.pipeline);
+@@ -318,7 +322,9 @@ int run_timing(const Options &o, std::span<const std::byte> bytes,
+                                  : ", one thread NOT pinned")
+                   << "\n  page faults during each run: one thread " << faults_text(seq_faults)
+                   << "; three threads " << faults_text(pipe_faults)
+-                  << " (start-up included: building the rings and threads)\n";
++                  << " (start-up included: building the rings and threads)\n"
++                  << "  books (each run): " << support::arena_text(one_arena) << "; "
++                  << support::arena_text(three_arena) << "\n";
+         if (!seq.parsed || !pipe.parsed || seq.updates != pipe.updates) {
+             std::cerr << "the two runs disagree, or the file is broken\n";
+             return 1;
+@@ -332,7 +338,8 @@ int run_timing(const Options &o, std::span<const std::byte> bytes,
+             return 1;
+         }
+         latency::Recorder recorder{window.count + 1'000};
+-        Builder builder{configs, itch::BuilderOptions{}};
++        support::HugePageArena arena{support::arena_bytes(configs)}; // outlives the books
++        auto builder = support::build_books<Builder>(arena, configs, itch::BuilderOptions{});
+         BinaryLog log{"/dev/null"};
+         auto sink = [&](const TopOfBook &t) {
+             log.append(t);
+@@ -384,7 +391,7 @@ int run_timing(const Options &o, std::span<const std::byte> bytes,
+                       << " tries\n";
+         }
+         std::cout << "  page faults during the run (start-up and warm-up included): "
+-                  << faults_text(faults) << "\n";
++                  << faults_text(faults) << "\n  books: " << support::arena_text(arena) << "\n";
+         if (!o.csv.empty()) {
+             std::ofstream f{o.csv};
+             if (!env.publishable()) {
+diff --git a/tools/nanobook_replay.cpp b/tools/nanobook_replay.cpp
+index 9dc4c48..c9ffa02 100644
+--- a/tools/nanobook_replay.cpp
++++ b/tools/nanobook_replay.cpp
+@@ -35,7 +35,8 @@
+  *     timed, and memory stays near one window. Checks are off. The time-stamp counter is
+  *     calibrated, its own cost subtracted from every latency sample, and the environment printed
+  *     next to the numbers (rules 19, 20), as in nanobook_bench. Each timed pass also reports the
+- *     page faults taken while timed (window loading excluded; optimise design §3.2).
++ *     page faults taken while timed (window loading excluded; optimise design §3.2). The timed
++ *     passes build their books in a huge-page arena (support/huge_page_arena.hpp, design E6).
+  *
+  * Trade-offs: A tool, not the engine: it prints, allocates and reads the clock freely, all
+  *   outside the timed regions.
+@@ -81,6 +82,7 @@
+ #include "itch_flow.hpp"
+ #include "itch_replay_comparison.hpp"
+ #include "itch_timing.hpp"
++#include "huge_page_arena.hpp"
+ #include "latency_recorder.hpp"
+ #include "page_faults.hpp"
+ #include "tsc.hpp"
+@@ -636,7 +638,9 @@ int run_timing(const Options &o, std::span<const std::byte> bytes) {
+         if (failed(parsed, "parse only")) {
+             return 1;
+         }
+-        BookBuilder<FastBook> builder{configs, BuilderOptions{}};
++        support::HugePageArena arena{support::arena_bytes(configs)}; // outlives the books
++        auto builder =
++            support::build_books<BookBuilder<FastBook>>(arena, configs, BuilderOptions{});
+         const auto replayed = replay_in_windows(bytes, window, builder);
+         if (failed(replayed, "replay")) {
+             return 1;
+@@ -656,7 +660,8 @@ int run_timing(const Options &o, std::span<const std::byte> bytes) {
+                   << " ns per message (" << std::setprecision(0)
+                   << 100.0 * (replay_ns - parse_ns) / replay_ns << "% of the time)\n"
+                   << "  page faults while timed: parse only " << faults_text(parsed->faults)
+-                  << "; parse + FastBook " << faults_text(replayed->faults) << "\n";
++                  << "; parse + FastBook " << faults_text(replayed->faults) << "\n"
++                  << "  books:             " << support::arena_text(arena) << "\n";
+         rows.push_back({"throughput", "parse_only", "all",
+                         Summary{.count = parse_only.messages, .mean_ns = parse_ns / messages}});
+         rows.push_back({"throughput", "FastBook", "all",
+@@ -666,7 +671,9 @@ int run_timing(const Options &o, std::span<const std::byte> bytes) {
+     if (o.latency) {
+         // Room for every Nth of the most order messages the file could hold (21 bytes each).
+         Recorder recorder{bytes.size() / (kLengthPrefix + 19) / o.every + 1};
+-        BookBuilder<FastBook> builder{configs, BuilderOptions{}};
++        support::HugePageArena arena{support::arena_bytes(configs)}; // outlives the books
++        auto builder =
++            support::build_books<BookBuilder<FastBook>>(arena, configs, BuilderOptions{});
+         TimedOrders timed{builder, recorder, o.every};
+         const auto replayed = replay_in_windows(bytes, window, timed);
+         if (failed(replayed, "latency")) {
+@@ -708,7 +715,8 @@ int run_timing(const Options &o, std::span<const std::byte> bytes) {
+         }
+         std::cout << "  dropped (moved core) " << recorder.dropped() << ", clamped (too long) "
+                   << recorder.clamped() << ", refused (full) " << recorder.refused()
+-                  << "; page faults while timed: " << faults_text(replayed->faults) << "\n";
++                  << "; page faults while timed: " << faults_text(replayed->faults) << "\n"
++                  << "  books: " << support::arena_text(arena) << "\n";
+     }
+ 
+     const Calibration after = calibrate();
+diff --git a/support/huge_page_arena.hpp b/support/huge_page_arena.hpp
+new file mode 100644
+index 0000000..1a45845
+--- /dev/null
++++ b/support/huge_page_arena.hpp
+@@ -0,0 +1,179 @@
++/*
++ * huge_page_arena.hpp: one start-up region on 2 MiB pages that the books' arrays are built in.
++ *
++ * What it does: HugePageArena maps one region, aligned to 2 MiB, asks the kernel to back it with
++ *   2 MiB "huge" pages, touches every page, and hands its bytes out through a standard
++ *   std::pmr::memory_resource. DefaultResourceScope makes that resource the default while the
++ *   books are built, so their std::pmr::vectors (order pool, id table, levels) take their memory
++ *   from it. build_books() does both, sized by arena_bytes() from the books' own numbers.
++ *
++ * Why it exists: Optimise design E6. The CPU translates every address through a small cache of
++ *   page translations (the TLB). The real day's books take about 400 MB: about 100,000 pages of
++ *   4 KiB, far more than the TLB holds, so many messages wait for a page-table walk. On 2 MiB
++ *   pages it is about 200. Tried first with glibc's switch (GLIBC_TUNABLES=glibc.malloc.hugetlb=1):
++ *   4.8% more throughput and p99 7.6% better. This arena makes it part of the program.
++ *
++ * How it works:
++ *   - mmap the size rounded up to 2 MiB, plus 2 MiB of slack, and start at the first 2 MiB
++ *     boundary inside it: a huge page must start on one.
++ *   - madvise(MADV_HUGEPAGE): this kernel gives huge pages only to regions that ask
++ *     (transparent_hugepage = madvise). If it refuses, the pages are normal ones; huge_bytes()
++ *     reports how much really landed on huge pages (the AnonHugePages count grows by that much).
++ *   - One write per 4 KiB page now, at start-up (rule 1), so no page is first touched while
++ *     trading: this also does what E2's PrefaultAllocator did.
++ *   - std::pmr::monotonic_buffer_resource hands out the bytes in order and frees nothing until
++ *     the arena goes: the books live as long as it does. Its upstream is null_memory_resource, so
++ *     a wrong size throws std::bad_alloc instead of quietly falling back to normal pages.
++ *
++ * Data structures: the mapping (base, length, aligned start, usable size) and the monotonic
++ *   resource on top of it.
++ *
++ * Trade-offs: Linux only, tool code. The whole region is resident from the start. The arena must
++ *   outlive everything built in it. DefaultResourceScope changes a process-wide default, so only
++ *   the thread building the books may run while it is active.
++ */
++
++#pragma once
++
++#include <sys/mman.h>
++
++#include <algorithm>
++#include <cstddef>
++#include <cstdint>
++#include <fstream>
++#include <memory_resource>
++#include <new>
++#include <string>
++#include <utility>
++#include <vector>
++
++#include "nanobook/core/types.hpp"
++#include "nanobook/fast/fast_book.hpp"
++
++namespace nanobook::support {
++
++inline constexpr std::size_t kHugePage = std::size_t{2} << 20U; // 2 MiB
++inline constexpr std::size_t kPage = 4096;
++
++// This process's memory on transparent huge pages, in bytes (0 if unknown).
++inline std::uint64_t anon_huge_bytes() {
++    std::ifstream rollup{"/proc/self/smaps_rollup"};
++    std::string key;
++    std::uint64_t kilobytes = 0;
++    while (rollup >> key) {
++        if (key == "AnonHugePages:" && rollup >> kilobytes) {
++            return kilobytes * 1024;
++        }
++    }
++    return 0;
++}
++
++class HugePageArena {
++public:
++    explicit HugePageArena(std::size_t bytes)
++        : mapping_(map(bytes)),
++          resource_(mapping_.start, mapping_.size, std::pmr::null_memory_resource()) {
++        const std::uint64_t before = anon_huge_bytes();
++        volatile auto *page =
++            static_cast<unsigned char *>(mapping_.start); // writes can't be dropped
++        for (std::size_t i = 0; i < mapping_.size; i += kPage) {
++            page[i] = 0;
++        }
++        huge_bytes_ = anon_huge_bytes() - before;
++    }
++    HugePageArena(const HugePageArena &) = delete;
++    HugePageArena &operator=(const HugePageArena &) = delete;
++    HugePageArena(HugePageArena &&) = delete;
++    HugePageArena &operator=(HugePageArena &&) = delete;
++    ~HugePageArena() {
++        munmap(mapping_.base, mapping_.length);
++    }
++
++    [[nodiscard]] std::pmr::memory_resource *resource() {
++        return &resource_;
++    }
++    // Usable bytes: the request rounded up to 2 MiB.
++    [[nodiscard]] std::size_t size() const {
++        return mapping_.size;
++    }
++    // How many of them the kernel backed with 2 MiB pages.
++    [[nodiscard]] std::uint64_t huge_bytes() const {
++        return huge_bytes_;
++    }
++    [[nodiscard]] bool contains(const void *p) const {
++        const auto *start = static_cast<const unsigned char *>(mapping_.start);
++        const auto *byte = static_cast<const unsigned char *>(p);
++        return byte >= start && byte < start + mapping_.size;
++    }
++
++private:
++    struct Mapping {
++        void *base{};
++        std::size_t length{};
++        void *start{}; // the first 2 MiB boundary in [base, base + length)
++        std::size_t size{};
++    };
++
++    static Mapping map(std::size_t bytes) {
++        Mapping m;
++        m.size = (std::max<std::size_t>(bytes, 1) + kHugePage - 1) / kHugePage * kHugePage;
++        m.length = m.size + kHugePage; // room to move the start to a 2 MiB boundary
++        m.base =
++            mmap(nullptr, m.length, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
++        if (m.base == MAP_FAILED) {
++            throw std::bad_alloc{};
++        }
++        const auto address = reinterpret_cast<std::uintptr_t>(m.base); // NOLINT: address maths
++        const std::uintptr_t aligned = (address + kHugePage - 1) & ~(kHugePage - 1);
++        m.start = static_cast<unsigned char *>(m.base) + (aligned - address);
++        madvise(m.start, m.size, MADV_HUGEPAGE); // a refusal leaves normal pages: huge_bytes() says
++        return m;
++    }
++
++    Mapping mapping_;
++    std::pmr::monotonic_buffer_resource resource_;
++    std::uint64_t huge_bytes_{};
++};
++
++// Makes `resource` the default memory resource until the end of the scope.
++class DefaultResourceScope {
++public:
++    explicit DefaultResourceScope(std::pmr::memory_resource *resource)
++        : previous_(std::pmr::set_default_resource(resource)) {
++    }
++    DefaultResourceScope(const DefaultResourceScope &) = delete;
++    DefaultResourceScope &operator=(const DefaultResourceScope &) = delete;
++    DefaultResourceScope(DefaultResourceScope &&) = delete;
++    DefaultResourceScope &operator=(DefaultResourceScope &&) = delete;
++    ~DefaultResourceScope() {
++        std::pmr::set_default_resource(previous_);
++    }
++
++private:
++    std::pmr::memory_resource *previous_;
++};
++
++// Bytes for one FastBook per config: the arrays themselves, plus up to 64 bytes of alignment per
++// array (the monotonic resource aligns each one; 4 arrays per book).
++inline std::size_t arena_bytes(const std::vector<BookConfig> &configs) {
++    std::size_t total = 0;
++    for (const BookConfig &config : configs) {
++        total += FastBook::arena_bytes(config) + (std::size_t{4} * 64);
++    }
++    return total;
++}
++
++// "412 MB arena, 412 MB of it on 2 MiB pages": for the timed tools' reports.
++inline std::string arena_text(const HugePageArena &arena) {
++    return std::to_string(arena.size() >> 20U) + " MB arena, " +
++           std::to_string(arena.huge_bytes() >> 20U) + " MB of it on 2 MiB pages";
++}
++
++// Builds a Builder (a BookBuilder<FastBook>) with its books' arrays in `arena`.
++template <typename Builder, typename... Args>
++Builder build_books(HugePageArena &arena, Args &&...args) {
++    const DefaultResourceScope scope{arena.resource()};
++    return Builder{std::forward<Args>(args)...};
++}
++
++} // namespace nanobook::support
+diff --git a/tests/test_huge_page_arena.cpp b/tests/test_huge_page_arena.cpp
+new file mode 100644
+index 0000000..5097ed8
+--- /dev/null
++++ b/tests/test_huge_page_arena.cpp
+@@ -0,0 +1,176 @@
++/*
++ * test_huge_page_arena.cpp: tests for the books' huge-page arena (support/huge_page_arena.hpp).
++ *
++ * What it does: The arena hands out memory from its own region, which starts on a 2 MiB boundary
++ *   and is the request rounded up to 2 MiB. Asking for more than it holds throws instead of
++ *   falling back. DefaultResourceScope sets the default memory resource and puts the old one back.
++ *   A FastBook built in the arena takes exactly what arena_bytes() says (one fits, a second does
++ *   not), and still works. Every page was touched up front, so writing to it costs no page fault.
++ *   And a whole day's books built in the arena end exactly like books built normally (the golden
++ *   day and a busy day, compared stock by stock): the timed tools' books are the same books.
++ *
++ * Why it exists: Optimise design E6. The books' arrays must really land in the arena, and a wrong
++ *   size estimate must fail loudly: otherwise the timed runs would quietly use normal pages.
++ *
++ * Trade-offs: Whether the kernel gives 2 MiB pages depends on the machine (free memory, settings),
++ *   so huge_bytes() is only checked for being whole 2 MiB pages within the arena.
++ */
++
++#include <gtest/gtest.h>
++
++#include <cstddef>
++#include <cstdint>
++#include <memory_resource>
++#include <new>
++#include <optional>
++#include <vector>
++
++#include "huge_page_arena.hpp"
++#include "itch_golden_day.hpp"
++#include "itch_replay_comparison.hpp"
++#include "nanobook/itch/book_builder.hpp"
++#include "nanobook/itch/day_stats.hpp"
++#include "nanobook/itch/parser.hpp"
++#include "nanobook/itch/sizing.hpp"
++#include "nanobook/core/types.hpp"
++#include "nanobook/fast/fast_book.hpp"
++#include "page_faults.hpp"
++
++using nanobook::BookConfig;
++using nanobook::FastBook;
++using nanobook::support::DefaultResourceScope;
++using nanobook::support::HugePageArena;
++using nanobook::support::kHugePage;
++
++namespace {
++
++constexpr BookConfig kConfig{.min_price = nanobook::Price{1},
++                             .max_price = nanobook::Price{10'000},
++                             .max_orders = 10'000,
++                             .max_qty = nanobook::Qty{1'000'000}};
++
++} // namespace
++
++TEST(HugePageArena, HandsOutMemoryFromItsOwnAlignedRegion) {
++    HugePageArena arena{3 << 20U}; // 3 MiB, rounded up to 4
++    EXPECT_EQ(arena.size(), 2 * kHugePage);
++    void *first = arena.resource()->allocate(1'000, 8);
++    void *second = arena.resource()->allocate(1'000, 8);
++    EXPECT_TRUE(arena.contains(first));
++    EXPECT_TRUE(arena.contains(second));
++    EXPECT_EQ(reinterpret_cast<std::uintptr_t>(first) % kHugePage, 0U); // NOLINT: an address
++    EXPECT_EQ(arena.huge_bytes() % kHugePage, 0U);
++    EXPECT_LE(arena.huge_bytes(), arena.size());
++}
++
++TEST(HugePageArena, AskingForMoreThanItHoldsThrows) {
++    HugePageArena arena{kHugePage};
++    EXPECT_THROW((void)arena.resource()->allocate(kHugePage + 1, 8), std::bad_alloc);
++}
++
++TEST(HugePageArena, TheScopeSetsTheDefaultResourceAndPutsTheOldOneBack) {
++    HugePageArena arena{kHugePage};
++    std::pmr::memory_resource *before = std::pmr::get_default_resource();
++    {
++        const DefaultResourceScope scope{arena.resource()};
++        EXPECT_EQ(std::pmr::get_default_resource(), arena.resource());
++    }
++    EXPECT_EQ(std::pmr::get_default_resource(), before);
++}
++
++namespace {
++
++// Passes requests on to new/delete and adds up the bytes asked for.
++class CountingResource : public std::pmr::memory_resource {
++public:
++    std::size_t bytes{};
++
++private:
++    void *do_allocate(std::size_t n, std::size_t alignment) override {
++        bytes += n;
++        return std::pmr::new_delete_resource()->allocate(n, alignment);
++    }
++    void do_deallocate(void *p, std::size_t n, std::size_t alignment) override {
++        std::pmr::new_delete_resource()->deallocate(p, n, alignment);
++    }
++    [[nodiscard]] bool do_is_equal(const std::pmr::memory_resource &other) const noexcept override {
++        return this == &other;
++    }
++};
++
++} // namespace
++
++TEST(HugePageArena, ArenaBytesIsExactlyWhatABookAsksFor) {
++    for (const std::uint32_t max_orders : {1U, 10'000U, 123'457U}) {
++        BookConfig config = kConfig;
++        config.max_orders = max_orders;
++        CountingResource counting;
++        {
++            const DefaultResourceScope scope{&counting};
++            const FastBook book{config};
++        }
++        EXPECT_EQ(counting.bytes, FastBook::arena_bytes(config)) << max_orders;
++    }
++}
++
++TEST(HugePageArena, ABookTakesExactlyWhatArenaBytesSays) {
++    // One book fits in arena_bytes() plus the alignment allowance, and uses up its share: a second
++    // one doesn't fit, so the first really took its arrays from the arena.
++    HugePageArena arena{FastBook::arena_bytes(kConfig) + (std::size_t{4} * 64)};
++    const std::size_t spare = arena.size() - FastBook::arena_bytes(kConfig); // rounding to 2 MiB
++    ASSERT_LT(spare, FastBook::arena_bytes(kConfig)); // so a second book can't fit in the rest
++    std::optional<FastBook> book;
++    {
++        const DefaultResourceScope scope{arena.resource()};
++        book.emplace(kConfig);
++        EXPECT_THROW(FastBook{kConfig}, std::bad_alloc);
++    }
++    using nanobook::FeedAdd;
++    using nanobook::FeedResult;
++    using nanobook::OrderId;
++    using nanobook::Side;
++    EXPECT_EQ(book->apply(FeedAdd{.id = OrderId{7},
++                                  .side = Side::Buy,
++                                  .price = nanobook::Price{100},
++                                  .qty = nanobook::Qty{10}}),
++              FeedResult::Ok);
++    EXPECT_EQ(book->best_bid(), nanobook::Price{100});
++}
++
++TEST(HugePageArena, EveryPageIsTouchedUpFront) {
++    HugePageArena arena{kHugePage};
++    auto *bytes = static_cast<unsigned char *>(arena.resource()->allocate(kHugePage, 64));
++    const nanobook::latency::PageFaults before = nanobook::latency::page_faults_now();
++    volatile unsigned char *page = bytes;
++    for (std::size_t i = 0; i < kHugePage; i += 4096) {
++        page[i] = 1;
++    }
++    const nanobook::latency::PageFaults taken = nanobook::latency::page_faults_now() - before;
++    EXPECT_EQ(taken.minor, 0U); // 512 pages written; all were mapped when the arena was made
++}
++
++TEST(HugePageArena, ADaysBooksBuiltInItEndLikeBooksBuiltNormally) {
++    using namespace nanobook::itch;
++    using Builder = BookBuilder<FastBook>;
++    for (const auto &day : {golden::golden_day(), golden::busy_day(20'000)}) {
++        DayCounter counter;
++        ASSERT_TRUE(parse(day, counter).has_value());
++        const std::vector<BookConfig> configs =
++            size_books(counter.directory(), counter.stats(), SizingRules{});
++
++        Builder plain{configs, BuilderOptions{.check = true}};
++        HugePageArena arena{nanobook::support::arena_bytes(configs)};
++        auto in_arena =
++            nanobook::support::build_books<Builder>(arena, configs, BuilderOptions{.check = true});
++        ASSERT_TRUE(parse(day, plain).has_value());
++        ASSERT_TRUE(parse(day, in_arena).has_value());
++
++        EXPECT_EQ(in_arena.stats().results, plain.stats().results);
++        ASSERT_EQ(in_arena.locates(), plain.locates());
++        for (std::size_t i = 1; i < plain.locates(); ++i) {
++            const auto locate = static_cast<std::uint16_t>(i);
++            EXPECT_EQ(compare_books(in_arena.book(locate), plain.book(locate)), std::nullopt)
++                << locate;
++        }
++    }
++}

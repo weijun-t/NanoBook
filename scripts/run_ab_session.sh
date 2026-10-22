@@ -12,13 +12,15 @@
 #   OUT_DIR/progress.log. "{out}" in the tool's arguments becomes that run's own path without
 #   the extension (e.g. --csv {out}.csv), so runs never overwrite each other's files.
 #     scripts/run_ab_session.sh BEFORE_REF OUT_DIR [--rounds N] [--preset P] [--after-preset Q]
-#                               [--timeout S] -- TOOL [ARGS...]
+#                               [--after-env NAME=VALUE] [--timeout S] -- TOOL [ARGS...]
 #     e.g. scripts/run_ab_session.sh HEAD docs/data/phase6_e1 -- nanobook_pipeline ITCH_FILE
 #            --cores 2,4,6 --throughput
 #   Defaults: 2 rounds, preset gcc-release, 1,800 s per run. With BEFORE_REF = HEAD and no
 #   uncommitted changes, both sides are the same code: an A/A run, which measures the noise alone.
 #   --after-preset Q builds "after" with another preset: the same code built differently (LTO,
-#   -march=native, PGO: optimise design E4). "before" always uses --preset.
+#   -march=native, PGO: optimise design E4). "before" always uses --preset. --after-env runs
+#   "after" with one more environment variable, e.g. GLIBC_TUNABLES=glibc.malloc.hugetlb=1 (huge
+#   pages from malloc, optimise design E6): the same code, run differently.
 #
 # Why it exists: README rules 10 and 22: no optimisation without a before/after table. Timing
 #   "before" today and "after" tomorrow would blame the laptop's mood on the change.
@@ -41,7 +43,7 @@ set -u
 
 usage() {
     echo "usage: scripts/run_ab_session.sh BEFORE_REF OUT_DIR [--rounds N] [--preset P]" \
-        "[--after-preset Q] [--timeout S] -- TOOL [ARGS...]" >&2
+        "[--after-preset Q] [--after-env NAME=VALUE] [--timeout S] -- TOOL [ARGS...]" >&2
     exit 2
 }
 
@@ -52,12 +54,14 @@ shift 2
 ROUNDS=2
 PRESET=gcc-release
 AFTER_PRESET=
+AFTER_ENV=
 TIMEOUT=1800
 while [ $# -gt 0 ]; do
     case $1 in
     --rounds) ROUNDS=${2:?}; shift 2 ;;
     --preset) PRESET=${2:?}; shift 2 ;;
     --after-preset) AFTER_PRESET=${2:?}; shift 2 ;;
+    --after-env) AFTER_ENV=${2:?}; shift 2 ;;
     --timeout) TIMEOUT=${2:?}; shift 2 ;;
     --) shift; break ;;
     *) usage ;;
@@ -101,9 +105,9 @@ else
     rm "$OUT/after.diff"
 fi
 log "before: $(git rev-parse --short=12 "$BEFORE_SHA") ($BEFORE), preset $PRESET; after:" \
-    "$AFTER_TEXT, preset $AFTER_PRESET"
+    "$AFTER_TEXT, preset $AFTER_PRESET${AFTER_ENV:+, environment $AFTER_ENV}"
 if [ "$BEFORE_SHA" = "$AFTER_SHA" ] && [ ! -e "$OUT/after.diff" ] &&
-    [ "$PRESET" = "$AFTER_PRESET" ]; then
+    [ "$PRESET" = "$AFTER_PRESET" ] && [ -z "$AFTER_ENV" ]; then
     log "before and after are the same code: an A/A run, which measures the noise alone"
 fi
 
@@ -153,8 +157,13 @@ run() {
     local side=$1 round=$2
     local prefix=$OUT/${side}_round$round
     local args=("${ARGS[@]//\{out\}/$prefix}")
+    local environment=() # "after" may run with one more variable (--after-env)
+    if [ "$side" = after ] && [ -n "$AFTER_ENV" ]; then
+        environment=("$AFTER_ENV")
+    fi
     log "round $round: $side"
-    timeout "$TIMEOUT" stdbuf -oL "$BIN/$side/$TOOL" "${args[@]}" > "$prefix.txt" 2>&1
+    env "${environment[@]}" timeout "$TIMEOUT" stdbuf -oL "$BIN/$side/$TOOL" "${args[@]}" \
+        > "$prefix.txt" 2>&1
     log "  exit $?"
 }
 

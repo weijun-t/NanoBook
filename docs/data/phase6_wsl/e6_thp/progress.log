@@ -1,0 +1,13 @@
+[01:39:16] before: 82557e6274eb (HEAD), preset gcc-release; after: 82557e6274eb plus the uncommitted changes in after.diff, preset gcc-release, environment GLIBC_TUNABLES=glibc.malloc.hugetlb=1
+[01:39:16] building before (worktree at /home/weijun/NanoBook/build/ab-before)
+[01:39:27] building after (this working tree)
+[01:39:32] start: nanobook_replay data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50 --throughput --latency --core 2 --csv {out}.csv; 2 rounds, order ABBA; the laptop must stay idle
+[01:39:32] round 1: before
+[01:41:30]   exit 0
+[01:41:30] round 1: after
+[01:43:17]   exit 0
+[01:43:17] round 2: after
+[01:45:02]   exit 0
+[01:45:02] round 2: before
+[01:46:54]   exit 0
+[01:46:54] done: /home/weijun/NanoBook/docs/data/phase6_wsl/e6_thp

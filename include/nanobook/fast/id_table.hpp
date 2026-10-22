@@ -18,8 +18,10 @@
  *   in the same run slide back into the hole when that brings them closer to home, so a search can
  *   never stop early at a gap, and no "deleted" markers pile up over a trading day.
  *
- * Data structures: std::vector<Entry>, sized once to a power of two. Entry = {id, slot}, 16 bytes
- *   with padding. id 0 marks an empty entry: the exchange never issues id 0.
+ * Data structures: std::pmr::vector<Entry>, sized once to a power of two. Entry = {id, slot}, 16
+ *   bytes with padding. id 0 marks an empty entry: the exchange never issues id 0. pmr: the memory
+ *   comes from the default memory resource when the table is built (plain new/delete, or the
+ *   timed tools' huge-page arena: optimise design E6).
  *
  * Trade-offs: Memory is 2 x max_orders (rounded up to a power of two) x 16 bytes: 32 MB for 1M
  *   orders. A 12-byte packed entry, or storing only the slot and reading the id from the pool,
@@ -33,6 +35,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <memory_resource>
 #include <vector>
 
 #include "nanobook/core/types.hpp"
@@ -43,8 +46,13 @@ namespace nanobook::fast {
 class IdTable {
 public:
     explicit IdTable(std::uint32_t max_orders)
-        : entries_(std::bit_ceil(std::max<std::uint64_t>(2 * std::uint64_t{max_orders}, 2))),
-          mask_(entries_.size() - 1), shift_(64 - std::countr_zero(entries_.size())) {
+        : entries_(table_size(max_orders)), mask_(entries_.size() - 1),
+          shift_(64 - std::countr_zero(entries_.size())) {
+    }
+
+    // The bytes a table for `max_orders` takes from its memory resource.
+    [[nodiscard]] static std::size_t arena_bytes(std::uint32_t max_orders) {
+        return table_size(max_orders) * sizeof(Entry);
     }
 
     // Adds `id` -> `slot`. `id` must not be 0 and must not already be in the table.
@@ -133,14 +141,19 @@ private:
         std::uint32_t slot{kNone};
     };
 
+    // At least twice max_orders, rounded up to a power of two (so "& mask_" can wrap).
+    [[nodiscard]] static std::size_t table_size(std::uint32_t max_orders) {
+        return std::bit_ceil(std::max<std::uint64_t>(2 * std::uint64_t{max_orders}, 2));
+    }
+
     // Is k in (from, to], going round the end of the array if needed?
     [[nodiscard]] static bool in_cyclic_range(std::size_t k, std::size_t from, std::size_t to) {
         return from <= to ? (from < k && k <= to) : (k > from || k <= to);
     }
 
-    std::vector<Entry> entries_; // sized once; never resized
-    std::size_t mask_;           // entries_.size() - 1, so "& mask_" wraps at the end
-    int shift_;                  // 64 - log2(entries_.size()): keeps the top bits of the scramble
+    std::pmr::vector<Entry> entries_; // sized once; never resized
+    std::size_t mask_;                // entries_.size() - 1, so "& mask_" wraps at the end
+    int shift_; // 64 - log2(entries_.size()): keeps the top bits of the scramble
     std::size_t size_{0};
 };
 

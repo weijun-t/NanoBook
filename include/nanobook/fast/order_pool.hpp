@@ -14,8 +14,10 @@
  *   it is the one most likely to still be in the CPU cache. At the start the list runs 0, 1, 2,
  * ..., so the first orders sit next to each other in memory.
  *
- * Data structures: std::vector<Order>, sized once in the constructor and never resized, plus the
- *   free-list head and a count of slots in use.
+ * Data structures: std::pmr::vector<Order>, sized once in the constructor and never resized, plus
+ *   the free-list head and a count of slots in use. pmr: the memory comes from whatever memory
+ *   resource is the default when the pool is built: plain new/delete normally, a huge-page arena
+ *   in the timed tools (optimise design E6). arena_bytes() says how much that is.
  *
  * Trade-offs: Which slot an order gets never appears in any event, so slot reuse can't change the
  *   output (rule 11). Releasing a free slot twice is a bug: caught by assert in Debug builds, using
@@ -25,7 +27,9 @@
 #pragma once
 
 #include <cassert>
+#include <cstddef>
 #include <cstdint>
+#include <memory_resource>
 #include <vector>
 
 #include "nanobook/fast/order.hpp"
@@ -41,6 +45,11 @@ public:
             slots_[i].next = i + 1 < capacity ? i + 1 : kNone;
         }
         free_head_ = capacity > 0 ? 0 : kNone;
+    }
+
+    // The bytes a pool of `capacity` slots takes from its memory resource.
+    [[nodiscard]] static std::size_t arena_bytes(std::uint32_t capacity) {
+        return std::size_t{capacity} * sizeof(Order);
     }
 
     // A free slot, reset and ready to fill in, or kNone if every slot is in use.
@@ -100,7 +109,7 @@ public:
     }
 
 private:
-    std::vector<Order> slots_; // sized once; never resized
+    std::pmr::vector<Order> slots_; // sized once; never resized
     std::uint32_t free_head_{kNone};
     std::uint32_t used_{0};
 };

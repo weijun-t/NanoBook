@@ -7,7 +7,8 @@
 > E1c measured (§2). Step 3: E2 measured, kept provisionally with its bare-metal criteria (§5).
 > Step 4: E3 measured, K = 4 kept (§2). Step 5: E4 measured, none kept as the default; PGO
 > trains on the day up to 12:00, not 9:30–12:00, so the books build as on the day (§2). Step 6:
-> E5 measured, 128 stays (§2).
+> E5 measured, 128 stays (§2). Step 7: E6 measured, the huge-page arena kept; E2's
+> PrefaultAllocator folded into it (§2, §5 B5-E6).
 
 Phases 1–5 built a correct order book, a way to time it, a real Nasdaq day to feed it, and a
 three-thread pipeline around it. Phase 5 left measured **symptoms**, such as a slow tail, a pipeline
@@ -211,6 +212,15 @@ cheap and well-evidenced first, the big redesign last.
   - If the OS refuses huge pages, the tool reports it and runs on normal pages.
 - **Measure:** the real day, throughput and p50/p99. The TLB-miss counts themselves need bare
   metal; on WSL2 the throughput change is the evidence.
+- **Result (step 7, 2026-10-22; perf log "E6, huge pages for the books"):** kept.
+  - First tested with no code: glibc's switch gave 4.8% more throughput and p99 7.6% better.
+  - Then built as Q7 says, with standard C++:
+    - `support/huge_page_arena.hpp`: a 2 MiB-aligned, `madvise`d, pre-touched region under
+      `std::pmr::monotonic_buffer_resource`;
+    - the books' three arrays became `std::pmr::vector` and are built in it by the timed tools.
+  - **5.6% more throughput, p99 11% better.** E2's `PrefaultAllocator` is replaced by the arena's
+    start-up touch.
+  - Re-check on bare metal, criteria in §5 (B5-E6).
 
 ### E7. The moving window (planned since phase 2, fast-book design §6.3)
 - **Symptom:** the tick array is 1.2–4× faster than the sorted list in phase 2's benchmarks, but
@@ -324,7 +334,8 @@ blocking** phase 6:
 | B3 | FastBook `match`: 9.3 ns in throughput mode against 13.1 ns in Google Benchmark (phase 3) | Needs `perf record` with cycle-accurate samples and `perf stat` |
 | B4 | Tails on isolated cores (`isolcpus`, `nohz_full`) | Separates the machine's stalls from the code's: the pipeline's flat 65–72 µs p99, the 11 µs p99.99 |
 | B5 | **Re-check every kept change**: re-run its A/B with `scripts/run_ab_session.sh` | A virtual machine translates every address twice (Linux's page tables, then the hypervisor's), so page faults (E2) and TLB misses (E6) cost more there and their gains can look bigger than on real hardware. E2 and E6 **must** be re-checked; the rest are a quick confirmation. Until then their perf-log entries say "kept on WSL2 evidence, to re-check on bare metal" |
-| B5-E2 | **E2's re-check, criteria fixed before the data (2026-10-21).** Check out the E2 commit, then `scripts/run_ab_session.sh <E2's parent> OUT -- nanobook_replay FILE --throughput --latency --core C --csv {out}.csv`. **Keep** if p99.99 is better in every round, by more than the noise, and p50, p99 and throughput are not worse beyond their noise. **Revert** if p99.99 isn't better beyond the noise, or if p50, p99 or throughput is worse beyond the noise in every round, unless p99.99 improves by clearly more (then weighed with the bare-metal numbers). The outcome goes in the perf log either way | E2 cost 2% at p99 on WSL2, maybe code-layout noise; bare metal's lower noise decides |
+| B5-E6 | **E6's re-check, criteria fixed before the data (2026-10-22).** Check out the E6 commit, then `scripts/run_ab_session.sh <E6's parent> OUT -- nanobook_replay FILE --throughput --latency --core C --csv {out}.csv`, and confirm the report shows the arena on 2 MiB pages. **Keep** if throughput is better in every round by more than the noise and p50 and p99 are not worse beyond theirs. **Revert** (the `pmr` vectors can stay; the timed tools stop using the arena) if throughput isn't better beyond the noise, or p50 or p99 is worse beyond it in every round. The outcome goes in the perf log either way | In a VM a TLB miss walks two sets of page tables, so WSL2 may overstate the gain |
+| B5-E2 | **E2's re-check, criteria fixed before the data (2026-10-21).** Check out the E2 commit, then `scripts/run_ab_session.sh <E2's parent> OUT -- nanobook_replay FILE --throughput --latency --core C --csv {out}.csv`. **Keep** if p99.99 is better in every round, by more than the noise, and p50, p99 and throughput are not worse beyond their noise. **Revert** if p99.99 isn't better beyond the noise, or if p50, p99 or throughput is worse beyond the noise in every round, unless p99.99 improves by clearly more (then weighed with the bare-metal numbers). The outcome goes in the perf log either way. **Since E6** the arena does E2's touching at start-up, so reverting E2 means the arena stops touching its pages: the huge pages are then mapped on first use (about 200 faults a day instead of 4,758) | E2 cost 2% at p99 on WSL2, maybe code-layout noise; bare metal's lower noise decides |
 
 ---
 
@@ -359,7 +370,7 @@ Every timed step needs an idle laptop, and I ask before each session.
 | 4 ✓ | E3: hybrid search, K = 0/4/8/16, on the real day. K = 4 kept. Done 2026-10-21 | Yes |
 | 5 ✓ | E4: LTO, PGO (trained on the day up to 12:00), `-march=native`, against the default. None kept as the default; kept as presets. Done 2026-10-22 | Yes |
 | 6 ✓ | E5: ring padding 64 against 128. 128 stays. Done 2026-10-22 | Yes |
-| 7 | E6: huge pages for the books' memory | Yes |
+| 7 ✓ | E6: huge pages for the books' memory. Kept (bare-metal re-check, §5 B5-E6). Done 2026-10-22 | Yes |
 | 8a, 8b, 8c | E7: moving window: design section; code, tests and fuzzing; measurement | Yes |
 | 9 | E8: deep inserts, only if the flow analysis still shows them after step 8 | Yes |
 | 10 | Phase 6 report | Yes |
