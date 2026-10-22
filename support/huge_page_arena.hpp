@@ -18,7 +18,10 @@
  *     boundary inside it: a huge page must start on one.
  *   - madvise(MADV_HUGEPAGE): this kernel gives huge pages only to regions that ask
  *     (transparent_hugepage = madvise). If it refuses, the pages are normal ones; huge_bytes()
- *     reports how much really landed on huge pages (the AnonHugePages count grows by that much).
+ *     reports how much really landed on huge pages: the AnonHugePages of the arena's own
+ *     mappings in /proc/self/smaps. Only its own: a process-wide count would also catch other
+ *     memory turning into huge pages meanwhile (a sanitizer's shadow memory, on a kernel set to
+ *     "always"), which made the count exceed the arena on CI.
  *   - One write per 4 KiB page now, at start-up (rule 1), so no page is first touched while
  *     trading: this also does what E2's PrefaultAllocator did.
  *   - std::pmr::monotonic_buffer_resource hands out the bytes in order and frees nothing until
@@ -38,12 +41,14 @@
 #include <sys/mman.h>
 
 #include <algorithm>
+#include <charconv>
 #include <cstddef>
 #include <cstdint>
 #include <fstream>
 #include <memory_resource>
 #include <new>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -55,17 +60,40 @@ namespace nanobook::support {
 inline constexpr std::size_t kHugePage = std::size_t{2} << 20U; // 2 MiB
 inline constexpr std::size_t kPage = 4096;
 
-// This process's memory on transparent huge pages, in bytes (0 if unknown).
-inline std::uint64_t anon_huge_bytes() {
-    std::ifstream rollup{"/proc/self/smaps_rollup"};
-    std::string key;
-    std::uint64_t kilobytes = 0;
-    while (rollup >> key) {
-        if (key == "AnonHugePages:" && rollup >> kilobytes) {
-            return kilobytes * 1024;
+// Bytes of [start, start + size) backed by transparent huge pages: the AnonHugePages of every
+// mapping in /proc/self/smaps that overlaps the range (0 if it can't be read).
+inline std::uint64_t huge_bytes_in(const void *start, std::size_t size) {
+    const auto lo = reinterpret_cast<std::uintptr_t>(start); // NOLINT: an address, compared
+    const std::uintptr_t hi = lo + size;
+    std::ifstream smaps{"/proc/self/smaps"};
+    std::string line;
+    bool overlaps = false;
+    std::uint64_t total = 0;
+    while (std::getline(smaps, line)) {
+        // A mapping starts with a "from-to perms ..." line, both addresses in hex.
+        std::uintptr_t from = 0;
+        std::uintptr_t to = 0;
+        const char *const end = line.data() + line.size();
+        const auto [dash, e1] = std::from_chars(line.data(), end, from, 16);
+        if (e1 == std::errc{} && dash != end && *dash == '-') {
+            const auto [space, e2] = std::from_chars(dash + 1, end, to, 16);
+            if (e2 == std::errc{} && space != end && *space == ' ') {
+                overlaps = from < hi && to > lo;
+                continue;
+            }
+        }
+        constexpr std::string_view kKey = "AnonHugePages:";
+        if (overlaps && line.starts_with(kKey)) {
+            std::size_t i = kKey.size();
+            while (i < line.size() && line[i] == ' ') {
+                ++i;
+            }
+            std::uint64_t kilobytes = 0;
+            std::from_chars(line.data() + i, end, kilobytes);
+            total += kilobytes * 1024;
         }
     }
-    return 0;
+    return total;
 }
 
 class HugePageArena {
@@ -73,13 +101,13 @@ public:
     explicit HugePageArena(std::size_t bytes)
         : mapping_(map(bytes)),
           resource_(mapping_.start, mapping_.size, std::pmr::null_memory_resource()) {
-        const std::uint64_t before = anon_huge_bytes();
         volatile auto *page =
             static_cast<unsigned char *>(mapping_.start); // writes can't be dropped
         for (std::size_t i = 0; i < mapping_.size; i += kPage) {
             page[i] = 0;
         }
-        huge_bytes_ = anon_huge_bytes() - before;
+        huge_bytes_ =
+            std::min<std::uint64_t>(huge_bytes_in(mapping_.start, mapping_.size), mapping_.size);
     }
     HugePageArena(const HugePageArena &) = delete;
     HugePageArena &operator=(const HugePageArena &) = delete;
