@@ -1,0 +1,41 @@
+File: data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50 (11245883092 bytes)
+*** NOT FOR PUBLISHING: measured in a virtual machine (README rule 20) ***
+cpu              Intel(R) Core(TM) i7-14650HX
+logical cores    24
+os               Ubuntu 24.04.5 LTS
+kernel           Linux 6.18.54.1-microsoft-standard-WSL2 x86_64
+virtual machine  yes: WSL2
+isolated cores   none
+nohz_full cores  unknown
+governor         unknown
+turbo            unknown
+compiler         GCC 14.2.0
+build type       Release
+flags            -std=c++23 -O3 -DNDEBUG
+commit           820336de203a-dirty
+pinned to core   2
+counter          2.4192 ticks per ns
+timer overhead   min 28 ticks (subtracted from every latency sample)
+windows          1024 MiB, loaded before the clock starts
+
+Throughput (checks off; 368366634 messages, 11 windows; checksum 13154425643777011431)
+  parse only:        1.21 s, 3.3 ns per message, 304.3 M messages/s
+  parse + FastBook:  39.52 s, 107.3 ns per message, 9.3 M messages/s
+  the books' share:  104.0 ns per message (97% of the time)
+  page faults while timed: parse only 0 minor, 0 major; parse + FastBook 0 minor, 0 major
+  books:             934 MB arena, 934 MB of it on 2 MiB pages
+
+Latency of every 8th order message, FastBook (45389776 samples; ns, timer overhead subtracted)
+tag      ITCH       count       min       p50       p90       p99     p99.9    p99.99       max      mean
+add      A, F    20584856      10.7     105.8     201.7     390.6     619.2     12850   2382090     122.4
+match    E, C     1030612      10.3     118.6     347.6     662.2     993.3     14922    309238     166.4
+cancel   D       19786668      10.3     117.0     353.8     666.3     987.1     13901  10451876     164.8
+modify   X         584111      10.3      46.3     234.8     539.0     830.0         -    143981      99.2
+replace  U        3403529      16.1     155.4     384.8     709.3      1233     16289   1102713     207.6
+all              45389776      10.3     109.5     293.1     606.4     935.8     13330  10451876     148.0
+  dropped (moved core) 0, clamped (too long) 0, refused (full) 0; page faults while timed: 0 minor, 0 major
+  books: 934 MB arena, 934 MB of it on 2 MiB pages
+
+counter drift during the run: 0.009 parts per million
+wrote /home/weijun/NanoBook/docs/data/phase6_wsl/e7_window/ab_e7b_slot_price_rerun/after_round3.csv and /home/weijun/NanoBook/docs/data/phase6_wsl/e7_window/ab_e7b_slot_price_rerun/after_round3_histogram.csv
+*** NOT FOR PUBLISHING: measured in a virtual machine (README rule 20) ***

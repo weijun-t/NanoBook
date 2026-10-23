@@ -16,19 +16,22 @@
  *   [base, base + W x step) and on the step; otherwise it is in the overflow. The step is 1 cent
  *   (100 ticks) when the window is centred on $1 or more, else $0.0001 (SEC Rule 612). The slot
  *   is (price / step) mod W, like hours on a clock face: when the window slides, a price that
- *   stays in it keeps its slot, so a slide only moves the levels that enter or leave. Walking
- *   the window in price order starts at the base's slot and wraps round. The best is the better
- *   of the window's (bitmap scan) and the overflow's (its last element). A slide happens when a
- *   new level would be a best beyond the middle half, or erasing the best leaves the new best
- *   outside it, or a side's first level arrives. Cost: find, create and erase in the window
- *   O(1); best O(W / 4,096) summary words; a slide O(W / 64 + levels in the window + levels
- *   moved); the overflow as SortedLevels.
+ *   stays in it keeps its slot, so a slide only moves the levels that enter or leave. A slot
+ *   holds its level's price, or kNoPrice when empty, so a lookup reads only that slot. Walking
+ *   the window in price order starts at the base's slot and wraps round. Each side remembers its
+ *   best price: a new level better than it replaces it, and only erasing the best looks for the
+ *   next one, the better of the window's (bitmap scan) and the overflow's (its last element). A
+ *   slide happens when a new level would be a best beyond the middle half, or erasing the best
+ *   leaves the new best outside it, or a side's first level arrives. Cost: find, create, erase
+ *   and best in the window O(1); erasing the best O(W / 4,096) summary words; a slide
+ *   O(W / 64 + levels in the window + levels moved); the overflow as SortedLevels.
  *
  * Data structures: Per side: W Levels (32 bytes each) in a std::pmr::vector, a TickBitmap of
- *   which slots are in use, the window's base, step and middle half, and the side's level count.
- *   One SortedLevels for both sides' overflow, reserved for max_orders levels a side as today.
- *   All allocated at construction from the default memory resource (the huge-page arena in the
- *   timed tools, optimise design E6).
+ *   which slots are in use (kept in step with the slots' prices, for the walks), the window's
+ *   base, step and middle half, the side's level count and best price. One SortedLevels for both
+ *   sides' overflow, reserved for max_orders levels a side as today. All allocated at
+ *   construction from the default memory resource (the huge-page arena in the timed tools,
+ *   optimise design E6).
  *
  * Trade-offs: Memory: 2 x W x 32 bytes per book on top of SortedLevels (64 KB at W = 1,024). A
  *   slide is a pause of up to a few hundred levels moved (234 on the real day). A Level* stays
@@ -42,6 +45,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory_resource>
 #include <vector>
 
@@ -70,26 +74,29 @@ public:
     [[nodiscard]] Level *find(Side side, Price price) {
         SideLevels &s = sides_[pick(side)];
         if (in_window(s, price.ticks)) {
-            const std::size_t i = slot(s, price.ticks);
-            return s.used.test(i) ? &s.slots[i] : nullptr;
+            Level &level = s.slots[slot(s, price.ticks)];
+            return level.price == price ? &level : nullptr; // an empty slot holds kNoPrice
         }
         return overflow_.find(side, price);
     }
     [[nodiscard]] const Level *find(Side side, Price price) const {
         const SideLevels &s = sides_[pick(side)];
         if (in_window(s, price.ticks)) {
-            const std::size_t i = slot(s, price.ticks);
-            return s.used.test(i) ? &s.slots[i] : nullptr;
+            const Level &level = s.slots[slot(s, price.ticks)];
+            return level.price == price ? &level : nullptr;
         }
         return overflow_.find(side, price);
     }
 
     // The best level of a side (highest bid, lowest ask), or nullptr if the side is empty.
+    // The side remembers its best price (E7b), so this is one lookup.
     [[nodiscard]] Level *best(Side side) {
-        return best_of(*this, side);
+        const SideLevels &s = sides_[pick(side)];
+        return s.count == 0 ? nullptr : find(side, Price{s.best});
     }
     [[nodiscard]] const Level *best(Side side) const {
-        return best_of(*this, side);
+        const SideLevels &s = sides_[pick(side)];
+        return s.count == 0 ? nullptr : find(side, Price{s.best});
     }
 
     // The level at `price`, created empty if it doesn't exist yet.
@@ -97,9 +104,9 @@ public:
         SideLevels &s = sides_[pick(side)];
         const std::int64_t p = price.ticks;
         if (in_window(s, p)) {
-            const std::size_t i = slot(s, p);
-            if (s.used.test(i)) {
-                return s.slots[i];
+            Level &level = s.slots[slot(s, p)];
+            if (level.price == price) {
+                return level;
             }
         } else if (Level *level = overflow_.find(side, price)) {
             return *level;
@@ -108,6 +115,9 @@ public:
         // the window centres on it first.
         if (s.count == 0 || beyond_middle(side, s, p)) {
             slide(side, s, p);
+        }
+        if (s.count == 0 || better(side, price, Price{s.best})) {
+            s.best = p;
         }
         ++s.count;
         if (in_window(s, p)) {
@@ -125,18 +135,20 @@ public:
         const std::int64_t p = price.ticks;
         if (in_window(s, p)) {
             const std::size_t i = slot(s, p);
-            assert(s.used.test(i) && s.slots[i].queue.empty() && "erasing a missing or busy level");
+            assert(s.slots[i].price == price && s.slots[i].queue.empty() &&
+                   "erasing a missing or busy level");
             s.used.clear(i);
+            s.slots[i].price = Price{kNoPrice};
         } else {
             overflow_.erase(side, price);
         }
         --s.count;
-        // Only a level at or beyond the middle half's worse edge can have been the best. If it
-        // was, and the new best is outside the middle half, the window follows it.
-        if (s.count > 0 && !short_of_middle(side, s, p)) {
-            const std::int64_t best = best_of(*this, side)->price.ticks;
-            if (best < s.low_middle || best >= s.high_middle) {
-                slide(side, s, best);
+        // Only removing the best changes it (E7b): then find the new one by walking, and if it
+        // is outside the middle half, the window follows it.
+        if (s.count > 0 && p == s.best) {
+            s.best = best_of(*this, side)->price.ticks;
+            if (s.best < s.low_middle || s.best >= s.high_middle) {
+                slide(side, s, s.best);
             }
         }
     }
@@ -169,16 +181,22 @@ private:
     static constexpr std::int64_t kOneDollar = 10'000; // prices are in $0.0001
     static constexpr std::int64_t kCent = 100;
     static constexpr std::size_t kNpos = TickBitmap::kNpos;
+    // An empty slot's price: below every window's lowest price (at least -2 x W x kCent), so no
+    // lookup ever compares a slot with it (optimise design E7b).
+    static constexpr std::int64_t kNoPrice = std::numeric_limits<std::int64_t>::min();
 
     struct SideLevels {
-        std::pmr::vector<Level> slots = std::pmr::vector<Level>(W);
-        TickBitmap used{W}; // which slots hold a level
+        // A slot in use holds its level, price included; an empty one has price kNoPrice. So
+        // find() reads only the slot it needs (E7b), and `used` serves the walks.
+        std::pmr::vector<Level> slots = std::pmr::vector<Level>(W, Level{.price = Price{kNoPrice}});
+        TickBitmap used{W}; // which slots hold a level, to find the best 64 slots at a time
         // Before the first level: a window of negative prices, which no price can be in.
         std::int64_t base{-2 * kW};       // the window's lowest price, a multiple of step
         std::int64_t step{1};             // ticks between neighbouring slots: 1 or kCent
         std::int64_t low_middle{-2 * kW}; // the middle half: [low_middle, high_middle)
         std::int64_t high_middle{-2 * kW};
         std::size_t count{}; // this side's levels, window and overflow
+        std::int64_t best{}; // this side's best price, while count > 0 (E7b)
     };
 
     [[nodiscard]] static std::size_t pick(Side side) {
@@ -208,13 +226,9 @@ private:
     [[nodiscard]] static bool beyond_middle(Side side, const SideLevels &s, std::int64_t p) {
         return side == Side::Buy ? p >= s.high_middle : p < s.low_middle;
     }
-    // p is worse than every price in the middle half, so it can't be the best.
-    [[nodiscard]] static bool short_of_middle(Side side, const SideLevels &s, std::int64_t p) {
-        return side == Side::Buy ? p < s.low_middle : p >= s.high_middle;
-    }
-
-    // The better of the window's best and the overflow's. Self is WindowLevels or const
-    // WindowLevels, so one body serves both best() overloads.
+    // The best level found by walking: the better of the window's best and the overflow's. Only
+    // after the best is removed (erase()); best() uses the remembered price.
+    // Self is WindowLevels or const WindowLevels.
     template <typename Self> static auto *best_of(Self &self, Side side) {
         decltype(self.overflow_.best(side)) window_best = nullptr;
         walk_window(side, self.sides_[pick(side)], [&](auto &level) {
@@ -281,6 +295,7 @@ private:
             if (restep || p < base || p >= base + kW * step) {
                 overflow_.get_or_create(side, s.slots[i].price) = s.slots[i]; // its orders too
                 s.used.clear(i);
+                s.slots[i].price = Price{kNoPrice};
             }
         }
         s.base = base;

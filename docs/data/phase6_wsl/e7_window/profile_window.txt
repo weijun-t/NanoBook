@@ -1,0 +1,79 @@
+*** NOT FOR PUBLISHING: measured in a virtual machine (README rule 20) ***
+Where the window book's full-day replay spends its time (optimise design E7b, 2026-10-23)
+Binary: gcc-release flags plus -g (debug info only; same instructions), 820336d plus the E7 A/B's after.diff
+Command: perf record -e cpu-clock -F 1999 -- nanobook_replay ITCH_FILE --throughput --core 2 (TimedBook = WindowFastBook)
+Samples: timer sampling (WSL2 has no hardware counters). Attributed with addr2line -i (innermost inlined
+source line); the replay pass is every sample whose inline chain is in the book builder or the book.
+
+samples in binary 124130, other DSOs {'(/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2)': 1, '(/usr/lib/x86_64-linux-gnu/libc.so.6)': 3541, '(/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33)': 662}
+   53.00%  replay
+   42.50%  counting
+    4.50%  parse/other
+
+Replay pass by innermost file (share of 65789)
+   42.61%  types.hpp
+   16.08%  fast_book.hpp
+   12.94%  window_levels.hpp
+    6.57%  intrusive_queue.hpp
+    5.08%  stl_vector.h
+    4.68%  id_table.hpp
+    3.45%  book_builder.hpp
+    1.97%  order_pool.hpp
+    1.80%  parser.hpp
+    1.35%  sorted_levels.hpp
+    0.86%  tick_bitmap.hpp
+    0.81%  bit
+
+Top lines
+   41.47%  types.hpp:70
+   11.34%  fast_book.hpp:521
+    4.86%  window_levels.hpp:74
+    4.81%  intrusive_queue.hpp:55
+    2.84%  stl_vector.h:1150
+    2.78%  window_levels.hpp:195
+    1.66%  window_levels.hpp:225
+    1.63%  order_pool.hpp:61
+    1.57%  id_table.hpp:97
+    1.53%  stl_vector.h:1131
+    1.40%  fast_book.hpp:367
+    1.22%  id_table.hpp:117
+    1.16%  book_builder.hpp:131
+    1.13%  window_levels.hpp:190
+    0.96%  book_builder.hpp:212
+    0.83%  fast_book.hpp:327
+    0.82%  fast_book.hpp:522
+    0.80%  cstddef:185
+    0.68%  sorted_levels.hpp:70
+    0.67%  intrusive_queue.hpp:39
+    0.65%  id_table.hpp:77
+    0.61%  window_levels.hpp:101
+    0.54%  parser.hpp:137
+    0.53%  tick_bitmap.hpp:53
+    0.53%  types.hpp:60
+
+By the WindowLevels operation (outermost window_levels.hpp frame), or innermost function
+   41.47%  nanobook::operator==(nanobook::OrderId, nanobook::OrderId)
+   12.66%  nanobook::fast::BasicFastBook<nanobook::fast::WindowLevels<1024ul> >::remove_and_tidy(unsigned int)
+    9.03%  nanobook::fast::WindowLevels<1024ul>::find(nanobook::Side, nanobook::Price)
+    5.52%  nanobook::fast::IntrusiveQueue::unlink(nanobook::fast::OrderPool&, unsigned int)
+    4.14%  nanobook::fast::WindowLevels<1024ul>::erase(nanobook::Side, nanobook::Price)
+    3.52%  std::vector<nanobook::fast::IdTable::Entry, std::pmr::polymorphic_allocator<nanobook::fast::IdTable::Entry> >:
+    2.71%  nanobook::fast::WindowLevels<1024ul>::get_or_create(nanobook::Side, nanobook::Price)
+    1.92%  nanobook::itch::BookBuilder<nanobook::fast::BasicFastBook<nanobook::fast::WindowLevels<1024ul> > >::on(nanoboo
+    1.79%  nanobook::fast::IdTable::erase(nanobook::OrderId)
+    1.67%  nanobook::fast::BasicFastBook<nanobook::fast::WindowLevels<1024ul> >::apply(nanobook::FeedReplace const&)
+    1.66%  nanobook::fast::OrderPool::acquire()
+    1.25%  void nanobook::itch::BookBuilder<nanobook::fast::BasicFastBook<nanobook::fast::WindowLevels<1024ul> > >::apply
+    1.22%  nanobook::fast::IdTable::find(nanobook::OrderId) const
+    1.22%  nanobook::fast::IdTable::home(nanobook::OrderId) const
+    1.05%  void nanobook::itch::dispatch<nanobook::itch::BookBuilder<nanobook::fast::BasicFastBook<nanobook::fast::Window
+    1.02%  nanobook::fast::BasicFastBook<nanobook::fast::WindowLevels<1024ul> >::apply(nanobook::FeedReduce const&)
+    1.01%  nanobook::fast::IntrusiveQueue::push_back(nanobook::fast::OrderPool&, unsigned int)
+    0.80%  unsigned int std::to_integer<unsigned int>(std::__byte_operand<unsigned int>::__type)
+    0.63%  std::expected<unsigned long, nanobook::itch::ParseError> nanobook::itch::parse<nanobook::itch::BookBuilder<nan
+    0.53%  nanobook::Qty::operator-=(nanobook::Qty)
+    0.50%  std::vector<nanobook::fast::BasicFastBook<nanobook::fast::WindowLevels<1024ul> >, std::allocator<nanobook::fas
+    0.48%  std::vector<nanobook::fast::Order, std::pmr::polymorphic_allocator<nanobook::fast::Order> >::operator[](unsign
+    0.35%  _ZSt8byteswapITkSt8integraljET_S0_
+    0.35%  nanobook::fast::BasicFastBook<nanobook::fast::WindowLevels<1024ul> >::link_into_level(unsigned int)
+    0.34%  nanobook::Qty::operator+=(nanobook::Qty)

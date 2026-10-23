@@ -1,0 +1,199 @@
+diff --git a/include/nanobook/fast/window_levels.hpp b/include/nanobook/fast/window_levels.hpp
+index 8fbfefc..3edd3ad 100644
+--- a/include/nanobook/fast/window_levels.hpp
++++ b/include/nanobook/fast/window_levels.hpp
+@@ -16,7 +16,8 @@
+  *   [base, base + W x step) and on the step; otherwise it is in the overflow. The step is 1 cent
+  *   (100 ticks) when the window is centred on $1 or more, else $0.0001 (SEC Rule 612). The slot
+  *   is (price / step) mod W, like hours on a clock face: when the window slides, a price that
+- *   stays in it keeps its slot, so a slide only moves the levels that enter or leave. Walking
++ *   stays in it keeps its slot, so a slide only moves the levels that enter or leave. A slot
++ *   holds its level's price, or kNoPrice when empty, so a lookup reads only that slot. Walking
+  *   the window in price order starts at the base's slot and wraps round. The best is the better
+  *   of the window's (bitmap scan) and the overflow's (its last element). A slide happens when a
+  *   new level would be a best beyond the middle half, or erasing the best leaves the new best
+@@ -25,10 +26,10 @@
+  *   moved); the overflow as SortedLevels.
+  *
+  * Data structures: Per side: W Levels (32 bytes each) in a std::pmr::vector, a TickBitmap of
+- *   which slots are in use, the window's base, step and middle half, and the side's level count.
+- *   One SortedLevels for both sides' overflow, reserved for max_orders levels a side as today.
+- *   All allocated at construction from the default memory resource (the huge-page arena in the
+- *   timed tools, optimise design E6).
++ *   which slots are in use (kept in step with the slots' prices, for the walks), the window's base,
++ * step and middle half, and the side's level count. One SortedLevels for both sides' overflow,
++ * reserved for max_orders levels a side as today. All allocated at construction from the default
++ * memory resource (the huge-page arena in the timed tools, optimise design E6).
+  *
+  * Trade-offs: Memory: 2 x W x 32 bytes per book on top of SortedLevels (64 KB at W = 1,024). A
+  *   slide is a pause of up to a few hundred levels moved (234 on the real day). A Level* stays
+@@ -42,6 +43,7 @@
+ #include <cassert>
+ #include <cstddef>
+ #include <cstdint>
++#include <limits>
+ #include <memory_resource>
+ #include <vector>
+ 
+@@ -70,16 +72,16 @@ public:
+     [[nodiscard]] Level *find(Side side, Price price) {
+         SideLevels &s = sides_[pick(side)];
+         if (in_window(s, price.ticks)) {
+-            const std::size_t i = slot(s, price.ticks);
+-            return s.used.test(i) ? &s.slots[i] : nullptr;
++            Level &level = s.slots[slot(s, price.ticks)];
++            return level.price == price ? &level : nullptr; // an empty slot holds kNoPrice
+         }
+         return overflow_.find(side, price);
+     }
+     [[nodiscard]] const Level *find(Side side, Price price) const {
+         const SideLevels &s = sides_[pick(side)];
+         if (in_window(s, price.ticks)) {
+-            const std::size_t i = slot(s, price.ticks);
+-            return s.used.test(i) ? &s.slots[i] : nullptr;
++            const Level &level = s.slots[slot(s, price.ticks)];
++            return level.price == price ? &level : nullptr;
+         }
+         return overflow_.find(side, price);
+     }
+@@ -97,9 +99,9 @@ public:
+         SideLevels &s = sides_[pick(side)];
+         const std::int64_t p = price.ticks;
+         if (in_window(s, p)) {
+-            const std::size_t i = slot(s, p);
+-            if (s.used.test(i)) {
+-                return s.slots[i];
++            Level &level = s.slots[slot(s, p)];
++            if (level.price == price) {
++                return level;
+             }
+         } else if (Level *level = overflow_.find(side, price)) {
+             return *level;
+@@ -125,8 +127,10 @@ public:
+         const std::int64_t p = price.ticks;
+         if (in_window(s, p)) {
+             const std::size_t i = slot(s, p);
+-            assert(s.used.test(i) && s.slots[i].queue.empty() && "erasing a missing or busy level");
++            assert(s.slots[i].price == price && s.slots[i].queue.empty() &&
++                   "erasing a missing or busy level");
+             s.used.clear(i);
++            s.slots[i].price = Price{kNoPrice};
+         } else {
+             overflow_.erase(side, price);
+         }
+@@ -169,10 +173,15 @@ private:
+     static constexpr std::int64_t kOneDollar = 10'000; // prices are in $0.0001
+     static constexpr std::int64_t kCent = 100;
+     static constexpr std::size_t kNpos = TickBitmap::kNpos;
++    // An empty slot's price: below every window's lowest price (at least -2 x W x kCent), so no
++    // lookup ever compares a slot with it (optimise design E7b).
++    static constexpr std::int64_t kNoPrice = std::numeric_limits<std::int64_t>::min();
+ 
+     struct SideLevels {
+-        std::pmr::vector<Level> slots = std::pmr::vector<Level>(W);
+-        TickBitmap used{W}; // which slots hold a level
++        // A slot in use holds its level, price included; an empty one has price kNoPrice. So
++        // find() reads only the slot it needs (E7b), and `used` serves the walks.
++        std::pmr::vector<Level> slots = std::pmr::vector<Level>(W, Level{.price = Price{kNoPrice}});
++        TickBitmap used{W}; // which slots hold a level, to find the best 64 slots at a time
+         // Before the first level: a window of negative prices, which no price can be in.
+         std::int64_t base{-2 * kW};       // the window's lowest price, a multiple of step
+         std::int64_t step{1};             // ticks between neighbouring slots: 1 or kCent
+@@ -281,6 +290,7 @@ private:
+             if (restep || p < base || p >= base + kW * step) {
+                 overflow_.get_or_create(side, s.slots[i].price) = s.slots[i]; // its orders too
+                 s.used.clear(i);
++                s.slots[i].price = Price{kNoPrice};
+             }
+         }
+         s.base = base;
+diff --git a/support/huge_page_arena.hpp b/support/huge_page_arena.hpp
+index 6bbf7a4..2150e4f 100644
+--- a/support/huge_page_arena.hpp
++++ b/support/huge_page_arena.hpp
+@@ -181,12 +181,14 @@ private:
+     std::pmr::memory_resource *previous_;
+ };
+ 
+-// Bytes for one FastBook per config: the arrays themselves, plus up to 64 bytes of alignment per
+-// array (the monotonic resource aligns each one; 4 arrays per book).
+-inline std::size_t arena_bytes(const std::vector<BookConfig> &configs) {
++// Bytes for one Book per config: the arrays themselves, plus up to 64 bytes of alignment per
++// array (the monotonic resource aligns each one; 4 arrays per book, and WindowLevels counts its
++// own extra ones).
++template <typename Book = FastBook>
++std::size_t arena_bytes(const std::vector<BookConfig> &configs) {
+     std::size_t total = 0;
+     for (const BookConfig &config : configs) {
+-        total += FastBook::arena_bytes(config) + (std::size_t{4} * 64);
++        total += Book::arena_bytes(config) + (std::size_t{4} * 64);
+     }
+     return total;
+ }
+diff --git a/tests/fast/test_window_levels.cpp b/tests/fast/test_window_levels.cpp
+index 21afed9..7d57412 100644
+--- a/tests/fast/test_window_levels.cpp
++++ b/tests/fast/test_window_levels.cpp
+@@ -98,6 +98,22 @@ TEST(WindowLevels, SlidesMoveLevelsWithTheirContents) {
+     EXPECT_EQ(walk(w, Side::Buy), (std::vector<std::int64_t>{99'600, 1}));
+ }
+ 
++// E7b: a slot's price says whether it holds a level, so a level that leaves must empty its slot.
++TEST(WindowLevels, ASlotLeftBehindByASlideIsEmptyWhenTheWindowReturns) {
++    Window8 w{kConfig};
++    add(w, Side::Buy, 100'000);
++    add(w, Side::Buy, 99'600);         // slot 996 mod 8 = 4
++    add(w, Side::Buy, 100'200);        // slide to 99,800..100,500: 99,600 moves to the overflow
++    w.erase(Side::Buy, Price{99'600}); // gone from the overflow
++    add(w, Side::Buy, 99'300);         // below the window: the overflow
++    w.erase(Side::Buy, Price{100'200});
++    // The best becomes 99,300: slide to 98,900..99,600, over 99,600's old slot again.
++    w.erase(Side::Buy, Price{100'000});
++    EXPECT_TRUE(w.in_window(Side::Buy, Price{99'600}));
++    EXPECT_EQ(w.find(Side::Buy, Price{99'600}), nullptr);
++    EXPECT_EQ(walk(w, Side::Buy), (std::vector<std::int64_t>{99'300}));
++}
++
+ TEST(WindowLevels, AsksSlideDownwards) {
+     Window8 w{kConfig};
+     add(w, Side::Sell, 5'000); // $0.50: step $0.0001. Slots 4,996..5,003
+diff --git a/tools/nanobook_replay.cpp b/tools/nanobook_replay.cpp
+index cdefda1..97bea38 100644
+--- a/tools/nanobook_replay.cpp
++++ b/tools/nanobook_replay.cpp
+@@ -97,6 +97,9 @@ using namespace nanobook;
+ using namespace nanobook::itch;
+ using Clock = std::chrono::steady_clock;
+ 
++// The book the timing modes replay into. E7's A/B (optimise design §10.7): WindowFastBook.
++using TimedBook = WindowFastBook;
++
+ constexpr std::string_view kUsage =
+     "usage: nanobook_replay FILE [--symbol AAPL] [--depth N] [--until HH:MM:SS] [--check]\n"
+     "                       [--structure-every N] [--differential] [--flow [--csv FILE.csv]]\n"
+@@ -692,9 +695,10 @@ int run_timing(const Options &o, std::span<const std::byte> bytes) {
+         if (failed(parsed, "parse only")) {
+             return 1;
+         }
+-        support::HugePageArena arena{support::arena_bytes(configs)}; // outlives the books
++        support::HugePageArena arena{
++            support::arena_bytes<TimedBook>(configs)}; // outlives the books
+         auto builder =
+-            support::build_books<BookBuilder<FastBook>>(arena, configs, BuilderOptions{});
++            support::build_books<BookBuilder<TimedBook>>(arena, configs, BuilderOptions{});
+         const auto replayed = replay_in_windows(bytes, window, builder);
+         if (failed(replayed, "replay")) {
+             return 1;
+@@ -725,9 +729,10 @@ int run_timing(const Options &o, std::span<const std::byte> bytes) {
+     if (o.latency) {
+         // Room for every Nth of the most order messages the file could hold (21 bytes each).
+         Recorder recorder{bytes.size() / (kLengthPrefix + 19) / o.every + 1};
+-        support::HugePageArena arena{support::arena_bytes(configs)}; // outlives the books
++        support::HugePageArena arena{
++            support::arena_bytes<TimedBook>(configs)}; // outlives the books
+         auto builder =
+-            support::build_books<BookBuilder<FastBook>>(arena, configs, BuilderOptions{});
++            support::build_books<BookBuilder<TimedBook>>(arena, configs, BuilderOptions{});
+         TimedOrders timed{builder, recorder, o.every};
+         const auto replayed = replay_in_windows(bytes, window, timed);
+         if (failed(replayed, "latency")) {

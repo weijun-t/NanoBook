@@ -11,7 +11,8 @@
 > PrefaultAllocator folded into it (§2, §5 B5-E6). A profile before E7 put half the replay in
 > the ID table: E9 added and done first (the user's decision, §2, §7). Step 8: E9a reverted;
 > E9b reverted pending bare metal (§2, §5 B6). Step 8a: E7's design approved (§10); the window
-> analysis chose W = 1,024 (§10.5); step 8b built it, the real day 0 mismatches (§10.6).
+> analysis chose W = 1,024 (§10.5); step 8b built it, the real day 0 mismatches (§10.6); step 8c:
+> not kept, p99 18–26% worse in every round, E7b didn't fix it (§10.7, §5 B7).
 
 Phases 1–5 built a correct order book, a way to time it, a real Nasdaq day to feed it, and a
 three-thread pipeline around it. Phase 5 left measured **symptoms**, such as a slow tail, a pipeline
@@ -239,6 +240,13 @@ cheap and well-evidenced first, the big redesign last.
 - **Measure:** the real day against the sorted list: throughput, p50, p99 and the slide pauses.
 - **Design:** §10 (approved 2026-10-23). The profile caps the gain at the levels' share, about
   23% of the replay.
+- **Result (steps 8a–8c, 2026-10-23; perf log "E7" and "E7b"): not kept.**
+  - Built and proven equal to the reference book on the whole day (W = 1,024, §10.5–10.6).
+  - Three A/B sessions: throughput 2–13% better, but **p99 18–26% worse in every round**, adds
+    included. Two targeted fixes (E7b: a slot holds its price; the best price remembered) didn't
+    move the tail.
+  - `WindowLevels` stays as a tested experiment, like `TickLevels`; `FastBook` keeps
+    `SortedLevels`. Bare-metal counters can say whether cache misses explain the tail (§5, B7).
 
 ### E8. Deep inserts (fast-book design §6.1)
 - **Symptom:** 0.02% of level creations shift 1,024 or more levels; about 40 GB of shifting a
@@ -246,7 +254,8 @@ cheap and well-evidenced first, the big redesign last.
 - **Bound:** at roughly 40 GB/s of copying, that's about 1 s of the day's ~38 s of book work,
   **at most about 3%**.
 - **Plan:** only after E7, which changes where deep levels live, and only if the flow analysis
-  still shows it.
+  still shows it. **E7 was not kept**, so deep inserts still happen in the sorted array, at most
+  about 3% of the book work (the bound above).
 
 ### E9. The ID table's memory waits (added 2026-10-22, from the profile)
 - **Symptom:** a profile of the real day's replay (perf log "Where the real day's time goes")
@@ -366,6 +375,7 @@ blocking** phase 6:
 | B4 | Tails on isolated cores (`isolcpus`, `nohz_full`) | Separates the machine's stalls from the code's: the pipeline's flat 65–72 µs p99, the 11 µs p99.99 |
 | B5 | **Re-check every kept change**: re-run its A/B with `scripts/run_ab_session.sh` | A virtual machine translates every address twice (Linux's page tables, then the hypervisor's), so page faults (E2) and TLB misses (E6) cost more there and their gains can look bigger than on real hardware. E2 and E6 **must** be re-checked; the rest are a quick confirmation. Until then their perf-log entries say "kept on WSL2 evidence, to re-check on bare metal" |
 | B6 | **E9b's re-test (criteria fixed 2026-10-22).** Apply `docs/data/phase6_wsl/e9b_compact/after.diff` to the commit after this one, then `scripts/run_ab_session.sh HEAD OUT --rounds 4 -- nanobook_replay FILE --throughput --latency --core C --csv {out}.csv`. **Keep** (re-add it) if throughput is better in every round by more than the noise, and p50 and p99 are not worse beyond theirs. Otherwise leave it out, and record either way | On WSL2 the lookups got faster, but throughput sat inside the noise |
+| B7 | **E7's tail.** Re-run the A/B of §10.7 (`after.diff` in `docs/data/phase6_wsl/e7_window/ab_e7b_best/`) with `perf stat -e cache-misses,dTLB-load-misses` around each run | Tests the hypothesis that the window's worse p99 is extra cache misses (a sparse window spreads levels over more lines), which WSL2 can't count |
 | B5-E6 | **E6's re-check, criteria fixed before the data (2026-10-22).** Check out the E6 commit, then `scripts/run_ab_session.sh <E6's parent> OUT -- nanobook_replay FILE --throughput --latency --core C --csv {out}.csv`, and confirm the report shows the arena on 2 MiB pages. **Keep** if throughput is better in every round by more than the noise and p50 and p99 are not worse beyond theirs. **Revert** (the `pmr` vectors can stay; the timed tools stop using the arena) if throughput isn't better beyond the noise, or p50 or p99 is worse beyond it in every round. The outcome goes in the perf log either way | In a VM a TLB miss walks two sets of page tables, so WSL2 may overstate the gain |
 | B5-E2 | **E2's re-check, criteria fixed before the data (2026-10-21).** Check out the E2 commit, then `scripts/run_ab_session.sh <E2's parent> OUT -- nanobook_replay FILE --throughput --latency --core C --csv {out}.csv`. **Keep** if p99.99 is better in every round, by more than the noise, and p50, p99 and throughput are not worse beyond their noise. **Revert** if p99.99 isn't better beyond the noise, or if p50, p99 or throughput is worse beyond the noise in every round, unless p99.99 improves by clearly more (then weighed with the bare-metal numbers). The outcome goes in the perf log either way. **Since E6** the arena does E2's touching at start-up, so reverting E2 means the arena stops touching its pages: the huge pages are then mapped on first use (about 200 faults a day instead of 4,758) | E2 cost 2% at p99 on WSL2, maybe code-layout noise; bare metal's lower noise decides |
 
@@ -404,7 +414,7 @@ Every timed step needs an idle laptop, and I ask before each session.
 | 6 ✓ | E5: ring padding 64 against 128. 128 stays. Done 2026-10-22 | Yes |
 | 7 ✓ | E6: huge pages for the books' memory. Kept (bare-metal re-check, §5 B5-E6). Done 2026-10-22 | Yes |
 | 8 ✓ | **E9 (added from the profile, before E7):** (a) prefetch the ID-table entry one message ahead: reverted, 6% slower; (b) 8-byte entries: undecided on WSL2, reverted, re-test on bare metal (§5, B6). Done 2026-10-22 | Yes |
-| 8a, 8b, 8c | E7: moving window: design section; code, tests and fuzzing; measurement. Its ceiling is the levels' share (about 23%, profile), re-measured after E9 | Yes |
+| 8a, 8b, 8c ✓ | E7: moving window: design section (§10), window analysis (W = 1,024); code, tests and fuzzing, the real day 0 mismatches; three A/Bs (E7, E7b). Not kept: p99 18–26% worse in every round. Kept as a tested experiment. Done 2026-10-23 | Yes |
 | 9 | E8: deep inserts, only if the flow analysis still shows them after step 8 | Yes |
 | 10 | Phase 6 report | Yes |
 
@@ -442,7 +452,7 @@ the kept ones, so each table's "before" is the code as it stood at that point.
 
 > **Status:** approved (2026-10-23), every decision in §10.9 as proposed. The window analysis
 > chose W = 1,024 (§10.5). Step 8b: built, every gate passed, the real day 0 mismatches
-> (§10.6). Next: step 8c, the A/B.
+> (§10.6). Step 8c: not kept; E7b's two fixes didn't move the tail; E7 stops (§10.7).
 
 ### 10.1 What it is, in plain words
 Today each side's levels are one sorted array (`SortedLevels`). Finding a price is a search, and
@@ -587,6 +597,25 @@ header used by both, and `TickLevels`' machine code is checked unchanged (§4).
 - **Rule:** §3.3. It's a lot of new code, so a small gain goes to the user to decide.
 - **E8 afterwards:** deep inserts would only happen in the overflow. E8 is re-judged from E7's
   flow numbers.
+
+**Result (step 8c, 2026-10-23; perf log "E7, the moving window on the real day"): not kept as
+is.**
+- Throughput 7–13% better in rounds 1–3, 9% worse in round 4 (a slow run at every kind).
+- p99 worse in every round, by 10–53%: this alone fails the rule.
+- Executions 15% slower at p50, deletes' p99 worse: removing a level near the best costs more.
+- Decision (the user's): record it, then E7b: profile the window's removals and try one targeted
+  fix, with its own A/B.
+
+**E7b (2026-10-23; perf log "E7b(a)" and "E7b(a+b)"): not kept; E7 stops.**
+- The profile: the levels fell from about 23% of the replay to 16%; the window's top lines are
+  first reads (the bitmap word, the side's header, the overflow's best).
+- (a) A slot holds its price, so a lookup reads only the slot: p99 still 21–26% worse.
+- (b) Each side remembers its best, so only erasing the best searches: p99 still 18–22% worse,
+  throughput 2.7–4.8% better.
+- Adds' p99 is worse too, and adds never search: the tail is the window's memory layout, not the
+  search. A hypothesis for bare metal (§5, B7).
+- Decision (the user's, fixed before (b)'s data): stop E7. `WindowLevels` keeps (a) and (b) and
+  stays as a tested experiment; the full-day differential passed on that code.
 
 ### 10.8 Steps
 | Step | What | Idle laptop? |

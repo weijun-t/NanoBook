@@ -1299,3 +1299,154 @@ but 1,878 of 953,652).
 - **Off-step prices are rare** (0.09%): whole cents above $1 holds, as Rule 612 says.
 - **What this doesn't say:** whether a window lookup is faster than today's search on the real
   day. Step 8c measures that.
+
+---
+
+## 2026-10-23: E7, the moving window on the real day: not kept as is (phase 6 step 8c)
+
+Optimise design E7 (§10.7). **Not kept as is: p99 worse in every round.** A follow-up, E7b, looks
+for the cause. WSL2, so **not for publishing** (rule 20). Data: `docs/data/phase6_wsl/e7_window/ab/`.
+
+### Change (the exact diff is `after.diff`)
+- The timing modes of `nanobook_replay` replay into `WindowFastBook` (`WindowLevels<1024>`, step
+  8b) instead of `FastBook` (`SortedLevels`). Their huge-page arena is sized for that book:
+  934 MB instead of 384 MB, all on 2 MiB pages.
+- The window was proven equal to the reference book on the whole day before this (design §10.6).
+
+### Method
+`scripts/run_ab_session.sh HEAD OUT --rounds 4 -- nanobook_replay ITCH_FILE --throughput --latency
+--core 2 --csv {out}.csv`, 18:07–18:22, before = `820336d`, ABBA order, laptop idle.
+
+### Results (ns)
+
+| Round | Throughput per message | p50, all kinds | p99, all kinds | p99.99 |
+|---|---|---|---|---|
+| 1 | 94.9 → 82.6 | 101.7 → 93.4 | 409.2 → 449.7 | 12,519 → 9,371 |
+| 2 | 90.0 → 83.4 | 98.8 → 93.8 | 387.3 → 439.8 | 9,481 → 9,725 |
+| 3 | 89.2 → 82.3 | 97.6 → 98.0 | 386.5 → 503.9 | 9,521 → 12,648 |
+| 4 | 90.6 → 98.9 | 98.0 → 111.2 | 386.9 → 590.7 | 9,706 → 13,073 |
+
+By kind, p50, rounds 1–3 (round 4's "after" was slower at everything):
+
+| Kind | Sorted | Window |
+|---|---|---|
+| replace (U) | 162.9–168.7 | 120.7–129.0 |
+| delete (D) | 95.9–101.7 | 88.0–96.3 |
+| add (A, F) | 95.9–99.2 | 93.4–96.7 |
+| execute (E, C) | 82.7–88.9 | 95.5–102.5 |
+| delete (D), p99 | 408.4–433.2 | 492.7–564.2 |
+
+### What these numbers say
+- **Throughput 7–13% better in 3 rounds,** the largest gain in phase 6 so far: replaces 25%
+  faster at p50, deletes about 8%, adds about 3%.
+- **Round 4 failed it.** Its "after" run was slower at every kind, adds included (which the window
+  barely changes), and took 2:04 against 1:43–1:47 for the others: most likely the machine. The
+  rule (design §3.3) still counts it.
+- **p99 is worse in every round, beyond the noise:** +10% to +53%. The best "after" (439.8) is
+  worse than the worst "before" (409.2). This alone fails the rule.
+- **Executions got 15% slower at p50, and deletes' p99 got worse.** Both remove orders, and the
+  window does extra work when a level near the best goes: `erase()` finds the new best (two
+  bitmap walks and the overflow) for every level at or above the middle half's worse edge, and a
+  slide walks every slot in use. A hypothesis for E7b to test with a profile.
+- **Decision (the user's): not kept as is; E7b next.** The window stays in the code, tested, and
+  `FastBook` stays on the sorted list.
+
+---
+
+## 2026-10-23: E7b(a), a slot holds its own price: not kept, p99 still worse (phase 6 step 8c)
+
+Optimise design E7 (§10.7), first follow-up. **Not kept: p99 worse in every round.** WSL2, so
+**not for publishing** (rule 20). Data: `docs/data/phase6_wsl/e7_window/profile_window.txt`,
+`ab_e7b_slot_price/` (spoiled) and `ab_e7b_slot_price_rerun/`.
+
+### The profile that led to it
+`perf record -e cpu-clock` on the window book's full-day throughput run (the method of "Where the
+real day's time goes"):
+- The levels now take about **16%** of the replay (`window_levels.hpp` 12.9%, plus the bitmap,
+  the overflow and `<bit>`), against about 23% with the sorted array: the throughput gain.
+- The window's top lines are **first reads**: the bitmap word in `find()` (4.9% of the replay),
+  the side's base and step (2.8%), and the overflow's best in `erase()` (1.7%). The sorted array's
+  hot end is a line or two; the window reads 3–5 separate places (header, bitmap, slot, overflow).
+- Hypothesis for the worse p99: a book not touched for a while has all of them out of cache.
+- The ID table is still 41% of the replay, on one line.
+
+### Change (`after.diff` in each folder: the E7 switch plus this)
+- An empty slot holds the price `kNoPrice` (the smallest `int64_t`, below every window), so
+  `find()` and `get_or_create()` read only the slot, not the bitmap first. The bitmap stays for
+  the walks.
+- **Gates:** all 770 tests; a new test (a level leaves on a slide, is deleted, and the window
+  returns over its slot); 2 planted bugs caught (`erase()` and a slide leaving a stale price).
+  The fuzz and full-day gates were not run: not kept.
+
+### Results (before = `820336d`, the sorted array; 4 rounds, ABBA, `--core 2`)
+- **Session 1, 19:18–19:37: spoiled.** The machine slowed after round 1: parsing alone (the same
+  code both sides) went from 3.2 to 3.8 ns per message, and the unchanged "before" binary measured
+  98.8, 122.1, 117.3 and 124.4 ns. p99 was still worse in 3 of 4 rounds.
+- **Session 2 (re-run), 20:30–20:48:** steady (parsing 3.2–3.4 ns; "before" 109.7–111.1), but the
+  whole machine slower than in the E7 session (89–95 ns then).
+
+| Session 2, ns | Throughput per message | p50, all | p99, all | p99, executions | p99, deletes |
+|---|---|---|---|---|---|
+| Round 1 | 111.1 → 109.7 | 114.5 → 112.4 | 489.8 → 609.3 | 491.9 → 663.9 | 521.2 → 667.2 |
+| Round 2 | 110.4 → 108.9 | 114.1 → 111.6 | 496.0 → 622.5 | 498.5 → 678.3 | 529.1 → 681.6 |
+| Round 3 | 109.7 → 107.3 | 117.8 → 109.5 | 501.0 → 606.4 | 507.6 → 662.2 | 535.3 → 666.3 |
+| Round 4 | 109.9 → 99.9 | 114.5 → 112.0 | 500.2 → 624.2 | 505.1 → 683.7 | 534.5 → 684.9 |
+
+### What these numbers say
+- **Throughput is better in every round, but by 1.3–2.2% in rounds 1–3**, about the "before"
+  binary's own spread (1.3%). Round 4's 9% looks like the machine again.
+- **p99 is worse in every round, by 21–26%,** far beyond the noise: the window's tail cost is
+  real and survives fix (a). Executions and deletes carry it (p99 +30%); replaces stay 17% faster
+  at p50.
+- **The gain shrank as the machine slowed** (7–13% in the E7 session, under 2.5% here): consistent
+  with the window touching more separate memory, which costs more when memory is slower. Still a
+  hypothesis without hardware counters (design §5, B1).
+- **Not kept**, by the rule (design §3.3): p99 is a guard and is worse in every round.
+
+---
+
+## 2026-10-23: E7b(a+b), the best price remembered: not kept; E7 stops (phase 6 step 8c)
+
+Optimise design E7 (§10.7), second and last follow-up. **Not kept: p99 worse in every round. E7
+stops here** (the user's decision, made before the data: stop if p99 is still worse). WSL2, so
+**not for publishing** (rule 20). Data: `docs/data/phase6_wsl/e7_window/ab_e7b_best/`.
+
+### Change (on top of E7b(a); `after.diff`)
+- Each side remembers its best price. A new level better than it replaces it; only erasing the
+  best looks for the next one (by walking the bitmap and reading the overflow), where before
+  every erase near the top did. `best()` is one lookup of the remembered price.
+- **Gates:** all 770 tests; 2 planted bugs caught (a better new level not remembered; erasing the
+  best not looking for the next). Fuzz and the full day: below, on the code that stays.
+
+### Results (before = `820336d`, the sorted array; 4 rounds, ABBA, `--core 2`, 21:01–21:19)
+
+| ns | Throughput per message | p50, all | p99, all | p99, adds | p99, executions | p99, deletes |
+|---|---|---|---|---|---|---|
+| Round 1 | 110.6 → 107.4 | 114.1 → 113.3 | 502.2 → 612.6 | 349.3 → 407.6 | 508.0 → 699.0 | 536.5 → 670.5 |
+| Round 2 | 111.1 → 108.1 | 114.9 → 110.0 | 503.5 → 593.2 | 351.8 → 393.9 | 510.5 → 681.2 | 538.2 → 649.0 |
+| Round 3 | 110.6 → 106.0 | 115.7 → 112.4 | 501.8 → 605.2 | 351.8 → 401.8 | 509.7 → 691.6 | 535.7 → 661.4 |
+| Round 4 | 113.4 → 108.0 | 116.6 → 110.8 | 504.7 → 599.4 | 354.2 → 397.2 | 511.7 → 687.0 | 539.4 → 655.6 |
+
+### What these numbers say
+- **Throughput better in every round, by 2.7–4.8%**, just beyond the "before" binary's own
+  spread (2.5%).
+- **p99 worse in every round, by 18–22%**: about the same as with (a) alone (21–26%). Removing
+  most best-searches didn't remove the tail.
+- **Adds' p99 is 14% worse too, and adds never search for a best.** So the tail is not erase's
+  search: it is the window's memory layout. A lookup reads the side's header, then a slot chosen
+  by price; nearby prices with no orders leave empty slots, so the same levels spread over more
+  cache lines than in the sorted array, whose levels near the best sit packed at its end. A
+  hypothesis for bare-metal cache-miss counters (design §5, B7).
+
+### E7 overall
+- **What it showed:** a window of tick slots cuts the levels' share of the replay from about 23% to
+  16% and makes the day 2–13% faster (more when the machine is fast, less when it is slow), but
+  makes the slowest 1% of messages 18–26% slower in every session. NanoBook's rule
+  (design §3.3) won't trade a worse p99 for throughput.
+- **What stays:** `WindowLevels` (with E7b's two changes), `WindowFastBook` and `Window8FastBook`
+  as a tested experiment, like `TickLevels`: typed tests, fuzzing, the zero-allocation tests, and
+  `nanobook_replay --book window --differential`. `FastBook` stays on `SortedLevels`.
+- **Gates on the code that stays (E7b's two changes):** fuzz 10⁷ operations × 3 seeds at 8 and
+  1,024 slots, plus a 16-order book, all pass; the full-day differential, 0 mismatches in
+  363,118,215 quick and 61,354 full checks, 3,631 structure checks, 0 failures
+  (`docs/data/phase6_wsl/e7_window/differential_e7b.txt`); all CI checks.

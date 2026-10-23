@@ -1,0 +1,73 @@
+File: data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50 (11245883092 bytes)
+Counting pass:  40.8 s (8713 locates; 0 inputs the counter couldn't follow)
+Building books: 0.4 s (room for 2522876 resting orders in all)
+Replay:         461.5 s, reference and fast books, checks on
+Comparison:     363118215 quick checks, 61354 full book checks, 0 mismatches
+
+Messages by type
+  A     162970455
+  B           116
+  C        158886
+  D     158273361
+  E       8096995
+  F       1725898
+  H          8805
+  I       3684511
+  J            62
+  L        193769
+  P       1326184
+  Q         17430
+  R          8714
+  S             6
+  U      27222746
+  V             1
+  X       4669874
+  Y          8821
+  all   368366634
+
+Result of every order message
+                  Ok   UnknownOrder DuplicateOrder     InvalidQty   InvalidPrice ReduceTooLarge       BookFull
+  A        162970455              0              0              0              0              0              0
+  F          1725898              0              0              0              0              0              0
+  E          8096995              0              0              0              0              0              0
+  C           158886              0              0              0              0              0              0
+  X          4669874              0              0              0              0              0              0
+  D        158273361              0              0              0              0              0              0
+  U         27222746              0              0              0              0              0              0
+  order messages for a locate no R named: 0
+  bad input (ref 0, or side not B/S):     0
+
+Crossed books (best bid >= best ask)
+  times a book became crossed:        8
+  ...while its stock was trading (T): 0  (must be 0, design §8.1)
+  order messages leaving it crossed:  663
+    07:27:31.233314552  EYEN      trading state Q, last system event S
+    07:27:52.345818502  EYEN      trading state Q, last system event S
+    09:46:52.965973483  DLPN      trading state P, last system event Q
+    09:50:24.282167158  DLPN      trading state P, last system event Q
+    10:09:06.897054319  PHUN      trading state P, last system event Q
+    10:10:19.515135908  PHUN      trading state P, last system event Q
+    10:27:49.517281042  SXTC      trading state P, last system event Q
+    11:44:22.042911117  SXTC      trading state P, last system event Q
+Book structure: 3631 checks, 0 failures
+
+Most orders resting at once during the day:
+  AAPL         42774
+  AMZN         39028
+  MSFT         22116
+  FB           20986
+  NVDA         18558
+
+Orders resting at the end of the replay: 0; biggest books:
+  ZYNE             0
+  ZYME             0
+  ZXZZT            0
+  ZXYZ.A           0
+  ZXIET            0
+
+Peak memory: 11918 MB (includes the file's pages read)
+
+real	8m22.767s
+user	8m21.592s
+sys	0m0.988s
+exit 0

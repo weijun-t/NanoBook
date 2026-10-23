@@ -98,6 +98,22 @@ TEST(WindowLevels, SlidesMoveLevelsWithTheirContents) {
     EXPECT_EQ(walk(w, Side::Buy), (std::vector<std::int64_t>{99'600, 1}));
 }
 
+// E7b: a slot's price says whether it holds a level, so a level that leaves must empty its slot.
+TEST(WindowLevels, ASlotLeftBehindByASlideIsEmptyWhenTheWindowReturns) {
+    Window8 w{kConfig};
+    add(w, Side::Buy, 100'000);
+    add(w, Side::Buy, 99'600);         // slot 996 mod 8 = 4
+    add(w, Side::Buy, 100'200);        // slide to 99,800..100,500: 99,600 moves to the overflow
+    w.erase(Side::Buy, Price{99'600}); // gone from the overflow
+    add(w, Side::Buy, 99'300);         // below the window: the overflow
+    w.erase(Side::Buy, Price{100'200});
+    // The best becomes 99,300: slide to 98,900..99,600, over 99,600's old slot again.
+    w.erase(Side::Buy, Price{100'000});
+    EXPECT_TRUE(w.in_window(Side::Buy, Price{99'600}));
+    EXPECT_EQ(w.find(Side::Buy, Price{99'600}), nullptr);
+    EXPECT_EQ(walk(w, Side::Buy), (std::vector<std::int64_t>{99'300}));
+}
+
 TEST(WindowLevels, AsksSlideDownwards) {
     Window8 w{kConfig};
     add(w, Side::Sell, 5'000); // $0.50: step $0.0001. Slots 4,996..5,003
