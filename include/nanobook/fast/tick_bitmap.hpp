@@ -43,6 +43,12 @@ public:
         : slots_(slots), bits_((slots + 63) / 64), summary_((bits_.size() + 63) / 64) {
     }
 
+    // The bytes a bitmap of `slots` takes from its memory resource: its two arrays of words.
+    [[nodiscard]] static std::size_t arena_bytes(std::size_t slots) {
+        const std::size_t words = (slots + 63) / 64;
+        return (words + (words + 63) / 64) * sizeof(std::uint64_t);
+    }
+
     [[nodiscard]] bool test(std::size_t i) const {
         return ((bits_[i / 64] >> (i % 64)) & 1U) != 0;
     }

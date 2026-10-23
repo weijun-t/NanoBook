@@ -24,7 +24,8 @@
  *   different price-level structures can be compared with identical book code (design §6).
  *
  * Trade-offs: FastBook uses SortedLevels (works for any price band); TickFastBook uses the
- *   TickLevels experiment (narrow bands only), kept to measure against it (design §6). After
+ *   TickLevels experiment (narrow bands only), kept to measure against it (design §6);
+ *   WindowFastBook uses WindowLevels, optimise design E7's moving window (any band). After
  *   construction neither allocates while trading. On purpose this file shares no logic with the
  *   reference book: if both used one buggy helper they would agree, and the fuzzer, which looks
  *   for differences, could never notice.
@@ -34,7 +35,6 @@
 
 #include <algorithm>
 #include <cassert>
-#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -53,6 +53,7 @@
 #include "nanobook/fast/order_pool.hpp"
 #include "nanobook/fast/sorted_levels.hpp"
 #include "nanobook/fast/tick_levels.hpp"
+#include "nanobook/fast/window_levels.hpp"
 
 namespace nanobook::fast {
 
@@ -65,11 +66,12 @@ public:
 
     // The bytes this book's arrays (pool, levels, id table) take from the memory resource that
     // is the default while it is built: the timed tools size their huge-page arena with it
-    // (optimise design E6). SortedLevels only: TickLevels isn't used by the timed tools.
+    // (optimise design E6). Only for level structures that report theirs: TickLevels isn't used
+    // by the timed tools.
     [[nodiscard]] static std::size_t arena_bytes(const BookConfig &config)
-        requires std::same_as<Levels, SortedLevels>
+        requires requires { Levels::arena_bytes(config); }
     {
-        return OrderPool::arena_bytes(config.max_orders) + SortedLevels::arena_bytes(config) +
+        return OrderPool::arena_bytes(config.max_orders) + Levels::arena_bytes(config) +
                IdTable::arena_bytes(config.max_orders);
     }
 
@@ -631,7 +633,13 @@ using FastBook = fast::BasicFastBook<fast::SortedLevels>;
 // The tick-array experiment (design §6.2): same book, levels in a tick array. Narrow bands only.
 using TickFastBook = fast::BasicFastBook<fast::TickLevels>;
 
+// E7's moving window (optimise design §10): tick slots near the best, sorted levels for the rest.
+// W = 1,024 slots a side, chosen on the real day (§10.5). Any price band.
+inline constexpr std::size_t kWindowSlots = 1024;
+using WindowFastBook = fast::BasicFastBook<fast::WindowLevels<kWindowSlots>>;
+
 static_assert(FeedBook<FastBook>);
 static_assert(FeedBook<TickFastBook>);
+static_assert(FeedBook<WindowFastBook>);
 
 } // namespace nanobook

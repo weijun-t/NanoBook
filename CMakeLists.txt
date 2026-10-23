@@ -198,6 +198,7 @@ if(NANOBOOK_BUILD_TESTS)
         tests/fast/test_id_table.cpp
         tests/fast/test_levels.cpp
         tests/fast/test_tick_bitmap.cpp
+        tests/fast/test_window_levels.cpp
         tests/test_huge_page_arena.cpp
         tests/itch/test_parser.cpp
         tests/itch/test_book_builder.cpp

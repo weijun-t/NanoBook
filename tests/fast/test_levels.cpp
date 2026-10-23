@@ -1,7 +1,8 @@
 /*
  * test_levels.cpp: unit tests for the fast book's price-level structures.
  *
- * What it does: Runs the same tests on both level structures, SortedLevels and TickLevels. They
+ * What it does: Runs the same tests on every level structure: SortedLevels, TickLevels, and
+ *   WindowLevels at 8 slots (it slides every few operations) and 1,024 (the real day's). They
  *   cover the best price on each side, inserting at the best end, the deep end and the middle,
  *   finding missing prices, erasing, and walking best-first, then a mini differential test against
  *   std::map on random operations. Extra TickLevels tests cover the band edges and jumps across
@@ -10,13 +11,14 @@
  * Why it exists: A wrong lookup puts an order on the wrong level or loses a level, which breaks
  *   price priority. Each structure is tested on its own before the book uses it.
  *
- * How it works: Typed tests over the two structures. walk() lists a side's prices best-first, the
+ * How it works: Typed tests over the four structures. walk() lists a side's prices best-first, the
  *   order matching uses.
  */
 
 #include <gtest/gtest.h>
 #include "nanobook/fast/sorted_levels.hpp"
 #include "nanobook/fast/tick_levels.hpp"
+#include "nanobook/fast/window_levels.hpp"
 
 #include <cstdint>
 #include <functional>
@@ -52,11 +54,18 @@ protected:
     }
 };
 
-using LevelTypes = ::testing::Types<SortedLevels, TickLevels>;
+// The window at 8 slots slides every few operations; at 1,024 it is the real day's size.
+using LevelTypes = ::testing::Types<SortedLevels, TickLevels, WindowLevels<8>, WindowLevels<1024>>;
 
 struct LevelTypeNames {
     template <typename T> static std::string GetName(int /*index*/) {
-        return std::is_same_v<T, SortedLevels> ? "Sorted" : "Tick";
+        if constexpr (std::is_same_v<T, SortedLevels>) {
+            return "Sorted";
+        } else if constexpr (std::is_same_v<T, TickLevels>) {
+            return "Tick";
+        } else {
+            return std::is_same_v<T, WindowLevels<8>> ? "Window8" : "Window1024";
+        }
     }
 };
 

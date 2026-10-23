@@ -30,7 +30,8 @@
  *   costs microseconds: a tail-latency risk for phase 3 to measure (design §6.1). Memory is
  *   2 x max_orders x 32 bytes (64 MB for 1M orders) whether or not it is used. A Level* stays
  *   valid only until the next get_or_create() or erase() on that side, because those shift
- *   elements.
+ *   elements. size(), from_best() and take() exist for E7's moving window, which keeps its far
+ *   prices in a SortedLevels (window_levels.hpp).
  */
 
 #pragma once
@@ -124,6 +125,33 @@ public:
                 return;
             }
         }
+    }
+
+    // For E7's moving window, which keeps its far prices here (window_levels.hpp).
+    // How many levels a side has, and its k-th level counted from the best (k < size(side)).
+    [[nodiscard]] std::size_t size(Side side) const {
+        return levels(side).size();
+    }
+    [[nodiscard]] const Level &from_best(Side side, std::size_t k) const {
+        const Array &v = levels(side);
+        return v[v.size() - 1 - k];
+    }
+    // Offers each level priced in [low, high] to taken(level); removes those it returns true for.
+    // The range is one run of the array, so this is one pass and one shift of the levels after it.
+    template <typename Taken> void take(Side side, Price low, Price high, Taken &&taken) {
+        Array &v = levels(side);
+        // The run's first index and one past its last: bids ascend, asks descend.
+        const std::size_t first = lower_bound(side, v, side == Side::Buy ? low : high);
+        const std::size_t end =
+            lower_bound(side, v, side == Side::Buy ? Price{high.ticks + 1} : Price{low.ticks - 1});
+        std::size_t kept = first; // levels not taken slide down to here
+        for (std::size_t i = first; i < end; ++i) {
+            if (!taken(v[i])) {
+                v[kept++] = v[i];
+            }
+        }
+        v.erase(v.begin() + static_cast<std::ptrdiff_t>(kept),
+                v.begin() + static_cast<std::ptrdiff_t>(end));
     }
 
 private:
