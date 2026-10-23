@@ -1119,3 +1119,139 @@ below (design §5, B5-E6).
 - **VM-sensitive (design §5, B5):** in a VM every TLB miss walks two sets of page tables, so the
   gain may be smaller on bare metal. Re-check criteria are fixed now, before those numbers exist
   (design §5, B5-E6).
+
+---
+
+## 2026-10-22: Where the real day's time goes: a profile before E7 (phase 6)
+
+Before designing E7 (the moving window), the method (optimise design §0.1) asks what it could
+gain. WSL2 has no hardware counters, but `perf record -e cpu-clock` samples on a timer. WSL2,
+so **not for publishing** (rule 20). Data: `docs/data/phase6_wsl/profile_replay/breakdown.txt`.
+
+### Method
+- **The binary:** the `gcc-release` build plus `-g`: debug info only, the same instructions.
+  The `gcc-profile` preset is `-O2` and ran 2.4× slower, too different to profile.
+- **The run:** `perf record -e cpu-clock -F 1999 -- nanobook_replay ITCH_FILE --throughput
+  --core 2`, 261,802 samples.
+- **Attribution:** `perf` couldn't name the functions here, so each sample's address was mapped
+  with `addr2line -i` to its innermost inlined source line, and split by pass using its chain of
+  inlined callers.
+- Timer sampling slows the run (each sample interrupts the VM), but evenly enough to keep the
+  proportions.
+
+### The timed replay pass, by component
+
+| Component | Share |
+|---|---|
+| **ID table** (order id → slot) | **49.9%**, 39% on one line: the id comparison in `IdTable::find`'s probe |
+| The order's slot, first read (`fast_book.hpp:519`) and the rest of the book | 17.8% (12.2% on that read) |
+| Levels: `SortedLevels` search, insert, erase | 17.2%, plus about 6% of `memmove` in libc ≈ **23%** |
+| Book builder, parser, order pool, queues | about 13% |
+
+### What these numbers say
+- **The ID table is half the replay, and levels about a quarter.**
+- **The hot spots are where the CPU waits for memory.** A delete, execute or replace reads the
+  order's ID-table entry, then the order's slot: two dependent reads, each likely to miss every
+  cache. The ID tables of 8,713 books are over 100 MB, against 30 MB of L3.
+  - The id comparison and the first read of the slot are the instructions that wait.
+  - "Cache misses" stays a hypothesis until bare-metal counters (design §5, B1).
+- **E7, the moving window, can only shrink the levels' share**: under 23% even if perfect, for
+  the most complex change on the list.
+- **The plan changes (the user's decision): E9, the ID table, comes before E7.**
+
+---
+
+## 2026-10-22: E9a, prefetch the ID-table entry one message ahead: reverted (phase 6 step 8)
+
+Optimise design E9a. **Not kept.** WSL2, so **not for publishing** (rule 20).
+
+### Change (now reverted; the exact diff is in `docs/data/phase6_wsl/e9a_prefetch/after.diff`)
+- **The parser:** if the handler has a `prefetch()` hook, the parser offers it the **next**
+  message's bytes, when that message is complete, before delivering the current one.
+- **The book builder:** for A, F, E, C, X, D and U, it reads the next message's locate (byte 1)
+  and order reference (byte 11), after checking its length. It then calls `__builtin_prefetch`
+  on that order's home entry in its book's ID table.
+- Handlers without the hook compiled to the same instructions as before (checked in the assembly,
+  with label numbers blanked out).
+
+### Gates
+- 2 parser tests: each next message is offered whole, just before the current one is delivered;
+  an incomplete one never is.
+- **Planted bugs, both caught:** no completeness check (fails under ASan), and offering the
+  current message instead of the next.
+- All CI checks.
+
+### Results (`nanobook_replay --throughput --latency`, 11:56–12:05, before = `e8fd8c1`)
+
+| (round 1 / round 2) | No prefetch | Prefetch one ahead |
+|---|---|---|
+| Throughput, ns per message | 102.8 / 97.6 | 106.9 / 106.2 |
+| p50, all kinds | 111.2 / 103.8 | 111.2 / 107.9 |
+| p99, all kinds | 457.2 / 424.5 | 467.5 / 446.4 |
+| executions (E, C) p50 | 102.5 / 92.6 | 91.8 / 86.8 |
+| deletes (D) p50 | 117.8 / 107.5 | 120.3 / 114.9 |
+
+### What these numbers say
+- **Worse in both rounds:** throughput about 6% slower, p99 2–5% worse. **Reverted.** The
+  session was noisier than usual (the two "before" rounds differ by 5%), but both "after" rounds
+  are slower than both "before" rounds.
+- **Only executions gained** (about 8% at p50), and they are about 2% of messages.
+- **Why it might not pay, untested:**
+  - The hook runs on all 368 million messages (type, length, locate, hash): a few nanoseconds
+    each, about the size of the loss.
+  - Working out the address can itself wait for memory, since it needs the stock's book object
+    and its table's location.
+  - One message ahead (about 90 ns) may be too short for the load to arrive.
+  - Hardware counters on bare metal can tell these apart (design §5, B1).
+- **The profile's finding stands:** the replay waits in the ID table. Hiding that wait with a
+  prefetch doesn't pay here; making the table smaller (E9b) attacks the same wait differently,
+  with no work added per message.
+
+---
+
+## 2026-10-22: E9b, 8-byte ID-table entries: undecided on WSL2, reverted (phase 6 step 8)
+
+Optimise design E9b. **Not kept for now: re-test on bare metal** (design §5, B6), where the noise
+is low enough to decide. WSL2, so **not for publishing** (rule 20).
+
+### Change (now reverted; the exact diff is in `docs/data/phase6_wsl/e9b_compact/after.diff`)
+- **The entry:** `{tag, slot}`, 8 bytes, instead of `{id, slot}`, 16 bytes. The tag is the top 32
+  bits of the id's 64-bit hash (a multiply by an odd number, so different ids give different
+  hashes).
+- **Matching:** a tag match is confirmed by `id_of(slot)`, the order's own id in the pool, which
+  the book reads next anyway.
+- **The home** is recomputed from the tag for backward shift. An empty entry is `slot == kNone`.
+- The day's books shrank from 384 MB to 328 MB.
+
+### Gates
+- **Tests:** the 11 ID-table tests rewritten around a pool stand-in; a new test with two ids
+  built to share a tag (adding the multiplier's inverse adds 1 to the hash).
+- **Planted bugs, both caught:**
+  - trusting the tag alone: caught **only** by the new test, since such ids meet about once in
+    4 billion;
+  - the home off by one bit: 4 tests, including the differential.
+- **The real day:** full-day differential replay, 0 mismatches; checksum `748abedf40533b82`;
+  fuzz 10 million operations; all 534 / 516 tests.
+
+### Results: two sessions, 14:11–14:19 and 14:21–14:29 (before = `e8fd8c1`)
+
+| (round 1 / round 2) | Session 1, 16 B → 8 B | Session 2 (re-run), 16 B → 8 B |
+|---|---|---|
+| Throughput, ns per message | 100.3 / 95.5 → 104.6 / 89.1 | 102.9 / 91.8 → 97.8 / 99.2 |
+| p50, all kinds | 111.2 / 109.5 → 92.6 / 90.9 | 109.1 / 102.9 → 104.6 / 99.6 |
+| p99, all kinds | 475.8 / 458.0 → 404.3 / 391.5 | 433.2 / 413.4 → 470.8 / 427.8 |
+| p99.99 | 15,029 / 13,242 → 12,930 / 12,865 | 12,608 / 10,561 → 10,837 / 10,502 |
+| executions (E, C), p50 | 100.0 / 97.6 → 69.9 / 67.4 | 99.6 / 93.4 → 81.8 / 75.6 |
+| deletes (D), p50 | 116.6 / 113.7 → 89.3 / 85.6 | 114.9 / 105.0 → 107.1 / 99.2 |
+
+### What these numbers say
+- **The lookups got faster:** executions 18–30% and deletes 6–24% at p50 in all 4 pairs, and
+  p50 overall better in all 4. Those are the messages that look orders up in the ID table.
+- **Throughput, the decision metric, is better in 2 pairs and worse in 2.** p99 is 15% better in
+  session 1 and 4–9% worse in session 2.
+- **These sessions were unusually noisy.** The two "before" rounds within a session differ by 5%
+  and 11%, against 0.2–2% in earlier sessions. So any throughput gain is hidden in the noise.
+- **Decision (the user's): reverted,** by the rule (design §3.3: the decision metric must be
+  better in every round). E9b also adds real complexity to a core structure, so it should earn
+  its place with clean numbers. **Re-tested on bare metal** with the criteria fixed in advance
+  (design §5, B6).

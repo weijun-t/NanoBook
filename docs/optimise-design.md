@@ -8,7 +8,9 @@
 > Step 4: E3 measured, K = 4 kept (§2). Step 5: E4 measured, none kept as the default; PGO
 > trains on the day up to 12:00, not 9:30–12:00, so the books build as on the day (§2). Step 6:
 > E5 measured, 128 stays (§2). Step 7: E6 measured, the huge-page arena kept; E2's
-> PrefaultAllocator folded into it (§2, §5 B5-E6).
+> PrefaultAllocator folded into it (§2, §5 B5-E6). A profile before E7 put half the replay in
+> the ID table: E9 added and done first (the user's decision, §2, §7). Step 8: E9a reverted;
+> E9b reverted pending bare metal (§2, §5 B6).
 
 Phases 1–5 built a correct order book, a way to time it, a real Nasdaq day to feed it, and a
 three-thread pipeline around it. Phase 5 left measured **symptoms**, such as a slow tail, a pipeline
@@ -243,6 +245,32 @@ cheap and well-evidenced first, the big redesign last.
 - **Plan:** only after E7, which changes where deep levels live, and only if the flow analysis
   still shows it.
 
+### E9. The ID table's memory waits (added 2026-10-22, from the profile)
+- **Symptom:** a profile of the real day's replay (perf log "Where the real day's time goes")
+  puts **half** the time in `IdTable::find`, and another 12% on the first read of the order's
+  slot. Levels, E7's target, are about 23%.
+- **Hypothesis:** both are memory waits. The ID tables total over 100 MB (30 MB of L3), and a
+  delete, execute or replace reads its id's entry and then its slot, each a likely miss.
+- **Changes, measured one at a time:**
+  - **(a) Prefetch one message ahead.** The parser hands the handler the next message's bytes
+    before the current one is applied. For D, E, C, X, U and adds, the book builder works out
+    the id's ID-table position and prefetches it, so the load overlaps the current message's
+    work (about 90 ns, about one memory trip). Rule 10 allows a manual prefetch only with a
+    measured gain, which is what the A/B gives.
+  - **(b) Compact entries:** 16 → 8 bytes, so twice as many fit in each cache level.
+- **Measure:** the real day, `nanobook_replay --throughput --latency`. Throughput decides;
+  p50, p99 and p99.99 are guards.
+- **Safety:** a prefetch is only a hint and can't change a result. The full-day differential
+  replay and the golden tests must stay identical.
+- **Result (b), 2026-10-22 (perf log "E9b"):** undecided on WSL2, reverted (the user's choice).
+  - The lookups got faster: executions 18–30% and deletes 6–24% at p50, in all 4 pairs.
+  - Throughput was better in 2 pairs and worse in 2, in two unusually noisy sessions.
+  - Re-tested on bare metal (§5, B6).
+- **Result (a), 2026-10-22 (perf log "E9a"):** not kept.
+  - Throughput about 6% worse in both rounds; only executions gained.
+  - The hook's work on every message seems to cost more than the overlap saves. That's a
+    hypothesis for bare metal.
+
 ### Not leads (no symptom)
 `[[likely]]`, `__builtin_expect`, manual prefetching and forced inlining: rule 10 allows them
 only with a measured gain. None is proposed until a profile (`perf record`) points at a specific
@@ -334,6 +362,7 @@ blocking** phase 6:
 | B3 | FastBook `match`: 9.3 ns in throughput mode against 13.1 ns in Google Benchmark (phase 3) | Needs `perf record` with cycle-accurate samples and `perf stat` |
 | B4 | Tails on isolated cores (`isolcpus`, `nohz_full`) | Separates the machine's stalls from the code's: the pipeline's flat 65–72 µs p99, the 11 µs p99.99 |
 | B5 | **Re-check every kept change**: re-run its A/B with `scripts/run_ab_session.sh` | A virtual machine translates every address twice (Linux's page tables, then the hypervisor's), so page faults (E2) and TLB misses (E6) cost more there and their gains can look bigger than on real hardware. E2 and E6 **must** be re-checked; the rest are a quick confirmation. Until then their perf-log entries say "kept on WSL2 evidence, to re-check on bare metal" |
+| B6 | **E9b's re-test (criteria fixed 2026-10-22).** Apply `docs/data/phase6_wsl/e9b_compact/after.diff` to the commit after this one, then `scripts/run_ab_session.sh HEAD OUT --rounds 4 -- nanobook_replay FILE --throughput --latency --core C --csv {out}.csv`. **Keep** (re-add it) if throughput is better in every round by more than the noise, and p50 and p99 are not worse beyond theirs. Otherwise leave it out, and record either way | On WSL2 the lookups got faster, but throughput sat inside the noise |
 | B5-E6 | **E6's re-check, criteria fixed before the data (2026-10-22).** Check out the E6 commit, then `scripts/run_ab_session.sh <E6's parent> OUT -- nanobook_replay FILE --throughput --latency --core C --csv {out}.csv`, and confirm the report shows the arena on 2 MiB pages. **Keep** if throughput is better in every round by more than the noise and p50 and p99 are not worse beyond theirs. **Revert** (the `pmr` vectors can stay; the timed tools stop using the arena) if throughput isn't better beyond the noise, or p50 or p99 is worse beyond it in every round. The outcome goes in the perf log either way | In a VM a TLB miss walks two sets of page tables, so WSL2 may overstate the gain |
 | B5-E2 | **E2's re-check, criteria fixed before the data (2026-10-21).** Check out the E2 commit, then `scripts/run_ab_session.sh <E2's parent> OUT -- nanobook_replay FILE --throughput --latency --core C --csv {out}.csv`. **Keep** if p99.99 is better in every round, by more than the noise, and p50, p99 and throughput are not worse beyond their noise. **Revert** if p99.99 isn't better beyond the noise, or if p50, p99 or throughput is worse beyond the noise in every round, unless p99.99 improves by clearly more (then weighed with the bare-metal numbers). The outcome goes in the perf log either way. **Since E6** the arena does E2's touching at start-up, so reverting E2 means the arena stops touching its pages: the huge pages are then mapped on first use (about 200 faults a day instead of 4,758) | E2 cost 2% at p99 on WSL2, maybe code-layout noise; bare metal's lower noise decides |
 
@@ -371,7 +400,8 @@ Every timed step needs an idle laptop, and I ask before each session.
 | 5 ✓ | E4: LTO, PGO (trained on the day up to 12:00), `-march=native`, against the default. None kept as the default; kept as presets. Done 2026-10-22 | Yes |
 | 6 ✓ | E5: ring padding 64 against 128. 128 stays. Done 2026-10-22 | Yes |
 | 7 ✓ | E6: huge pages for the books' memory. Kept (bare-metal re-check, §5 B5-E6). Done 2026-10-22 | Yes |
-| 8a, 8b, 8c | E7: moving window: design section; code, tests and fuzzing; measurement | Yes |
+| 8 ✓ | **E9 (added from the profile, before E7):** (a) prefetch the ID-table entry one message ahead: reverted, 6% slower; (b) 8-byte entries: undecided on WSL2, reverted, re-test on bare metal (§5, B6). Done 2026-10-22 | Yes |
+| 8a, 8b, 8c | E7: moving window: design section; code, tests and fuzzing; measurement. Its ceiling is the levels' share (about 23%, profile), re-measured after E9 | Yes |
 | 9 | E8: deep inserts, only if the flow analysis still shows them after step 8 | Yes |
 | 10 | Phase 6 report | Yes |
 

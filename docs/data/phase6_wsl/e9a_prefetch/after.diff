@@ -1,0 +1,234 @@
+diff --git a/include/nanobook/fast/fast_book.hpp b/include/nanobook/fast/fast_book.hpp
+index ea61ec4..3ab8a0d 100644
+--- a/include/nanobook/fast/fast_book.hpp
++++ b/include/nanobook/fast/fast_book.hpp
+@@ -73,6 +73,11 @@ public:
+                IdTable::arena_bytes(config.max_orders);
+     }
+ 
++    // Starts loading the id table entry an input for order `id` will read (optimise design E9a).
++    void prefetch(OrderId id) const {
++        ids_.prefetch(id);
++    }
++
+     // Each call clears `out`, then writes this input's events (design §4). `out` must hold at
+     // least config.max_events_per_input() events.
+     void handle(const NewOrder &order, EventBuffer &out);
+diff --git a/include/nanobook/fast/id_table.hpp b/include/nanobook/fast/id_table.hpp
+index 089d1bf..271e095 100644
+--- a/include/nanobook/fast/id_table.hpp
++++ b/include/nanobook/fast/id_table.hpp
+@@ -111,6 +111,13 @@ public:
+         return entries_.size();
+     }
+ 
++    // Starts loading `id`'s home entry into the cache without waiting for it (optimise design
++    // E9a): a later find() or insert() for `id` then usually finds it there. Only a hint: it
++    // changes nothing, and can't fault even for an id that isn't in the table.
++    void prefetch(OrderId id) const {
++        __builtin_prefetch(&entries_[home(id)]);
++    }
++
+     // Where `id` would be stored if nothing collided (public for the unit tests).
+     [[nodiscard]] std::size_t home(OrderId id) const {
+         constexpr std::uint64_t kFibonacci = 11400714819323198485ULL; // 2^64 / golden ratio
+diff --git a/include/nanobook/itch/book_builder.hpp b/include/nanobook/itch/book_builder.hpp
+index 1991fe6..518b795 100644
+--- a/include/nanobook/itch/book_builder.hpp
++++ b/include/nanobook/itch/book_builder.hpp
+@@ -39,6 +39,7 @@
+ #include "nanobook/core/order_book.hpp"
+ #include "nanobook/core/types.hpp"
+ #include "nanobook/itch/messages.hpp"
++#include "nanobook/itch/parser.hpp" // read_be, read_char: the prefetch hook reads raw bytes
+ 
+ namespace nanobook::itch {
+ 
+@@ -144,6 +145,35 @@ public:
+         count('X');
+         reduce(OrderMessage::Cancel, x.locate, x.timestamp, x.order_ref, x.cancelled_shares);
+     }
++    // The parser's prefetch hook (optimise design E9a): for the next message, if it names an
++    // order (A, F, E, C, X, D, U: locate at byte 1, order reference at byte 11), start loading that
++    // order's id table entry in its stock's book. Not yet checked by the parser, so its length is
++    // checked first. Only books that can prefetch (FastBook) do anything.
++    void prefetch(const std::byte *m, std::size_t length) const {
++        if constexpr (requires(const Book &b) { b.prefetch(OrderId{}); }) {
++            const char type = read_char(m);
++            if (length != kMessageLength[static_cast<unsigned char>(type)]) {
++                return; // the parser will reject it: don't read it
++            }
++            switch (type) {
++            case 'A':
++            case 'F':
++            case 'E':
++            case 'C':
++            case 'X':
++            case 'D':
++            case 'U':
++                break;
++            default:
++                return;
++            }
++            const auto locate = read_be<std::uint16_t>(m + 1);
++            if (locate < books_.size()) {
++                books_[locate].prefetch(OrderId{read_be<std::uint64_t>(m + 11)});
++            }
++        }
++    }
++
+     void on(const OrderDelete &d) {
+         count('D');
+         if (d.order_ref == 0) {
+diff --git a/include/nanobook/itch/parser.hpp b/include/nanobook/itch/parser.hpp
+index 28b8489..90d3967 100644
+--- a/include/nanobook/itch/parser.hpp
++++ b/include/nanobook/itch/parser.hpp
+@@ -17,6 +17,12 @@
+  *   std::byteswap (no reinterpret_cast of the buffer: strict aliasing and alignment UB, README
+  *   §4). Stopping at an incomplete message lets a caller feed the file in windows (design §4)
+  *   and carry the leftover bytes over.
++ *   - Prefetch hook (optimise design E9a): if the handler has prefetch(next, length), it is
++ *     called with the NEXT message's bytes before the current one is dispatched, when the next
++ *     message is complete in the buffer. The handler can start loading the memory that message
++ *     will need while the current one is processed. The next message isn't checked yet, so the
++ *     handler must check its type and length before reading it. Handlers without the hook
++ *     compile to exactly the loop without it (if constexpr).
+  *
+  * Data structures: None of its own. The handler is a template parameter (a concept, not a base
+  *   class): no virtual calls (rule 4), and the compiler can inline the handler's functions.
+@@ -224,6 +230,16 @@ template <Handler H>
+                                               .type = read_char(m),
+                                               .length = length});
+         }
++        if constexpr (requires { handler.prefetch(m, std::size_t{length}); }) {
++            const std::size_t next = pos + kLengthPrefix + length;
++            if (bytes.size() - next >= kLengthPrefix) {
++                const auto next_length = read_be<std::uint16_t>(bytes.data() + next);
++                if (bytes.size() - next - kLengthPrefix >= std::size_t{next_length} &&
++                    next_length > 0) {
++                    handler.prefetch(bytes.data() + next + kLengthPrefix, std::size_t{next_length});
++                }
++            }
++        }
+         dispatch(m, handler);
+         pos += kLengthPrefix + length;
+     }
+diff --git a/support/itch_timing.hpp b/support/itch_timing.hpp
+index eaeaf80..c0af78e 100644
+--- a/support/itch_timing.hpp
++++ b/support/itch_timing.hpp
+@@ -173,6 +173,12 @@ public:
+     void on_skipped(char type) {
+         inner_.on_skipped(type);
+     }
++    // Passes the parser's prefetch hook on (optimise design E9a), if the inner handler has one.
++    void prefetch(const std::byte *m, std::size_t length) const
++        requires requires(const Inner &i) { i.prefetch(m, length); }
++    {
++        inner_.prefetch(m, length);
++    }
+ 
+ private:
+     template <typename Message> void timed(const Message &m, latency::Tag tag) {
+diff --git a/tests/itch/test_parser.cpp b/tests/itch/test_parser.cpp
+index 1b8d00e..e17b841 100644
+--- a/tests/itch/test_parser.cpp
++++ b/tests/itch/test_parser.cpp
+@@ -7,7 +7,9 @@
+  *   (support/itch_encoder.hpp) writes every decoded type plus skipped ones, and the parser must
+  *   give back exactly what went in, in order. Last, broken input: an unknown type, a wrong
+  *   length, a zero length, an incomplete message at the end, and that nothing after an error is
+- *   delivered.
++ *   delivered. And the prefetch hook (optimise design E9a): a handler that has one is offered
++ *   each next message, whole and with its length, just before the current one is delivered, and
++ *   never an incomplete one.
+  *
+  * Why it exists: A field read at the wrong offset gives plausible but wrong numbers, and the
+  *   book would silently drift from Nasdaq's. The hand-written bytes check the offsets against
+@@ -30,6 +32,7 @@
+ #include <vector>
+ 
+ #include "itch_encoder.hpp"
++#include "itch_golden_day.hpp"
+ #include "nanobook/itch/parser.hpp"
+ 
+ using namespace nanobook::itch;
+@@ -349,6 +352,77 @@ TEST(ItchParse, RejectsAZeroLength) {
+                   .kind = ParseErrorKind::WrongLength, .offset = 0, .type = '\0', .length = 0}));
+ }
+ 
++namespace {
++
++// Writes down, in order, every prefetch offer ('p' + type + length) and every delivery ('o').
++struct PrefetchLog {
++    std::vector<std::string> events;
++    void prefetch(const std::byte *m, std::size_t length) {
++        events.push_back(std::string{"p"} + read_char(m) + std::to_string(length));
++    }
++    template <typename Message> void on(const Message & /*message*/) {
++        events.emplace_back("o");
++    }
++    void on_skipped(char /*type*/) {
++        events.emplace_back("o");
++    }
++};
++
++// Each message's type and length, walking the buffer independently of parse().
++std::vector<std::string> types_and_lengths(std::span<const std::byte> day) {
++    std::vector<std::string> out;
++    for (std::size_t pos = 0; pos + kLengthPrefix <= day.size();) {
++        const auto length = read_be<std::uint16_t>(day.data() + pos);
++        if (pos + kLengthPrefix + length > day.size()) {
++            break;
++        }
++        out.push_back(std::string{read_char(day.data() + pos + kLengthPrefix)} +
++                      std::to_string(length));
++        pos += kLengthPrefix + length;
++    }
++    return out;
++}
++
++} // namespace
++
++TEST(ItchParse, OffersEachNextMessageForPrefetchingBeforeDeliveringTheCurrentOne) {
++    const std::vector<std::byte> day = golden::golden_day();
++    const std::vector<std::string> messages = types_and_lengths(day);
++    PrefetchLog log;
++    ASSERT_TRUE(parse(day, log).has_value());
++    // Expected: p(message 2) o p(message 3) o ... p(message n) o o (the last has no next one).
++    std::vector<std::string> expected;
++    for (std::size_t i = 0; i < messages.size(); ++i) {
++        if (i + 1 < messages.size()) {
++            expected.push_back("p" + messages[i + 1]);
++        }
++        expected.emplace_back("o");
++    }
++    EXPECT_EQ(log.events, expected);
++}
++
++TEST(ItchParse, NeverOffersAnIncompleteNextMessage) {
++    std::vector<std::byte> day = golden::golden_day();
++    const std::size_t whole = day.size();
++    Writer next;
++    next.add_order(AddOrder{.locate = 1,
++                            .timestamp = 99,
++                            .order_ref = 12'345,
++                            .side = 'B',
++                            .shares = 100,
++                            .stock = golden::kAaa,
++                            .price = 1'000'000});
++    day.insert(day.end(), next.bytes().begin(), next.bytes().end() - 1); // one byte short
++    PrefetchLog log;
++    const auto parsed = parse(day, log);
++    ASSERT_TRUE(parsed.has_value());
++    EXPECT_EQ(*parsed, whole); // stops before the incomplete add
++    ASSERT_FALSE(log.events.empty());
++    EXPECT_EQ(log.events.back(), "o"); // the last message delivered had nothing offered after it
++    EXPECT_EQ(std::ranges::count_if(log.events, [](const std::string &e) { return e[0] == 'p'; }),
++              static_cast<std::ptrdiff_t>(types_and_lengths(day).size()) - 1);
++}
++
+ TEST(ItchParse, NothingAfterAnErrorIsDelivered) {
+     Writer w;
+     w.malformed(20, 'D'); // a Delete is 19 bytes

@@ -1,0 +1,23 @@
+*** NOT FOR PUBLISHING: measured in a virtual machine (README rule 20) ***
+Where the full-day replay spends its time (optimise design E9, 2026-10-22)
+Binary: gcc-release flags plus -g (debug info only; same instructions), commit 43f939e/e8fd8c1
+Command: perf record -e cpu-clock -F 1999 -- nanobook_replay ITCH_FILE --throughput --core 2
+Samples: 261,802 (timer sampling: WSL2 has no hardware counters). Attributed with
+addr2line -i (innermost inlined source line), then split by pass from each sample's inline chain.
+
+By pass (share of all samples)
+ 50.51%  replay pass (timed)
+ 43.67%  counting pass (untimed)
+  1.82%  parse-only pass
+  3.71%  libc / libstdc++ / other (mostly memmove: the sorted arrays' shifts)
+
+Replay pass by component (share of its 132,225 samples)
+ 49.85%  id_table.hpp   (39.05% on one line: types.hpp:70, OrderId ==, inside IdTable::find's probe)
+ 17.78%  fast_book.hpp  (12.20% on fast_book.hpp:519: the first read of the order's slot)
+ 17.17%  sorted_levels.hpp (lower_bound, insert, erase)
+  5.48%  book_builder.hpp
+  2.63%  intrusive_queue.hpp
+  2.71%  parser.hpp
+  2.46%  order_pool.hpp
+  1.92%  other
+(The libc memmove samples, about 6% of the replay, belong to sorted_levels too: about 23% in all.)

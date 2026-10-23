@@ -1,0 +1,573 @@
+diff --git a/include/nanobook/fast/fast_book.hpp b/include/nanobook/fast/fast_book.hpp
+index ea61ec4..9ede84b 100644
+--- a/include/nanobook/fast/fast_book.hpp
++++ b/include/nanobook/fast/fast_book.hpp
+@@ -110,7 +110,7 @@ public:
+         return levels_.better_than(side, price);
+     }
+     [[nodiscard]] std::optional<Qty> leaves(OrderId id) const {
+-        const std::uint32_t slot = ids_.find(id);
++        const std::uint32_t slot = ids_.find(id, id_of());
+         return slot == kNone ? std::nullopt : std::optional<Qty>{pool_[slot].leaves};
+     }
+     [[nodiscard]] std::size_t order_count() const {
+@@ -150,6 +150,11 @@ private:
+     void remove_and_tidy(std::uint32_t slot);
+ 
+     BookConfig config_;
++    // For the id table: the id of the order in a slot, which confirms a tag match (E9b).
++    [[nodiscard]] auto id_of() const {
++        return [this](std::uint32_t slot) { return pool_[slot].id; };
++    }
++
+     OrderPool pool_;
+     Levels levels_;
+     IdTable ids_;       // resting orders only
+@@ -211,7 +216,7 @@ void BasicFastBook<Levels>::handle(const Cancel &cancel, EventBuffer &out) {
+     assert(out.capacity() >= config_.max_events_per_input());
+     out.clear();
+ 
+-    const std::uint32_t slot = ids_.find(cancel.id);
++    const std::uint32_t slot = ids_.find(cancel.id, id_of());
+     if (slot == kNone) {
+         out.push(Event::make_rejected(cancel.id, RejectReason::UnknownOrder));
+         return;
+@@ -236,7 +241,7 @@ void BasicFastBook<Levels>::handle(const Modify &modify, EventBuffer &out) {
+     assert(out.capacity() >= config_.max_events_per_input());
+     out.clear();
+ 
+-    const std::uint32_t slot = ids_.find(modify.id);
++    const std::uint32_t slot = ids_.find(modify.id, id_of());
+     if (slot == kNone) {
+         out.push(Event::make_rejected(modify.id, RejectReason::UnknownOrder));
+         return;
+@@ -272,7 +277,7 @@ void BasicFastBook<Levels>::handle(const Modify &modify, EventBuffer &out) {
+     const Qty to_trade = modify.new_total_qty - order.filled;
+     const Qty remaining = match(order.id, order.owner, order.side, modify.new_price, to_trade, out);
+     if (remaining == Qty{0}) {
+-        ids_.erase(order.id);
++        ids_.erase(order.id, id_of());
+         pool_.release(slot);
+         return;
+     }
+@@ -293,7 +298,7 @@ template <typename Levels> FeedResult BasicFastBook<Levels>::apply(const FeedAdd
+     if (!config_.in_band(add.price)) {
+         return FeedResult::InvalidPrice; // also keeps TickLevels' array index in range
+     }
+-    if (ids_.find(add.id) != kNone) {
++    if (ids_.find(add.id, id_of()) != kNone) {
+         return FeedResult::DuplicateOrder;
+     }
+     if (pool_.full()) {
+@@ -314,7 +319,7 @@ template <typename Levels> FeedResult BasicFastBook<Levels>::apply(const FeedAdd
+ }
+ 
+ template <typename Levels> FeedResult BasicFastBook<Levels>::apply(const FeedReduce &reduce) {
+-    const std::uint32_t slot = ids_.find(reduce.id);
++    const std::uint32_t slot = ids_.find(reduce.id, id_of());
+     if (slot == kNone) {
+         return FeedResult::UnknownOrder;
+     }
+@@ -337,7 +342,7 @@ template <typename Levels> FeedResult BasicFastBook<Levels>::apply(const FeedRed
+ }
+ 
+ template <typename Levels> FeedResult BasicFastBook<Levels>::apply(const FeedRemove &remove) {
+-    const std::uint32_t slot = ids_.find(remove.id);
++    const std::uint32_t slot = ids_.find(remove.id, id_of());
+     if (slot == kNone) {
+         return FeedResult::UnknownOrder;
+     }
+@@ -346,7 +351,7 @@ template <typename Levels> FeedResult BasicFastBook<Levels>::apply(const FeedRem
+ }
+ 
+ template <typename Levels> FeedResult BasicFastBook<Levels>::apply(const FeedReplace &replace) {
+-    const std::uint32_t slot = ids_.find(replace.old_id);
++    const std::uint32_t slot = ids_.find(replace.old_id, id_of());
+     if (slot == kNone) {
+         return FeedResult::UnknownOrder;
+     }
+@@ -356,7 +361,7 @@ template <typename Levels> FeedResult BasicFastBook<Levels>::apply(const FeedRep
+     if (!config_.in_band(replace.price)) {
+         return FeedResult::InvalidPrice;
+     }
+-    if (replace.new_id != replace.old_id && ids_.find(replace.new_id) != kNone) {
++    if (replace.new_id != replace.old_id && ids_.find(replace.new_id, id_of()) != kNone) {
+         return FeedResult::DuplicateOrder;
+     }
+     // Take the order off its level but keep its slot (as Modify does), then put it back as the
+@@ -369,7 +374,7 @@ template <typename Levels> FeedResult BasicFastBook<Levels>::apply(const FeedRep
+     if (level->queue.empty()) {
+         levels_.erase(order.side, order.price);
+     }
+-    ids_.erase(replace.old_id);
++    ids_.erase(replace.old_id, id_of());
+     order.id = replace.new_id;
+     order.price = replace.price;
+     order.leaves = replace.qty;
+@@ -509,7 +514,7 @@ void BasicFastBook<Levels>::remove_resting(Level &level, std::uint32_t slot) {
+     const Order &order = pool_[slot];
+     level.total -= order.leaves;
+     level.queue.unlink(pool_, slot);
+-    ids_.erase(order.id);
++    ids_.erase(order.id, id_of());
+     pool_.release(slot);
+ }
+ 
+@@ -599,7 +604,7 @@ template <typename Levels> bool BasicFastBook<Levels>::structure_holds() const {
+             for (std::uint32_t s = level.queue.front(); s != kNone; s = pool_[s].next) {
+                 const Order &o = pool_[s];
+                 if (o.price != level.price || o.side != side || o.leaves <= Qty{0} ||
+-                    o.filled < Qty{0} || ids_.find(o.id) != s) {
++                    o.filled < Qty{0} || ids_.find(o.id, id_of()) != s) {
+                     ok = false; // on the right level, quantities valid, the index points back here
+                     return false;
+                 }
+diff --git a/include/nanobook/fast/id_table.hpp b/include/nanobook/fast/id_table.hpp
+index 089d1bf..c7bfc7b 100644
+--- a/include/nanobook/fast/id_table.hpp
++++ b/include/nanobook/fast/id_table.hpp
+@@ -3,29 +3,38 @@
+  *
+  * What it does: Answers "which pool slot holds order #7?" for cancels and modifies. insert() when
+  *   an order starts resting, erase() when it stops, find() to look one up (kNone if it isn't here).
++ *   find() and erase() take id_of: a function giving the id of the order in a slot (the book
++ *   passes "read it from the pool"), used to confirm a match.
+  *
+  * Why it exists: Order ids are big and spread out (exchange-wide, with gaps), slots are small and
+  *   packed, so a translation table is needed. The reference book uses a tree: about 14 pointer
+  *   jumps across memory for 10,000 orders. This table usually needs 1 or 2 reads, all in one
+  *   array, and never allocates after construction (fast-book design §5.1).
+  *
+- * How it works: Open addressing with linear probing. An id's home position comes from a fixed
+- *   scramble formula: multiply by 11400714819323198485 (2^64 divided by the golden ratio) and keep
+- *   the top bits ("Fibonacci hashing"). Exchange ids arrive in near-sequential runs, and the
+- *   multiply spreads neighbours apart. If the home is taken, try the next entry, wrapping at the
+- *   end. The table has at least twice as many entries as max_orders, so it is never more than half
+- *   full and runs stay short. Removal uses backward shift: after emptying an entry, later entries
+- *   in the same run slide back into the hole when that brings them closer to home, so a search can
+- *   never stop early at a gap, and no "deleted" markers pile up over a trading day.
++ * How it works: Open addressing with linear probing. An id's 64-bit hash is a fixed scramble:
++ *   multiply by 11400714819323198485 (2^64 divided by the golden ratio; odd, so different ids
++ *   always give different hashes). Its top bits are the id's home entry ("Fibonacci hashing").
++ *   Exchange ids arrive in near-sequential runs, and the multiply spreads neighbours apart. If the
++ *   home is taken, try the next entry, wrapping at the end. The table has at least twice as many
++ *   entries as max_orders, so it is never more than half full and runs stay short. Removal uses
++ *   backward shift: after emptying an entry, later entries in the same run slide back into the
++ *   hole when that brings them closer to home, so a search can never stop early at a gap, and no
++ *   "deleted" markers pile up over a trading day.
++ *   - 8-byte entries (optimise design E9b): an entry keeps the top 32 bits of the hash (its tag)
++ *     and the slot, not the 8-byte id. Equal tags are confirmed with id_of(slot): the order's own
++ *     id in the pool, which the book reads next anyway. Two different ids share a tag about once
++ *     in 4 billion, and then the confirmation tells them apart. The home is the top bits of the
++ *     hash, so it can be recomputed from the tag alone, which backward shift needs.
+  *
+- * Data structures: std::pmr::vector<Entry>, sized once to a power of two. Entry = {id, slot}, 16
+- *   bytes with padding. id 0 marks an empty entry: the exchange never issues id 0. pmr: the memory
+- *   comes from the default memory resource when the table is built (plain new/delete, or the
+- *   timed tools' huge-page arena: optimise design E6).
++ * Data structures: std::pmr::vector<Entry>, sized once to a power of two. Entry = {tag, slot}, 8
++ *   bytes; slot kNone marks an empty entry. pmr: the memory comes from the default memory
++ *   resource when the table is built (plain new/delete, or the timed tools' huge-page arena:
++ *   optimise design E6).
+  *
+- * Trade-offs: Memory is 2 x max_orders (rounded up to a power of two) x 16 bytes: 32 MB for 1M
+- *   orders. A 12-byte packed entry, or storing only the slot and reading the id from the pool,
+- * would be smaller but cost an extra read; design §5.1 measures those later.
++ * Trade-offs: Memory is 2 x max_orders (rounded up to a power of two) x 8 bytes: 16 MB for 1M
++ *   orders, half the 16-byte entries' size, so twice as many entries fit in each cache level. The
++ *   cost is the confirmation read of the slot, on a match only. At most 2^31 orders, so the home
++ *   fits in the tag's 32 bits (asserted). id 0 is never stored: the exchange never issues it.
+  */
+ 
+ #pragma once
+@@ -48,6 +57,7 @@ public:
+     explicit IdTable(std::uint32_t max_orders)
+         : entries_(table_size(max_orders)), mask_(entries_.size() - 1),
+           shift_(64 - std::countr_zero(entries_.size())) {
++        assert(shift_ >= 32 && "more than 2^32 entries: the home no longer fits in the tag");
+     }
+ 
+     // The bytes a table for `max_orders` takes from its memory resource.
+@@ -55,47 +65,52 @@ public:
+         return table_size(max_orders) * sizeof(Entry);
+     }
+ 
+-    // Adds `id` -> `slot`. `id` must not be 0 and must not already be in the table.
++    // Adds `id` -> `slot`. `id` must not be 0 and must not already be in the table (the book
++    // checks with find() first).
+     void insert(OrderId id, std::uint32_t slot) {
+-        assert(id.value != 0 && "id 0 marks an empty entry");
++        assert(id.value != 0 && "id 0 is never a real order");
++        assert(slot != kNone && "kNone marks an empty entry");
+         assert(2 * (size_ + 1) <= entries_.size() && "more entries than max_orders");
+         std::size_t i = home(id);
+-        while (entries_[i].id.value != 0) {
+-            assert(entries_[i].id != id && "id is already in the table");
++        while (entries_[i].slot != kNone) {
+             i = (i + 1) & mask_;
+         }
+-        entries_[i] = Entry{.id = id, .slot = slot};
++        entries_[i] = Entry{.tag = tag(id), .slot = slot};
+         ++size_;
+     }
+ 
+-    // The slot holding `id`, or kNone. Stops at the first empty entry: backward-shift removal
+-    // guarantees an id is never stored past an empty entry on its way from home.
+-    [[nodiscard]] std::uint32_t find(OrderId id) const {
++    // The slot holding `id`, or kNone. id_of(slot) gives the id stored in a slot. Stops at the
++    // first empty entry: backward-shift removal guarantees an id is never stored past an empty
++    // entry on its way from home.
++    template <typename IdOf> [[nodiscard]] std::uint32_t find(OrderId id, IdOf &&id_of) const {
+         if (id.value == 0) {
+-            return kNone; // 0 is the empty marker, never a real order
++            return kNone; // never a real order
+         }
++        const std::uint32_t t = tag(id);
+         for (std::size_t i = home(id);; i = (i + 1) & mask_) {
+-            if (entries_[i].id == id) {
+-                return entries_[i].slot;
+-            }
+-            if (entries_[i].id.value == 0) {
++            const Entry e = entries_[i];
++            if (e.slot == kNone) {
+                 return kNone;
+             }
++            if (e.tag == t && id_of(e.slot) == id) {
++                return e.slot;
++            }
+         }
+     }
+ 
+-    // Removes `id`, which must be in the table.
+-    void erase(OrderId id) {
++    // Removes `id`, which must be in the table. id_of as for find().
++    template <typename IdOf> void erase(OrderId id, IdOf &&id_of) {
++        const std::uint32_t t = tag(id);
+         std::size_t hole = home(id);
+-        while (entries_[hole].id != id) {
+-            assert(entries_[hole].id.value != 0 && "erasing an id that isn't in the table");
++        while (entries_[hole].tag != t || id_of(entries_[hole].slot) != id) {
++            assert(entries_[hole].slot != kNone && "erasing an id that isn't in the table");
+             hole = (hole + 1) & mask_;
+         }
+         // Backward shift: walk the rest of the run. An entry can move into the hole unless its
+         // home lies after the hole (cyclically, in (hole, j]): moving it there would put it before
+         // its own home, where a search would never look.
+-        for (std::size_t j = (hole + 1) & mask_; entries_[j].id.value != 0; j = (j + 1) & mask_) {
+-            if (!in_cyclic_range(home(entries_[j].id), hole, j)) {
++        for (std::size_t j = (hole + 1) & mask_; entries_[j].slot != kNone; j = (j + 1) & mask_) {
++            if (!in_cyclic_range(home_of_tag(entries_[j].tag), hole, j)) {
+                 entries_[hole] = entries_[j];
+                 hole = j;
+             }
+@@ -113,8 +128,11 @@ public:
+ 
+     // Where `id` would be stored if nothing collided (public for the unit tests).
+     [[nodiscard]] std::size_t home(OrderId id) const {
+-        constexpr std::uint64_t kFibonacci = 11400714819323198485ULL; // 2^64 / golden ratio
+-        return static_cast<std::size_t>((id.value * kFibonacci) >> shift_);
++        return static_cast<std::size_t>(hash(id) >> shift_);
++    }
++    // The top 32 bits of `id`'s hash: what an entry stores (public for the unit tests).
++    [[nodiscard]] static std::uint32_t tag(OrderId id) {
++        return static_cast<std::uint32_t>(hash(id) >> 32U);
+     }
+ 
+     // Checks that every entry can be found: no empty entry between its home and where it sits, and
+@@ -122,12 +140,12 @@ public:
+     [[nodiscard]] bool consistent() const {
+         std::size_t count = 0;
+         for (std::size_t p = 0; p < entries_.size(); ++p) {
+-            if (entries_[p].id.value == 0) {
++            if (entries_[p].slot == kNone) {
+                 continue;
+             }
+             ++count;
+-            for (std::size_t i = home(entries_[p].id); i != p; i = (i + 1) & mask_) {
+-                if (entries_[i].id.value == 0) {
++            for (std::size_t i = home_of_tag(entries_[p].tag); i != p; i = (i + 1) & mask_) {
++                if (entries_[i].slot == kNone) {
+                     return false;
+                 }
+             }
+@@ -137,9 +155,19 @@ public:
+ 
+ private:
+     struct Entry {
+-        OrderId id{}; // 0 = empty
+-        std::uint32_t slot{kNone};
++        std::uint32_t tag{};       // top 32 bits of the id's hash
++        std::uint32_t slot{kNone}; // kNone = empty
+     };
++    static_assert(sizeof(Entry) == 8);
++
++    static std::uint64_t hash(OrderId id) {
++        constexpr std::uint64_t kFibonacci = 11400714819323198485ULL; // 2^64 / golden ratio
++        return id.value * kFibonacci;
++    }
++    // The home of an id with this tag: the hash's top (64 - shift_) bits are the tag's top ones.
++    [[nodiscard]] std::size_t home_of_tag(std::uint32_t t) const {
++        return static_cast<std::size_t>(t >> (shift_ - 32));
++    }
+ 
+     // At least twice max_orders, rounded up to a power of two (so "& mask_" can wrap).
+     [[nodiscard]] static std::size_t table_size(std::uint32_t max_orders) {
+diff --git a/tests/fast/test_id_table.cpp b/tests/fast/test_id_table.cpp
+index 583f82d..b8448a3 100644
+--- a/tests/fast/test_id_table.cpp
++++ b/tests/fast/test_id_table.cpp
+@@ -5,14 +5,18 @@
+  *   tricky part of open addressing: removing from the start and the middle of a collision run, a
+  *   run that wraps around the end of the array, and the one entry that must NOT slide back. Then a
+  *   mini differential test: 200,000 random inserts and erases checked against
+- *   std::unordered_map after every step.
++ *   std::unordered_map after every step. And the 8-byte entries' one new case (optimise design
++ *   E9b): two ids that share a tag must still be told apart, by the id in their slots.
+  *
+  * Why it exists: A table that "loses" an id makes a cancel answer UnknownOrder for an order that is
+  *   still resting, which silently breaks the book. Each tricky case is tested on its own here.
+  *
+  * How it works: ids_with_home() searches small ids for ones that land on a chosen home position,
+  *   so collisions are built on purpose instead of hoped for. consistent() re-checks after every
+- *   change that each entry is reachable from its home.
++ *   change that each entry is reachable from its home. Table wraps the IdTable with what the
++ *   book's pool would know, the id in each slot, which find() and erase() use to confirm a match.
++ *   Ids sharing a tag are built from the multiplier's inverse: adding it to an id adds 1 to the
++ *   hash, which leaves the top 32 bits (the tag) unchanged.
+  */
+ 
+ #include <gtest/gtest.h>
+@@ -20,6 +24,7 @@
+ 
+ #include <cstdint>
+ #include <random>
++#include <stdexcept>
+ #include <unordered_map>
+ #include <vector>
+ 
+@@ -28,12 +33,53 @@ using namespace nanobook::fast;
+ 
+ namespace {
+ 
++// An IdTable plus what the book's pool would know: the id stored in each slot.
++class Table {
++public:
++    explicit Table(std::uint32_t max_orders) : table_(max_orders) {
++    }
++    void insert(OrderId id, std::uint32_t slot) {
++        if (slot >= ids_.size()) {
++            ids_.resize(slot + 1);
++        }
++        ids_[slot] = id; // the pool holds the id before the table does
++        table_.insert(id, slot);
++    }
++    // What the pool would answer: the id of the order in `slot`. Defined before find() and
++    // erase() use it, because its return type is deduced (a lambda).
++    [[nodiscard]] auto id_of() const {
++        return [this](std::uint32_t slot) { return ids_.at(slot); };
++    }
++    [[nodiscard]] std::uint32_t find(OrderId id) const {
++        return table_.find(id, id_of());
++    }
++    void erase(OrderId id) {
++        table_.erase(id, id_of());
++    }
++    [[nodiscard]] std::size_t size() const {
++        return table_.size();
++    }
++    [[nodiscard]] std::size_t capacity() const {
++        return table_.capacity();
++    }
++    [[nodiscard]] std::size_t home(OrderId id) const {
++        return table_.home(id);
++    }
++    [[nodiscard]] bool consistent() const {
++        return table_.consistent();
++    }
++
++private:
++    IdTable table_;
++    std::vector<OrderId> ids_; // by slot
++};
++
+ constexpr std::size_t kIdsPerHome = 3; // enough for the longest run any test builds
+ 
+ // The first kIdsPerHome ids (from 1 up) whose home position in `table` is `home`. One number in,
+ // not two, so a caller can't swap them by mistake (clang-tidy
+ // bugprone-easily-swappable-parameters).
+-std::vector<OrderId> ids_with_home(const IdTable &table, std::size_t home) {
++std::vector<OrderId> ids_with_home(const Table &table, std::size_t home) {
+     std::vector<OrderId> ids;
+     for (std::uint64_t v = 1; ids.size() < kIdsPerHome; ++v) {
+         if (table.home(OrderId{v}) == home) {
+@@ -45,6 +91,34 @@ std::vector<OrderId> ids_with_home(const IdTable &table, std::size_t home) {
+ 
+ } // namespace
+ 
++// The multiplicative inverse of the hash's multiplier, modulo 2^64 (Newton's iteration: each
++// step doubles the number of correct low bits).
++constexpr std::uint64_t kInverse = [] {
++    constexpr std::uint64_t k = 11400714819323198485ULL;
++    std::uint64_t x = k; // right in the lowest 3 bits, as for any odd number
++    for (int i = 0; i < 6; ++i) {
++        x *= 2 - (k * x);
++    }
++    return x;
++}();
++static_assert(11400714819323198485ULL * kInverse == 1);
++
++TEST(IdTable, IdsThatShareATagAreToldApartByTheirSlots) {
++    Table table{8};
++    const OrderId a{1'000};
++    const OrderId b{1'000 + kInverse}; // hash(b) = hash(a) + 1: the same tag, the same home
++    ASSERT_EQ(IdTable::tag(a), IdTable::tag(b));
++    ASSERT_EQ(table.home(a), table.home(b));
++    table.insert(a, 4);
++    table.insert(b, 5);
++    EXPECT_EQ(table.find(a), 4U);
++    EXPECT_EQ(table.find(b), 5U); // the first entry's tag matches too; its slot holds a, not b
++    table.erase(a);
++    EXPECT_EQ(table.find(a), kNone);
++    EXPECT_EQ(table.find(b), 5U);
++    EXPECT_TRUE(table.consistent());
++}
++
+ TEST(IdTable, SizeIsAPowerOfTwoAtLeastTwiceMaxOrders) {
+     EXPECT_EQ(IdTable{1}.capacity(), 2U);
+     EXPECT_EQ(IdTable{8}.capacity(), 16U);
+@@ -52,7 +126,7 @@ TEST(IdTable, SizeIsAPowerOfTwoAtLeastTwiceMaxOrders) {
+ }
+ 
+ TEST(IdTable, EmptyTableFindsNothing) {
+-    const IdTable table{8};
++    const Table table{8};
+     EXPECT_EQ(table.size(), 0U);
+     EXPECT_EQ(table.find(OrderId{5}), kNone);
+     EXPECT_EQ(table.find(OrderId{0}), kNone);
+@@ -60,7 +134,7 @@ TEST(IdTable, EmptyTableFindsNothing) {
+ }
+ 
+ TEST(IdTable, InsertFindErase) {
+-    IdTable table{8};
++    Table table{8};
+     table.insert(OrderId{7}, 3);
+     table.insert(OrderId{1'000'000'007}, 4);
+     EXPECT_EQ(table.find(OrderId{7}), 3U);
+@@ -74,13 +148,13 @@ TEST(IdTable, InsertFindErase) {
+ }
+ 
+ TEST(IdTable, IdZeroIsNeverFoundEvenWhenTheTableHasEntries) {
+-    IdTable table{8};
++    Table table{8};
+     table.insert(OrderId{1}, 0);
+     EXPECT_EQ(table.find(OrderId{0}), kNone); // 0 marks empty entries, never a real order
+ }
+ 
+ TEST(IdTable, CollisionRunIsFoundInFull) {
+-    IdTable table{8}; // 16 entries
++    Table table{8}; // 16 entries
+     const std::vector<OrderId> ids = ids_with_home(table, 5);
+     for (std::uint32_t i = 0; i < 3; ++i) {
+         table.insert(ids[i], i);
+@@ -92,7 +166,7 @@ TEST(IdTable, CollisionRunIsFoundInFull) {
+ }
+ 
+ TEST(IdTable, EraseFromTheMiddleOfARun) {
+-    IdTable table{8};
++    Table table{8};
+     const std::vector<OrderId> ids = ids_with_home(table, 5);
+     for (std::uint32_t i = 0; i < 3; ++i) {
+         table.insert(ids[i], i);
+@@ -105,7 +179,7 @@ TEST(IdTable, EraseFromTheMiddleOfARun) {
+ }
+ 
+ TEST(IdTable, EraseTheStartOfARun) {
+-    IdTable table{8};
++    Table table{8};
+     const std::vector<OrderId> ids = ids_with_home(table, 5);
+     for (std::uint32_t i = 0; i < 3; ++i) {
+         table.insert(ids[i], i);
+@@ -117,7 +191,7 @@ TEST(IdTable, EraseTheStartOfARun) {
+ }
+ 
+ TEST(IdTable, RunThatWrapsAroundTheEnd) {
+-    IdTable table{8};
++    Table table{8};
+     const std::size_t last = table.capacity() - 1;
+     const std::vector<OrderId> ids = ids_with_home(table, last); // stored at 15, 0 and 1
+     for (std::uint32_t i = 0; i < 3; ++i) {
+@@ -134,7 +208,7 @@ TEST(IdTable, RunThatWrapsAroundTheEnd) {
+ 
+ // The rule that makes backward shift correct: an entry whose home is AFTER the hole must stay.
+ TEST(IdTable, EntryWhoseHomeIsAfterTheHoleStaysPut) {
+-    IdTable table{8};
++    Table table{8};
+     const OrderId a = ids_with_home(table, 5)[0];
+     const OrderId b = ids_with_home(table, 6)[0];
+     const OrderId c = ids_with_home(table, 5)[1];
+@@ -148,7 +222,7 @@ TEST(IdTable, EntryWhoseHomeIsAfterTheHoleStaysPut) {
+ }
+ 
+ TEST(IdTable, IdsTheTableSizeApartAreFine) {
+-    IdTable table{8};
++    Table table{8};
+     const auto size = static_cast<std::uint64_t>(table.capacity());
+     // These would all collide under a plain "id % size"; the scramble spreads them out.
+     for (std::uint32_t i = 0; i < 8; ++i) {
+@@ -164,9 +238,14 @@ TEST(IdTable, IdsTheTableSizeApartAreFine) {
+ // std::unordered_map as the trusted answer key.
+ TEST(IdTable, AgreesWithUnorderedMapOnRandomOperations) {
+     constexpr std::uint32_t kMaxOrders = 512;
+-    IdTable table{kMaxOrders};
++    Table table{kMaxOrders};
+     std::unordered_map<std::uint64_t, std::uint32_t> model;
+     std::vector<std::uint64_t> present;
++    std::vector<std::uint32_t> free_slots; // like the pool: every resting order has its own slot
++    free_slots.reserve(kMaxOrders);
++    for (std::uint32_t s = 0; s < kMaxOrders; ++s) {
++        free_slots.push_back(s);
++    }
+     std::mt19937_64 rng{12345};
+     std::uint64_t next_id = 1;
+ 
+@@ -174,13 +253,15 @@ TEST(IdTable, AgreesWithUnorderedMapOnRandomOperations) {
+         const bool can_insert = model.size() < kMaxOrders;
+         if (can_insert && (present.empty() || rng() % 100 < 55)) {
+             next_id += 1 + rng() % 7; // increasing with gaps, like exchange ids
+-            const auto slot = static_cast<std::uint32_t>(rng() % kMaxOrders);
++            const std::uint32_t slot = free_slots.back();
++            free_slots.pop_back();
+             table.insert(OrderId{next_id}, slot);
+             model.emplace(next_id, slot);
+             present.push_back(next_id);
+         } else {
+             const std::size_t pick = rng() % present.size();
+             table.erase(OrderId{present[pick]});
++            free_slots.push_back(model.at(present[pick]));
+             model.erase(present[pick]);
+             present[pick] = present.back();
+             present.pop_back();
+diff --git a/tests/test_alloc.cpp b/tests/test_alloc.cpp
+index df1f7fa..7d26925 100644
+--- a/tests/test_alloc.cpp
++++ b/tests/test_alloc.cpp
+@@ -162,15 +162,18 @@ TEST(ZeroAlloc, OrderPoolAndQueuesNeverAllocateAfterConstruction) {
+ 
+ TEST(ZeroAlloc, IdTableNeverAllocatesAfterConstruction) {
+     fast::IdTable table{1000};
++    std::vector<OrderId> ids(1000); // what the pool would know: the id in each slot
++    const auto id_of = [&ids](std::uint32_t slot) { return ids[slot]; };
+     const std::uint64_t n = allocations_during([&] {
+         std::uint64_t next = 1;
+         for (int round = 0; round < 50; ++round) {
+             const std::uint64_t first = next;
+             for (std::uint32_t i = 0; i < 1000; ++i) {
++                ids[i] = OrderId{next};
+                 table.insert(OrderId{next++}, i);
+             }
+             for (std::uint64_t id = first; id < next; ++id) {
+-                table.erase(OrderId{id});
++                table.erase(OrderId{id}, id_of);
+             }
+         }
+         keep(&table);
