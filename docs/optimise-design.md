@@ -12,7 +12,9 @@
 > the ID table: E9 added and done first (the user's decision, §2, §7). Step 8: E9a reverted;
 > E9b reverted pending bare metal (§2, §5 B6). Step 8a: E7's design approved (§10); the window
 > analysis chose W = 1,024 (§10.5); step 8b built it, the real day 0 mismatches (§10.6); step 8c:
-> not kept, p99 18–26% worse in every round, E7b didn't fix it (§10.7, §5 B7).
+> not kept, p99 18–26% worse in every round, E7b didn't fix it (§10.7, §5 B7). Step 9: E8 closed
+> without an experiment, at most 0.16% of the replay (§2). Step 9b: E1d not kept, three threads
+> 7–12% faster but paced p90 worse (§2). Next: the phase 6 report.
 
 Phases 1–5 built a correct order book, a way to time it, a real Nasdaq day to feed it, and a
 three-thread pipeline around it. Phase 5 left measured **symptoms**, such as a slow tail, a pipeline
@@ -126,6 +128,15 @@ cheap and well-evidenced first, the big redesign last.
   - Real logging to a file is a tie.
   - Both modes stay. E1d can trim a little but can't remove the hops, so it waits until the
     rest of the plan is done.
+- **E1d result (step 9b, 2026-10-24; perf log "E1d, ring 2's ping-pong"): not kept.**
+  - The engine publishes ring 2's `head_` in batches (the mirror of E1a), in three variants:
+    batch 64, batch 8, and batch 64 published first whenever the engine knows of no record
+    waiting in ring 1.
+  - The hypothesis holds: three threads 7–12% faster in every round, matching one thread
+    (0.98–1.01×) for the first time; the full-day log checksum unchanged.
+  - But paced p90 at 2 M/s is worse (in every round, or 3 of 4 for the last variant): during
+    the feed's bursts the engine never idles, so updates wait for their batch. The last variant
+    fixed p50 but not p90. Rule §3.3: not kept; the code is in each session's `after.diff`.
 
 ### E2. First-touch page faults in the sorted-level arrays (phase 4)
 - **Symptom:** p99.99 of about 11 µs on the real day, against 2.3 µs for one book in cache
@@ -256,6 +267,13 @@ cheap and well-evidenced first, the big redesign last.
 - **Plan:** only after E7, which changes where deep levels live, and only if the flow analysis
   still shows it. **E7 was not kept**, so deep inserts still happen in the sorted array, at most
   about 3% of the book work (the bound above).
+- **Result (step 9, 2026-10-24; perf log "E8"): closed without an experiment.**
+  - The 3% bound covers **all** shifting. Deep inserts alone (1,024 levels or more) are 17–34
+    million of the day's 1,255 million levels shifted (0.55–1.10 GB), at most 2.7% of it.
+  - The profile puts all shifting (`memmove`) at about 6% of the replay, so deep inserts are at
+    most about **0.16%** of it.
+  - The A/B sessions' own noise is 1.3–2.5% within a session: no fix could show a gain. Recorded
+    as bounded and below what can be measured.
 
 ### E9. The ID table's memory waits (added 2026-10-22, from the profile)
 - **Symptom:** a profile of the real day's replay (perf log "Where the real day's time goes")
@@ -415,7 +433,8 @@ Every timed step needs an idle laptop, and I ask before each session.
 | 7 ✓ | E6: huge pages for the books' memory. Kept (bare-metal re-check, §5 B5-E6). Done 2026-10-22 | Yes |
 | 8 ✓ | **E9 (added from the profile, before E7):** (a) prefetch the ID-table entry one message ahead: reverted, 6% slower; (b) 8-byte entries: undecided on WSL2, reverted, re-test on bare metal (§5, B6). Done 2026-10-22 | Yes |
 | 8a, 8b, 8c ✓ | E7: moving window: design section (§10), window analysis (W = 1,024); code, tests and fuzzing, the real day 0 mismatches; three A/Bs (E7, E7b). Not kept: p99 18–26% worse in every round. Kept as a tested experiment. Done 2026-10-23 | Yes |
-| 9 | E8: deep inserts, only if the flow analysis still shows them after step 8 | Yes |
+| 9 ✓ | E8: deep inserts. Closed without an experiment: at most about 0.16% of the replay, below the noise. Done 2026-10-24 | No |
+| 9b ✓ | E1d: ring 2's ping-pong, batched `head_`, three variants. Not kept: three threads 7–12% faster, but paced p90 worse. Done 2026-10-24 | Yes |
 | 10 | Phase 6 report | Yes |
 
 Each experiment is kept or reverted on its own numbers. Later experiments are measured on top of

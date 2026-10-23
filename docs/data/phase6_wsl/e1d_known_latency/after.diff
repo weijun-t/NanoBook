@@ -1,0 +1,410 @@
+diff --git a/include/nanobook/pipeline/spsc_ring.hpp b/include/nanobook/pipeline/spsc_ring.hpp
+index 348a5de..719028e 100644
+--- a/include/nanobook/pipeline/spsc_ring.hpp
++++ b/include/nanobook/pipeline/spsc_ring.hpp
+@@ -1,10 +1,10 @@
+ /*
+  * spsc_ring.hpp: a lock-free ring buffer for exactly one producer thread and one consumer thread.
+  *
+- * What it does: SpscRing<T, Capacity> passes records of type T from one thread to another.
+- *   try_push() adds one at the head (false if the ring is full), try_pop() takes one from the tail
+- *   (false if it is empty), in the order they were pushed. push() and pop() wait instead of
+- *   failing, and return how many times they found the ring full or empty.
++ * What it does: SpscRing<T, Capacity, HeadBatch> passes records of type T from one thread to
++ *   another. try_push() adds one at the head (false if the ring is full), try_pop() takes one
++ *   from the tail (false if it is empty), in the order they were pushed. push() and pop() wait
++ *   instead of failing, and return how many times they found the ring full or empty.
+  *
+  * Why it exists: The pipeline's three threads hand records to each other (pipeline design §2).
+  *   A mutex would cost tens of nanoseconds per hand-over and can put a thread to sleep (a system
+@@ -23,17 +23,26 @@
+  *   - Cached counters: the producer keeps the last tail_ it saw and reloads the real one only when
+  *     the ring looks full; the consumer does the same with head_. Most pushes and pops then touch
+  *     only their own cache lines.
++ *   - HeadBatch (optimise design E1d): the producer counts its position in a private next_head_
++ *     and publishes it to head_ only every HeadBatch records, whenever it finds the ring full
++ *     (else both sides could wait for each other), and when it calls flush() before going idle.
++ *     A consumer polling an empty ring then sees records in batches, and the cache line holding
++ *     head_ changes hands once per batch instead of once per record. HeadBatch = 1 compiles the
++ *     original push, unchanged (if constexpr), and flush() does nothing.
+  *   - Cost: O(1) per push and pop, one copy of T, no allocation.
+  *
+  * Data structures: head_, cached_tail_, tail_ and cached_head_ each on their own 128-byte block
+  *   (rule 9: Intel CPUs prefetch the adjacent 64-byte line too), so the two cores never fight
+- *   over one line (false sharing). The slots are a std::vector sized and zero-filled once in the
+- *   constructor: every page is touched up front, so none is first touched mid-run (phase 4's
+- *   page-fault lesson).
++ *   over one line (false sharing). The producer's private next_head_ and published_head_ share
++ *   cached_tail_'s block (HeadBatch > 1 only). The slots are a std::vector sized and zero-filled
++ *   once in the constructor: every page is touched up front, so none is first touched mid-run
++ *   (phase 4's page-fault lesson).
+  *
+  * Trade-offs: Exactly one producer and one consumer thread: a second of either is a data race.
+- *   Waiting spins with the CPU's pause instruction instead of sleeping, so each side should own a
+- *   core. T must be trivially copyable (records are copied as bytes).
++ *   With HeadBatch > 1 a pushed record can stay invisible until the batch fills or the producer
++ *   calls flush(): a producer that stops pushing for a while must flush first. Waiting spins
++ *   with the CPU's pause instruction instead of sleeping, so each side should own a core. T must
++ *   be trivially copyable (records are copied as bytes).
+  */
+ 
+ #pragma once
+@@ -58,10 +67,11 @@ inline void cpu_relax() {
+ #endif
+ }
+ 
+-template <typename T, std::size_t Capacity> class SpscRing {
++template <typename T, std::size_t Capacity, std::size_t HeadBatch = 1> class SpscRing {
+     static_assert(std::is_trivially_copyable_v<T>, "records are copied as bytes");
+     static_assert(Capacity >= 2 && std::has_single_bit(Capacity),
+                   "Capacity must be a power of two: a slot is counter & (Capacity - 1)");
++    static_assert(HeadBatch >= 1, "the producer publishes its position every HeadBatch pushes");
+ 
+ public:
+     SpscRing() : slots_(Capacity) {
+@@ -74,18 +84,46 @@ public:
+ 
+     // Producer thread only. False if the ring is full.
+     [[nodiscard]] bool try_push(const T &item) noexcept {
+-        const std::uint64_t head = head_.load(std::memory_order_relaxed); // only we write it
+-        if (head - cached_tail_ == Capacity) {                            // looks full
++        if constexpr (HeadBatch == 1) { // phase 5's push, unchanged: head_ stored after every push
++            const std::uint64_t head = head_.load(std::memory_order_relaxed); // only we write it
++            if (head - cached_tail_ == Capacity) {                            // looks full
++                cached_tail_ = tail_.load(std::memory_order_acquire); // pairs with pop's release
++                if (head - cached_tail_ == Capacity) {
++                    return false;
++                }
++            }
++            slots_[head & kMask] = item;
++            head_.store(head + 1, std::memory_order_release); // publishes the slot written above
++            return true;
++        }
++        const std::uint64_t head = next_head_; // private to the producer
++        if (head - cached_tail_ == Capacity) { // looks full
++            flush(); // before waiting: the consumer must see every record already written
+             cached_tail_ = tail_.load(std::memory_order_acquire); // pairs with the pop's release
+             if (head - cached_tail_ == Capacity) {
+                 return false;
+             }
+         }
+         slots_[head & kMask] = item;
+-        head_.store(head + 1, std::memory_order_release); // publishes the slot written above
++        next_head_ = head + 1;
++        if (next_head_ - published_head_ >= HeadBatch) {
++            flush();
++        }
+         return true;
+     }
+ 
++    // Producer thread only: makes every record pushed so far visible to the consumer. Call it
++    // before going idle (HeadBatch > 1); with HeadBatch = 1 there is nothing to do. release: the
++    // records' bytes are written before the consumer can see them.
++    void flush() noexcept {
++        if constexpr (HeadBatch > 1) {
++            if (next_head_ != published_head_) {
++                head_.store(next_head_, std::memory_order_release);
++                published_head_ = next_head_;
++            }
++        }
++    }
++
+     // Consumer thread only. False if the ring is empty.
+     [[nodiscard]] bool try_pop(T &out) noexcept {
+         const std::uint64_t tail = tail_.load(std::memory_order_relaxed); // only we write it
+@@ -100,6 +138,14 @@ public:
+         return true;
+     }
+ 
++    // Consumer thread only: true if every record this side knows of has been popped. Reads only
++    // the consumer's own counters (no cross-core read), so it may say "empty" when new records
++    // have just arrived. The pipeline's engine uses it to publish its own output before looking
++    // for more input (optimise design E1d).
++    [[nodiscard]] bool known_empty() const noexcept {
++        return tail_.load(std::memory_order_relaxed) == cached_head_;
++    }
++
+     // Waits until there is room. Returns how many times the ring was found full (0 normally).
+     std::uint64_t push(const T &item) noexcept {
+         std::uint64_t waits = 0;
+@@ -129,6 +175,8 @@ private:
+ 
+     alignas(kNoFalseSharing) std::atomic<std::uint64_t> head_{0}; // written by the producer
+     alignas(kNoFalseSharing) std::uint64_t cached_tail_{0};       // the producer's copy of tail_
++    std::uint64_t next_head_{0};      // producer: the next slot to write (head_ may lag it)
++    std::uint64_t published_head_{0}; // producer: the last value stored in head_
+     alignas(kNoFalseSharing) std::atomic<std::uint64_t> tail_{0}; // written by the consumer
+     alignas(kNoFalseSharing) std::uint64_t cached_head_{0};       // the consumer's copy of head_
+     alignas(kNoFalseSharing) std::vector<T> slots_;               // sized and touched once
+diff --git a/include/nanobook/pipeline/stages.hpp b/include/nanobook/pipeline/stages.hpp
+index 0a0579b..2bd1767 100644
+--- a/include/nanobook/pipeline/stages.hpp
++++ b/include/nanobook/pipeline/stages.hpp
+@@ -27,7 +27,10 @@
+  *     fewer free cores than threads (a CI runner); spin_only keeps it spinning, for timed runs on
+  *     pinned, dedicated cores. Every full-ring wait is counted. A producer that finds its ring
+  *     full waits kFullBackoff pauses before looking again (optimise design E1b), so it reads the
+- *     consumer's counter less often.
++ *     consumer's counter less often. Ring 2's producer, the engine, publishes its position every
++ *     kHeadBatch updates, and before looking at ring 1 whenever it knows of no record waiting
++ *     there (E1d): at full speed the publisher, which polls an empty ring 2, reads the engine's
++ *     counter less often, and a paced update isn't delayed.
+  *
+  * Data structures: Two SpscRings of `Capacity` records (65,536 by default, design §3.4), on the
+  *   heap. Each thread writes only its own fields of PipelineResult; the caller reads them after
+@@ -57,6 +60,11 @@
+ namespace nanobook::pipeline {
+ 
+ inline constexpr std::size_t kRingCapacity = 65'536; // pipeline design §3.4, decision Q8
++// Ring 2's producer, the engine, publishes its position every kHeadBatch updates (optimise design
++// E1d), and whenever it knows of no record waiting in ring 1: the publisher, which is faster
++// than the engine and so usually finds ring 2 empty, then reads the engine's head_ far less
++// often at full speed, while a paced update is published at once.
++inline constexpr std::size_t kHeadBatch = 64;
+ 
+ // Pins the calling thread to `core` (-1: don't pin). True if it now runs there.
+ inline bool pin_this_thread(int core) {
+@@ -276,7 +284,7 @@ template <std::size_t Capacity = kRingCapacity, typename Builder, typename ReadF
+ PipelineResult run_pipeline(ReadFeed &&read_feed, Builder &builder, Sink &sink,
+                             const PipelineOptions &options, Stamp stamp = {}) {
+     using RecordRing = SpscRing<FeedRecord, Capacity>;
+-    using UpdateRing = SpscRing<TopOfBook, Capacity>;
++    using UpdateRing = SpscRing<TopOfBook, Capacity, kHeadBatch>;
+     const auto records = std::make_unique<RecordRing>(); // all allocation happens here, before
+     const auto updates = std::make_unique<UpdateRing>(); // any record flows
+     std::atomic<int> ready{0};
+@@ -318,6 +326,12 @@ PipelineResult run_pipeline(ReadFeed &&read_feed, Builder &builder, Sink &sink,
+             std::uint64_t waits = 0;
+             FeedRecord r;
+             for (;;) {
++                // No record known to be waiting: publish before looking for one (E1d). Then a
++                // pop that waits never holds back an update, and looking at ring 1 (a cross-core
++                // read) never delays one. At full speed records are known to wait: no flush.
++                if (records->known_empty()) {
++                    updates->flush();
++                }
+                 pop_waiting(*records, r, spin_only);
+                 if (!engine.apply(r, [&](const TopOfBook &t) {
+                         waits += push_waiting(*updates, t, spin_only);
+@@ -326,6 +340,7 @@ PipelineResult run_pipeline(ReadFeed &&read_feed, Builder &builder, Sink &sink,
+                 }
+             }
+             waits += push_waiting(*updates, TopOfBook{.end = true}, spin_only);
++            updates->flush();
+             result.engine_waits = waits;
+             finished.fetch_add(1, std::memory_order_acq_rel);
+         }};
+diff --git a/tests/pipeline/test_pipeline.cpp b/tests/pipeline/test_pipeline.cpp
+index 5cc861d..57ffede 100644
+--- a/tests/pipeline/test_pipeline.cpp
++++ b/tests/pipeline/test_pipeline.cpp
+@@ -7,8 +7,10 @@
+  *   2-record rings (constantly full and empty, so the threads hand over on almost every record),
+  *   the stream of TopOfBook updates must be identical, update for update, and the final books
+  *   identical to a plain phase 4 replay. A stamp (the pacer, in latency runs) must reach every
+- *   update alike on one thread and on three (phase 6 E1c). Last, a broken message mid-stream:
+- *   every thread must still stop, and the pipeline must say the input was broken.
++ *   update alike on one thread and on three (phase 6 E1c). An update must reach the publisher
++ *   while the feed holds the rest back (E1d: the engine flushes ring 2 before it waits). Last, a
++ *   broken message mid-stream: every thread must still stop, and the pipeline must say the input
++ *   was broken.
+  *
+  * Why it exists: Threads must change nothing but speed. A lost, repeated or reordered record, or
+  *   a field dropped on the way through a ring, would quietly change the books. These tests run
+@@ -20,9 +22,12 @@
+ 
+ #include <gtest/gtest.h>
+ 
++#include <atomic>
++#include <chrono>
+ #include <cstddef>
+ #include <cstdint>
+ #include <span>
++#include <thread>
+ #include <vector>
+ 
+ #include "itch_golden_day.hpp"
+@@ -276,6 +281,41 @@ TEST(Pipeline, OneThreadAndThreeStampEveryUpdateAlike) {
+     }
+ }
+ 
++// E1d: ring 2 publishes in batches of 64 updates, so the engine must flush it before it waits for
++// more records. The feed sends the first add, then waits (up to a deadline) until the publisher
++// has seen its update, then sends the rest. Without the flush that one update would sit unseen
++// while the engine waits, and the deadline would pass.
++TEST(Pipeline, AnUpdateReachesThePublisherWhileTheFeedWaits) {
++    const std::vector<std::byte> day = golden::golden_day();
++    std::size_t pos = 0;
++    for (int i = 0; i < 8; ++i) { // 7 messages before the first add, then the add
++        pos += 2 + std::to_integer<std::size_t>(day[pos + 1]); // the length's low byte (< 256)
++    }
++    const std::span<const std::byte> first{day.data(), pos};
++    const std::span<const std::byte> rest{day.data() + pos, day.size() - pos};
++    std::atomic<std::size_t> seen{0};
++    bool arrived = false; // written by the feed thread, read after the join
++    const auto read_feed = [&](auto &handler) {
++        const auto a = parse(first, handler);
++        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{10};
++        while (seen.load(std::memory_order_acquire) == 0 &&
++               std::chrono::steady_clock::now() < deadline) {
++            std::this_thread::yield();
++        }
++        arrived = seen.load(std::memory_order_acquire) > 0;
++        const auto b = parse(rest, handler);
++        return a.has_value() && *a == first.size() && b.has_value() && *b == rest.size();
++    };
++    auto sink = [&seen](const TopOfBook & /*unused*/) {
++        seen.fetch_add(1, std::memory_order_release);
++    };
++    Builder three{configs_for(day), BuilderOptions{}};
++    const PipelineResult result = run_pipeline(read_feed, three, sink, PipelineOptions{});
++    EXPECT_TRUE(arrived) << "the engine went idle without publishing its update";
++    EXPECT_TRUE(result.parsed);
++    EXPECT_EQ(result.updates, 16U); // as on the golden day in one go
++}
++
+ TEST(Pipeline, ABrokenMessageStillStopsEveryThread) {
+     std::vector<std::byte> day = golden::golden_day();
+     Writer broken;
+diff --git a/tests/pipeline/test_spsc_ring.cpp b/tests/pipeline/test_spsc_ring.cpp
+index fa9d1cd..12e24f5 100644
+--- a/tests/pipeline/test_spsc_ring.cpp
++++ b/tests/pipeline/test_spsc_ring.cpp
+@@ -9,6 +9,11 @@
+  *   order, on a big ring and on a 2-slot ring (constantly full and empty, so the two threads race
+  *   on every record); and 64-byte records whose eight fields are all the same number, so a record
+  *   read half-written (the bug wrong memory orders cause) shows up as fields that disagree.
++ *   The batched ring (HeadBatch > 1, optimise design E1d): records become visible to the
++ *   consumer only every HeadBatch pushes, when the producer finds the ring full, or on flush();
++ *   and the same two-thread checks, including a 2-slot ring with a batch of 64, which only works
++ *   because the producer publishes before it waits. known_empty() counts only the records the
++ *   consumer has already seen.
+  *
+  * Why it exists: A ring that loses, repeats or tears a record makes every later stage wrong
+  *   without crashing. The two-thread tests run under ThreadSanitizer in CI (pipeline design §8),
+@@ -52,14 +57,17 @@ struct Wide {
+ };
+ static_assert(sizeof(Wide) == 64);
+ 
+-// Producer pushes 1..n; the calling thread pops n and checks each one. Returns the consumer's
+-// count of empty waits (only to show the threads really overlapped).
+-template <std::size_t Capacity> std::uint64_t one_to_n_in_order(std::uint64_t n) {
+-    auto ring = std::make_unique<SpscRing<std::uint64_t, Capacity>>();
++// Producer pushes 1..n, then flushes (a batched ring's last records); the calling thread pops n
++// and checks each one. Returns the consumer's count of empty waits (only to show the threads
++// really overlapped).
++template <std::size_t Capacity, std::size_t HeadBatch = 1>
++std::uint64_t one_to_n_in_order(std::uint64_t n) {
++    auto ring = std::make_unique<SpscRing<std::uint64_t, Capacity, HeadBatch>>();
+     std::jthread producer{[&ring, n] {
+         for (std::uint64_t i = 1; i <= n; ++i) {
+             ring->push(i);
+         }
++        ring->flush();
+     }};
+     std::uint64_t waits = 0;
+     for (std::uint64_t expected = 1; expected <= n; ++expected) {
+@@ -146,6 +154,60 @@ TEST(SpscRing, PushAndPopReportTheirWaits) {
+     EXPECT_EQ(out, 1);
+ }
+ 
++// E1d: a batched ring (HeadBatch > 1). Records become visible every HeadBatch pushes, when the
++// producer finds the ring full, or when it flushes; never earlier.
++TEST(SpscRing, ABatchedRingPublishesEveryBatch) {
++    SpscRing<int, 8, 2> ring; // the producer publishes its position every 2 pushes
++    int out = -1;
++    ASSERT_TRUE(ring.try_push(0));
++    EXPECT_FALSE(ring.try_pop(out)); // one push: not published yet
++    ASSERT_TRUE(ring.try_push(1));   // two: both published together
++    ASSERT_TRUE(ring.try_pop(out));
++    EXPECT_EQ(out, 0);
++    ASSERT_TRUE(ring.try_pop(out));
++    EXPECT_EQ(out, 1);
++}
++
++TEST(SpscRing, ABatchedRingPublishesWhenItFindsItselfFull) {
++    SpscRing<int, 4, 64> ring; // a batch bigger than the ring
++    for (int i = 0; i < 4; ++i) {
++        ASSERT_TRUE(ring.try_push(i));
++    }
++    int out = -1;
++    EXPECT_FALSE(ring.try_pop(out)); // 4 pushes, fewer than 64: nothing published yet
++    EXPECT_FALSE(ring.try_push(4));  // finding it full publishes every record written...
++    for (int expected = 0; expected < 4; ++expected) {
++        ASSERT_TRUE(ring.try_pop(out)); // ...so the consumer sees all 4
++        EXPECT_EQ(out, expected);
++    }
++}
++
++TEST(SpscRing, FlushPublishesABatchedRingsRecords) {
++    SpscRing<int, 8, 64> ring;
++    ASSERT_TRUE(ring.try_push(7));
++    int out = -1;
++    EXPECT_FALSE(ring.try_pop(out));
++    ring.flush();
++    ASSERT_TRUE(ring.try_pop(out));
++    EXPECT_EQ(out, 7);
++    ring.flush(); // nothing new: nothing changes
++    EXPECT_FALSE(ring.try_pop(out));
++}
++
++// What the consumer knows, without looking at the producer's counter (E1d).
++TEST(SpscRing, KnownEmptyCountsOnlyRecordsTheConsumerHasSeen) {
++    SpscRing<int, 8> ring;
++    EXPECT_TRUE(ring.known_empty());
++    ASSERT_TRUE(ring.try_push(1));
++    ASSERT_TRUE(ring.try_push(2));
++    EXPECT_TRUE(ring.known_empty()); // pushed, but the consumer hasn't looked yet
++    int out = -1;
++    ASSERT_TRUE(ring.try_pop(out));   // looking sees both
++    EXPECT_FALSE(ring.known_empty()); // one more is known to wait
++    ASSERT_TRUE(ring.try_pop(out));
++    EXPECT_TRUE(ring.known_empty());
++}
++
+ // ---------------------------------------------------------------------------
+ // Two threads (run under ThreadSanitizer in CI)
+ // ---------------------------------------------------------------------------
+@@ -160,8 +222,18 @@ TEST(SpscRingThreads, ATwoSlotRingRacesOnEveryRecord) {
+     one_to_n_in_order<2>(kStress / 10);
+ }
+ 
+-TEST(SpscRingThreads, NoRecordIsEverReadHalfWritten) {
+-    auto ring = std::make_unique<SpscRing<Wide, 16>>();
++TEST(SpscRingThreads, ABatchedRingDeliversEveryRecordOnceAndInOrder) {
++    one_to_n_in_order<65'536, 64>(kStress);
++    // A batch bigger than the ring: records are only published when the producer finds it full.
++    // Without that publish, both threads would wait for each other for ever (the test hangs).
++    one_to_n_in_order<2, 64>(kStress / 10);
++}
++
++namespace {
++
++// Records of eight equal fields through a 16-slot ring: a field that disagrees was torn.
++template <std::size_t HeadBatch> void no_record_read_half_written() {
++    auto ring = std::make_unique<SpscRing<Wide, 16, HeadBatch>>();
+     constexpr std::uint64_t n = kStress / 10; // a constant: the lambda needn't capture it
+     std::jthread producer{[&ring] {
+         for (std::uint64_t i = 1; i <= n; ++i) {
+@@ -169,6 +241,7 @@ TEST(SpscRingThreads, NoRecordIsEverReadHalfWritten) {
+             w.v.fill(i);
+             ring->push(w);
+         }
++        ring->flush();
+     }};
+     for (std::uint64_t expected = 1; expected <= n; ++expected) {
+         Wide w;
+@@ -181,3 +254,13 @@ TEST(SpscRingThreads, NoRecordIsEverReadHalfWritten) {
+         }
+     }
+ }
++
++} // namespace
++
++TEST(SpscRingThreads, NoRecordIsEverReadHalfWritten) {
++    no_record_read_half_written<1>();
++}
++
++TEST(SpscRingThreads, NoRecordIsEverReadHalfWrittenFromABatchedRing) {
++    no_record_read_half_written<4>(); // a record published before it is written would tear
++}

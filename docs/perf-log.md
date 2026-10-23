@@ -1450,3 +1450,95 @@ stops here** (the user's decision, made before the data: stop if p99 is still wo
   1,024 slots, plus a 16-order book, all pass; the full-day differential, 0 mismatches in
   363,118,215 quick and 61,354 full checks, 3,631 structure checks, 0 failures
   (`docs/data/phase6_wsl/e7_window/differential_e7b.txt`); all CI checks.
+
+---
+
+## 2026-10-24: E8, deep inserts: closed without an experiment (phase 6 step 9)
+
+Optimise design E8. **No change, no A/B: the most it could gain is below what can be measured.**
+Counts from `docs/data/phase6_wsl/e7_window/flow.txt` (step 8a′); shares from the profile
+("Where the real day's time goes").
+
+### The bound
+- **Deep shifts:** creations shifting 1,024–2,047 levels: 10,025; 2,048–4,095: 2,696. Removals:
+  978 and 184. Together 17.2–34.3 million levels shifted (each bucket counted at its low and high
+  end), out of 1,254.6 million for the whole day: **1.4–2.7% of all shifting**, 0.55–1.10 GB of
+  the day's 40 GB.
+- **All shifting** (`memmove` in libc) was about 6% of the replay in the profile, so deep inserts
+  are at most about **0.16% of the replay**.
+- The earlier bound ("at most about 3% of the book work") was for all shifting, not just deep
+  inserts.
+
+### What it says
+- **Not worth an experiment.** The A/B sessions' own noise is 1.3–2.5% within one session (E7b),
+  ten times the most a fix could gain, so any fix (a circular or chunked array, fast-book design
+  §6.1) would come back "undecided".
+- **What it would still be good for:** one deep insert costs microseconds, so it can show in the
+  maximum, not in p99 or throughput. If a firm cared about the worst message, a chunked array is
+  the cheapest fix. Out of scope here.
+
+---
+
+## 2026-10-24: E1d, ring 2's ping-pong: three variants, not kept (phase 6 step E1d)
+
+Optimise design E1d. **Not kept: three threads 7–12% faster, but paced p90 worse.** WSL2, so
+**not for publishing** (rule 20). Data: `docs/data/phase6_wsl/e1d*/` (each folder's `after.diff`).
+
+### Symptom and hypothesis
+- After E1b, three threads were still about 9% slower than one on the whole day (perf log
+  "E1"). Leading suspect: the same ping-pong on ring 2. The publisher, faster than the engine,
+  usually finds ring 2 empty and re-reads the engine's `head_`, which the engine writes on every
+  update.
+- **Cure, the mirror of E1a:** the engine publishes ring 2's `head_` in batches
+  (`SpscRing<T, Capacity, HeadBatch>`, `flush()`), and always before it could wait on ring 1.
+  The consumer-side back-off (the mirror of E1b) was ruled out: in paced runs ring 2 is empty
+  on almost every update, so a 64-pause back-off would delay each one by about a microsecond.
+
+### Variants (each: all ring and pipeline tests, TSan, 2 CPUs; planted bugs caught)
+- **(a) batch 64**, the engine flushes when it finds ring 1 empty. Planted bugs: no publish
+  before waiting on a full ring (a test hangs), `relaxed` publish (TSan), no flush before
+  waiting (a new test: an update must reach the publisher while the feed holds the rest back),
+  no flush after End (the pipeline never stops). **Full-day log checksum unchanged:**
+  `748abedf40533b82`, 363,118,215 updates (`e1d/checksum_batch64.txt`).
+- **(b) batch 8**, otherwise (a).
+- **(c) batch 64, flushing from the engine's own knowledge:** if ring 1's consumer-side cached
+  head says no record is waiting (`known_empty()`, no cross-core read), the engine publishes
+  before looking at ring 1. Planted bug (the check inverted): caught by the new test.
+
+### Method
+`scripts/run_ab_session.sh HEAD OUT --rounds 4 -- nanobook_pipeline ITCH_FILE --cores 2,4,6
+--throughput` (decision metric: three-thread ns per message; one thread is the control), then
+the same with `--latency --rate 2000000 --from 10:00:00 --until 10:05:00` (the guard, as E1b's).
+Before = `c850091`. 2026-10-24, 00:42–02:30, laptop idle.
+
+### Results: three threads, ns per message (rounds 1–4)
+
+| Variant | Before | After | Three ÷ one thread, after |
+|---|---|---|---|
+| (a) batch 64 | 170.7 / 169.4 / 167.1 / 170.2 | 149.9 / 151.7 / 151.3 / 152.4 | 1.01 / 0.99 / 0.98 / 1.00 |
+| (b) batch 8 | 167.0 / 170.0 / 170.2 / 169.2 | 153.0 / 152.3 / 166.7 / 154.1 | 0.98 / 0.99 / 0.90 / 1.01 |
+| (c) known empty | 167.6 / 169.9 / 166.9 / 160.6 | 155.0 / 155.4 / 150.3 / 149.3 | 0.99 / 0.98 / 0.93 / 1.00 |
+
+### Guard: paced latency at 2 M records/s, three threads (ns, rounds 1–4)
+
+| Variant | p50 before → after | p90 before → after |
+|---|---|---|
+| (a) batch 64 | 493 / 525 / 496 / 495 → 513 / 509 / 556 / 514 | 1,023 / 1,021 / 980 / 2,092 → 1,594 / 1,570 / 2,125 / 3,588 |
+| (b) batch 8 | 511 / 500 / 498 / 539 → 517 / 509 / 511 / 538 | 1,025 / 919 / 1,039 / 1,324 → 1,594 / 1,487 / 1,540 / 1,546 |
+| (c) known empty | 496 / 482 / 499 / 511 → 491 / 488 / 485 / 504 | 1,048 / 1,615 / 1,878 / 1,195 → 2,226 / 2,331 / 1,834 / 3,822 |
+
+p99 and above sit at tens of microseconds to milliseconds in every run: the machine's stalls, as
+in E1b, so they say nothing here.
+
+### What these numbers say
+- **The hypothesis holds.** Batching ring 2's `head_` makes three threads 7–12% faster in every
+  round of (a) and (c), against a 2% round-to-round spread; one thread, which uses no ring,
+  doesn't move. Three threads now match one thread (0.98–1.01×) for the first time.
+- **But updates wait during bursts.** Even at 2 M/s the feed arrives in bursts (ring 1 found
+  full 2.8 million times), and while the engine has records queued it doesn't flush: its updates
+  wait for the batch. p90 is worse in every round of (a) and (b), and in 3 of 4 of (c).
+- **(c) fixed p50:** (a) and (b) looked at ring 1 (a cross-core read) before publishing, which
+  added about 10–60 ns to most updates. (c) publishes first, and p50 is equal or better.
+- **Not kept** (design §3.3: no guard may get worse). Ring 2's ping-pong is the price of
+  delivering every update at once. A system that only cares about throughput at full load (a
+  replay, a backtest) would take (c); the code is in `docs/data/phase6_wsl/e1d_known/after.diff`.

@@ -1,0 +1,25 @@
+*** NOT FOR PUBLISHING: measured in a virtual machine (README rule 20) ***
+cpu              Intel(R) Core(TM) i7-14650HX
+logical cores    24
+os               Ubuntu 24.04.5 LTS
+kernel           Linux 6.18.54.1-microsoft-standard-WSL2 x86_64
+virtual machine  yes: WSL2
+isolated cores   none
+nohz_full cores  unknown
+governor         unknown
+turbo            unknown
+compiler         GCC 14.2.0
+build type       Release
+flags            -std=c++23 -O3 -DNDEBUG
+commit           c8500917db7f
+cores            2 (feed), 4 (engine), 6 (publisher), spinning only
+counter          2.4192 ticks per ns
+
+Latency, three threads: 2000 K records/s paced from 10:00:00 to 10:05:00 (5641949 records paced, 5641949 updates timed; ns, from each record's intended send time to the publisher)
+       min       p50       p90       p99     p99.9    p99.99       max      mean
+     148.8     492.7      1023     73612    479701   1024892   1159312      3792
+  clamped (over 1.7 s) 0, refused (full) 0; ring 1 full 2812024 tries, ring 2 full 0 tries
+  page faults during the run (start-up and warm-up included): 14 minor, 0 major
+  books: 384 MB arena, 384 MB of it on 2 MiB pages
+wrote /home/weijun/NanoBook/docs/data/phase6_wsl/e1d_latency/before_round1.csv
+*** NOT FOR PUBLISHING: measured in a virtual machine (README rule 20) ***

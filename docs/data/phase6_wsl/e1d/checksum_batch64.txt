@@ -1,0 +1,7 @@
+File:       data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50 (11245883092 bytes)
+Mode:       pipeline, three threads on cores 2, 4, 6
+Records:    363135740 sent to the engine, 5230894 messages the books don't use
+Updates:    363118215 TopOfBook updates published
+Waits:      ring 1 full 24565359 times, ring 2 full 12875 times
+Log:        /dev/null, 363118215 records, 20334620056 bytes, checksum 748abedf40533b82
+Wall time:  64.6 s (not a benchmark: correctness run)

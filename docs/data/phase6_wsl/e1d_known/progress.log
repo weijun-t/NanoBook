@@ -1,0 +1,21 @@
+[01:43:15] before: c8500917db7f (HEAD), preset gcc-release; after: c8500917db7f plus the uncommitted changes in after.diff, preset gcc-release
+[01:43:15] building before (worktree at /home/weijun/NanoBook/build/ab-before)
+[01:43:27] building after (this working tree)
+[01:43:27] start: nanobook_pipeline data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50 --cores 2,4,6 --throughput; 4 rounds, order ABBA; the laptop must stay idle
+[01:43:27] round 1: before
+[01:46:15]   exit 0
+[01:46:15] round 1: after
+[01:48:52]   exit 0
+[01:48:52] round 2: after
+[01:51:27]   exit 0
+[01:51:27] round 2: before
+[01:54:09]   exit 0
+[01:54:09] round 3: before
+[01:56:48]   exit 0
+[01:56:48] round 3: after
+[01:59:16]   exit 0
+[01:59:16] round 4: after
+[02:01:47]   exit 0
+[02:01:47] round 4: before
+[02:04:21]   exit 0
+[02:04:21] done: /home/weijun/NanoBook/docs/data/phase6_wsl/e1d_known
