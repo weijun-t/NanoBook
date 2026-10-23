@@ -65,7 +65,7 @@ public:
 
     // The bytes this book's arrays (pool, levels, id table) take from the memory resource that
     // is the default while it is built: the timed tools size their huge-page arena with it
-    // (optimise design E6). SortedLevels only: TickLevels keeps plain std::vector.
+    // (optimise design E6). SortedLevels only: TickLevels isn't used by the timed tools.
     [[nodiscard]] static std::size_t arena_bytes(const BookConfig &config)
         requires std::same_as<Levels, SortedLevels>
     {

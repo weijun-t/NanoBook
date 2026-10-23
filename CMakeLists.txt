@@ -197,6 +197,7 @@ if(NANOBOOK_BUILD_TESTS)
         tests/fast/test_intrusive_queue.cpp
         tests/fast/test_id_table.cpp
         tests/fast/test_levels.cpp
+        tests/fast/test_tick_bitmap.cpp
         tests/test_huge_page_arena.cpp
         tests/itch/test_parser.cpp
         tests/itch/test_book_builder.cpp
