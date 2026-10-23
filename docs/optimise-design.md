@@ -14,7 +14,8 @@
 > analysis chose W = 1,024 (§10.5); step 8b built it, the real day 0 mismatches (§10.6); step 8c:
 > not kept, p99 18–26% worse in every round, E7b didn't fix it (§10.7, §5 B7). Step 9: E8 closed
 > without an experiment, at most 0.16% of the replay (§2). Step 9b: E1d not kept, three threads
-> 7–12% faster but paced p90 worse (§2). Next: the phase 6 report.
+> 7–12% faster but paced p90 worse (§2). Step 10: the phase 6 report. Phase 6 complete except the
+> bare-metal re-checks (§5).
 
 Phases 1–5 built a correct order book, a way to time it, a real Nasdaq day to feed it, and a
 three-thread pipeline around it. Phase 5 left measured **symptoms**, such as a slow tail, a pipeline
@@ -435,7 +436,7 @@ Every timed step needs an idle laptop, and I ask before each session.
 | 8a, 8b, 8c ✓ | E7: moving window: design section (§10), window analysis (W = 1,024); code, tests and fuzzing, the real day 0 mismatches; three A/Bs (E7, E7b). Not kept: p99 18–26% worse in every round. Kept as a tested experiment. Done 2026-10-23 | Yes |
 | 9 ✓ | E8: deep inserts. Closed without an experiment: at most about 0.16% of the replay, below the noise. Done 2026-10-24 | No |
 | 9b ✓ | E1d: ring 2's ping-pong, batched `head_`, three variants. Not kept: three threads 7–12% faster, but paced p90 worse. Done 2026-10-24 | Yes |
-| 10 | Phase 6 report | Yes |
+| 10 ✓ | Phase 6 report: `docs/phase6-report.md` (+ PDF). Done 2026-10-24 | No |
 
 Each experiment is kept or reverted on its own numbers. Later experiments are measured on top of
 the kept ones, so each table's "before" is the code as it stood at that point.
