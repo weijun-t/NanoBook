@@ -110,6 +110,11 @@ TEST(ReplayComparison, GoldenDayAgreesOnTickFastBook) {
     golden_day_agrees<TickFastBook>();
 }
 
+TEST(ReplayComparison, GoldenDayAgreesOnWindowFastBooks) {
+    golden_day_agrees<WindowFastBook>();
+    golden_day_agrees<Window8FastBook>();
+}
+
 TEST(ReplayComparison, CatchesTheFirstMessageWhereTheCopiesDiffer) {
     std::vector<BookConfig> small = golden_configs();
     small[1].max_orders = 1; // AAA's fast copy has room for one order only

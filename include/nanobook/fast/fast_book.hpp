@@ -637,9 +637,12 @@ using TickFastBook = fast::BasicFastBook<fast::TickLevels>;
 // W = 1,024 slots a side, chosen on the real day (§10.5). Any price band.
 inline constexpr std::size_t kWindowSlots = 1024;
 using WindowFastBook = fast::BasicFastBook<fast::WindowLevels<kWindowSlots>>;
+// The same with 8 slots, for the fuzzer and the tests: the window slides every few operations.
+using Window8FastBook = fast::BasicFastBook<fast::WindowLevels<8>>;
 
 static_assert(FeedBook<FastBook>);
 static_assert(FeedBook<TickFastBook>);
 static_assert(FeedBook<WindowFastBook>);
+static_assert(FeedBook<Window8FastBook>);
 
 } // namespace nanobook

@@ -11,7 +11,8 @@
  *     from the best price (support/itch_flow.hpp, step 6), and --csv writes those tables;
  *     --flow also simulates E7's moving window at three widths (support/itch_window.hpp);
  *     --snapshot-csv writes --symbol's whole book at the end of the replay (step 7, for
- *     scripts/plot_depth.py).
+ *     scripts/plot_depth.py); --book window replays into E7's WindowFastBook instead (optimise
+ *     design §10), so --differential checks it against the reference book.
  *   - Timing (--throughput, --latency; step 6, design §9): messages per second for the parser
  *     alone and for parser + FastBook, and the latency of every Nth order message by kind, with
  *     the environment block and CSV files of the phase 3 harness.
@@ -20,7 +21,7 @@
  *   a difference between the reference and fast books; 2 bad arguments; 3 no usable timer.
  *     nanobook_replay FILE [--symbol AAPL] [--depth N] [--until HH:MM:SS] [--check]
  *                     [--structure-every N] [--differential] [--flow [--csv FILE.csv]]
- *                     [--snapshot-csv FILE.csv]
+ *                     [--snapshot-csv FILE.csv] [--book sorted|window]
  *     nanobook_replay FILE [--throughput] [--latency] [--every N] [--window-mb N] [--core C]
  *                     [--csv FILE.csv]
  *
@@ -67,6 +68,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -98,7 +100,7 @@ using Clock = std::chrono::steady_clock;
 constexpr std::string_view kUsage =
     "usage: nanobook_replay FILE [--symbol AAPL] [--depth N] [--until HH:MM:SS] [--check]\n"
     "                       [--structure-every N] [--differential] [--flow [--csv FILE.csv]]\n"
-    "                       [--snapshot-csv FILE.csv]\n"
+    "                       [--snapshot-csv FILE.csv] [--book sorted|window]\n"
     "       nanobook_replay FILE [--throughput] [--latency] [--every N] [--window-mb N] [--core "
     "C]\n"
     "                       [--csv FILE.csv]\n";
@@ -112,6 +114,7 @@ struct Options {
     std::uint64_t structure_every{0};
     bool differential{false}; // also replay into the reference book and compare (design §8.2)
     bool flow{false};         // count level changes, their shifts, and distances from the best
+    bool window{false};       // --book window: E7's WindowFastBook instead of FastBook
     // Timing (step 6)
     bool throughput{false};
     bool latency{false};
@@ -197,6 +200,9 @@ std::optional<Options> parse_args(int argc, char **argv) {
         } else if (arg == "--snapshot-csv") {
             o.snapshot_csv = value;
             ok = !o.snapshot_csv.empty();
+        } else if (arg == "--book") {
+            o.window = value == "window";
+            ok = o.window || value == "sorted";
         }
         if (!ok) {
             return std::nullopt;
@@ -204,6 +210,9 @@ std::optional<Options> parse_args(int argc, char **argv) {
     }
     if (o.file.empty()) {
         return std::nullopt;
+    }
+    if (o.window && (o.flow || o.throughput || o.latency)) {
+        return std::nullopt; // --flow measures the sorted array; timing always uses FastBook
     }
     return o;
 }
@@ -385,7 +394,7 @@ void print_peaks(const DayCounter &counter) {
 }
 
 // The best `depth` levels of each side.
-void print_depth(const FastBook &book, std::size_t depth) {
+template <typename Book> void print_depth(const Book &book, std::size_t depth) {
     for (const Side side : {Side::Sell, Side::Buy}) {
         std::vector<std::pair<Price, Qty>> levels = book.depth(side, depth);
         if (side == Side::Sell) {
@@ -507,7 +516,7 @@ void write_provenance(std::ostream &f, const Options &o) {
 }
 
 // One stock's book, every level, best first on each side (plot_depth.py reads it).
-bool write_snapshot_csv(const Options &o, const FastBook &book) {
+template <typename Book> bool write_snapshot_csv(const Options &o, const Book &book) {
     std::ofstream f{o.snapshot_csv};
     if (!f) {
         std::cerr << "can't write " << o.snapshot_csv << "\n";
@@ -828,43 +837,19 @@ long max_rss_mb() {
 
 } // namespace
 
-int main(int argc, char **argv) {
-    const std::optional<Options> parsed = parse_args(argc, argv);
-    if (!parsed) {
-        std::cerr << kUsage;
-        return 2;
-    }
-    const Options &o = *parsed;
-    const support::MappedFile file{o.file};
-    const std::span<const std::byte> bytes = file.bytes();
-    if (bytes.empty()) {
-        std::cerr << "can't read " << o.file << "\n";
-        return 1;
-    }
-    std::cout << "File: " << o.file << " (" << bytes.size() << " bytes)\n";
-    if (o.throughput || o.latency) {
-        return run_timing(o, bytes);
-    }
-
-    // 1. Counting (ITCH design §7).
-    auto start = Clock::now();
-    DayCounter counter{1 << 22};
-    if (!parsed_whole(parse(bytes, counter), bytes.size(), "counting")) {
-        return 1;
-    }
-    std::cout << "Counting pass:  " << std::fixed << std::setprecision(1) << seconds_since(start)
-              << " s (" << counter.directory().size() - 1 << " locates; " << counter.ignored()
-              << " inputs the counter couldn't follow)\n";
-
+// Sizing, building and replaying the day's books (correctness mode), then the report. Book is
+// FastBook, or WindowFastBook with --book window (optimise design E7).
+template <typename Book>
+int replay_day(const Options &o, std::span<const std::byte> bytes, const DayCounter &counter) {
     // 2. Sizing and building the books.
-    start = Clock::now();
+    auto start = Clock::now();
     const std::vector<BookConfig> configs =
         size_books(counter.directory(), counter.stats(), SizingRules{});
     std::uint64_t room = 0;
     for (const BookConfig &c : configs) {
         room += c.max_orders;
     }
-    BookBuilder<FastBook> builder{
+    BookBuilder<Book> builder{
         configs, BuilderOptions{.check = o.check, .structure_every = o.structure_every}};
     std::cout << "Building books: " << seconds_since(start) << " s (room for " << room
               << " resting orders in all)\n";
@@ -903,21 +888,24 @@ int main(int argc, char **argv) {
                       << first->what << "\n";
         }
     } else if (o.flow) {
-        FlowAnalysis flow{builder};
-        if (!replay(flow)) {
-            return 1;
-        }
-        std::cout << "Replay:         " << seconds_since(start) << " s, with the flow analysis\n";
-        print_flow(flow.stats());
-        std::size_t books = 0;
-        for (std::size_t locate = 1; locate < builder.locates(); ++locate) {
-            if (builder.name(static_cast<std::uint16_t>(locate)) != Symbol{}) {
-                ++books;
+        if constexpr (std::is_same_v<Book, FastBook>) { // --flow needs SortedLevels
+            FlowAnalysis flow{builder};
+            if (!replay(flow)) {
+                return 1;
             }
-        }
-        print_windows(flow.windows(), books);
-        if (!o.csv.empty() && !write_flow_csv(o, flow.stats())) {
-            return 2;
+            std::cout << "Replay:         " << seconds_since(start)
+                      << " s, with the flow analysis\n";
+            print_flow(flow.stats());
+            std::size_t books = 0;
+            for (std::size_t locate = 1; locate < builder.locates(); ++locate) {
+                if (builder.name(static_cast<std::uint16_t>(locate)) != Symbol{}) {
+                    ++books;
+                }
+            }
+            print_windows(flow.windows(), books);
+            if (!o.csv.empty() && !write_flow_csv(o, flow.stats())) {
+                return 2;
+            }
         }
     } else {
         if (!replay(builder)) {
@@ -950,4 +938,37 @@ int main(int argc, char **argv) {
     std::cout << "\nPeak memory: " << max_rss_mb() << " MB (includes the file's pages read)\n";
     const ReplayStats &s = builder.stats();
     return s.structure_failures == 0 && s.crossed_while_trading == 0 && mismatches == 0 ? 0 : 1;
+}
+
+int main(int argc, char **argv) {
+    const std::optional<Options> parsed = parse_args(argc, argv);
+    if (!parsed) {
+        std::cerr << kUsage;
+        return 2;
+    }
+    const Options &o = *parsed;
+    const support::MappedFile file{o.file};
+    const std::span<const std::byte> bytes = file.bytes();
+    if (bytes.empty()) {
+        std::cerr << "can't read " << o.file << "\n";
+        return 1;
+    }
+    std::cout << "File: " << o.file << " (" << bytes.size() << " bytes)\n";
+    if (o.throughput || o.latency) {
+        return run_timing(o, bytes);
+    }
+
+    // 1. Counting (ITCH design §7).
+    auto start = Clock::now();
+    DayCounter counter{1 << 22};
+    if (!parsed_whole(parse(bytes, counter), bytes.size(), "counting")) {
+        return 1;
+    }
+    std::cout << "Counting pass:  " << std::fixed << std::setprecision(1) << seconds_since(start)
+              << " s (" << counter.directory().size() - 1 << " locates; " << counter.ignored()
+              << " inputs the counter couldn't follow)\n";
+
+    // 2 and 3: sizing, building and replaying, into FastBook or (--book window) E7's window.
+    return o.window ? replay_day<WindowFastBook>(o, bytes, counter)
+                    : replay_day<FastBook>(o, bytes, counter);
 }

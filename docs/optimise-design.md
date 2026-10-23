@@ -11,7 +11,7 @@
 > PrefaultAllocator folded into it (§2, §5 B5-E6). A profile before E7 put half the replay in
 > the ID table: E9 added and done first (the user's decision, §2, §7). Step 8: E9a reverted;
 > E9b reverted pending bare metal (§2, §5 B6). Step 8a: E7's design approved (§10); the window
-> analysis chose W = 1,024 (§10.5).
+> analysis chose W = 1,024 (§10.5); step 8b built it, the real day 0 mismatches (§10.6).
 
 Phases 1–5 built a correct order book, a way to time it, a real Nasdaq day to feed it, and a
 three-thread pipeline around it. Phase 5 left measured **symptoms**, such as a slow tail, a pipeline
@@ -441,7 +441,8 @@ the kept ones, so each table's "before" is the code as it stood at that point.
 ## 10. E7 design: the moving window (step 8a)
 
 > **Status:** approved (2026-10-23), every decision in §10.9 as proposed. The window analysis
-> chose W = 1,024 (§10.5). Next: step 8b, the code.
+> chose W = 1,024 (§10.5). Step 8b: built, every gate passed, the real day 0 mismatches
+> (§10.6). Next: step 8c, the A/B.
 
 ### 10.1 What it is, in plain words
 Today each side's levels are one sorted array (`SortedLevels`). Finding a price is a search, and
@@ -556,6 +557,26 @@ full-day differential replay, golden test, all CI checks.
 
 **Reuse:** `TickLevels`' bitmap code (`set`, `clear`, `next_up`, `next_down`) moves to a shared
 header used by both, and `TickLevels`' machine code is checked unchanged (§4).
+
+**Result (step 8b, 2026-10-23):** every gate passed.
+- `WindowLevels<W>` (`include/nanobook/fast/window_levels.hpp`) is circular: a price's slot is
+  (price / step) mod W, so a price keeps its slot when the window slides and a slide only moves
+  the levels that enter or leave. Without that, every slide would shift the whole window.
+- The bitmap moved to `tick_bitmap.hpp`. `TickLevels` now compiles to the same steps with a
+  bigger layout (72 → 96 bytes a side), not identical code. A new `TickBitmap` test covers a gap
+  found on the way: a summary bit left set by `clear()` failed no unit test before.
+- `SortedLevels` gained `size()`, `from_best()` and `take()` for the overflow; the code
+  `FastBook` uses is identical in assembly.
+- Typed level and book tests, zero allocations, feed differential and golden day on
+  `WindowFastBook` (W = 1,024) and `Window8FastBook` (W = 8, sliding every few operations).
+- 8 planted bugs, all caught (edges, the step, the best in the overflow, a slide losing a level,
+  crossing $1, the walk's wrap, the merge order, `take()` keeping a taken level).
+- Fuzzer: 10⁷ operations on 3 seeds at each width, plus a 16-order book: all pass.
+- **The real day** (`nanobook_replay --book window --differential --check --structure-every
+  100000`): **0 mismatches** in 363,118,215 quick and 61,354 full checks; 3,631 structure checks,
+  0 failures. Data: `docs/data/phase6_wsl/e7_window/differential.txt`.
+- The window's correctness doesn't depend on when it slides: a price's home is arithmetic, and
+  `best()` checks both parts. The slide policy only affects speed.
 
 ### 10.7 Measure and decide
 - **A/B:** `scripts/run_ab_session.sh HEAD OUT --rounds 4 -- nanobook_replay FILE --throughput

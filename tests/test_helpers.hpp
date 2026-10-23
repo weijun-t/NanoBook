@@ -10,9 +10,9 @@
  * Why it exists: So each test reads like its row in the design table, and every test checks the
  *   invariants after every single input without having to ask.
  *
- * How it works: BookTypes lists every book the typed tests run on: ReferenceBook, FastBook and the
- *   TickFastBook experiment. Each typed test runs once per book. The harnesses are templates over
- *   the book type.
+ * How it works: BookTypes lists every book the typed tests run on: ReferenceBook, FastBook, the
+ *   TickFastBook experiment, and E7's WindowFastBook at 1,024 and 8 slots. Each typed test runs
+ *   once per book. The harnesses are templates over the book type.
  */
 
 #pragma once
@@ -179,7 +179,8 @@ inline Modify req_modify(SymbolId symbol, std::uint64_t id, std::int64_t new_tot
 // ---- driver --------------------------------------------------------------
 
 // Every book type the tests run against (design §11). Each typed test runs once per type.
-using BookTypes = ::testing::Types<ReferenceBook, FastBook, TickFastBook>;
+using BookTypes =
+    ::testing::Types<ReferenceBook, FastBook, TickFastBook, WindowFastBook, Window8FastBook>;
 
 // Gives each type a readable name in test output: "BookTest/ReferenceBook.Name" instead of
 // "BookTest/0.Name".
@@ -191,6 +192,10 @@ struct BookTypeNames {
             return "FastBook";
         } else if constexpr (std::is_same_v<T, TickFastBook>) {
             return "TickFastBook";
+        } else if constexpr (std::is_same_v<T, WindowFastBook>) {
+            return "WindowFastBook";
+        } else if constexpr (std::is_same_v<T, Window8FastBook>) {
+            return "Window8FastBook";
         } else {
             return "UnnamedBook";
         }

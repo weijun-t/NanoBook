@@ -207,6 +207,11 @@ TEST(ZeroAlloc, TickFastBookNeverAllocatesWhileTrading) {
     EXPECT_EQ(allocations_while_trading<TickFastBook>(2000), 0U);
 }
 
+TEST(ZeroAlloc, WindowFastBooksNeverAllocateWhileTrading) {
+    EXPECT_EQ(allocations_while_trading<WindowFastBook>(2000), 0U);
+    EXPECT_EQ(allocations_while_trading<Window8FastBook>(2000), 0U); // slides all the time
+}
+
 // Phase 4: copying a book from a feed (add, reduce, remove, replace) must not allocate either. The
 // inputs are made first; only applying them is counted. max_orders 64 with 128 ids keeps the book
 // often full, so BookFull and every other failure path run too.
@@ -229,6 +234,8 @@ template <typename Book> std::uint64_t allocations_while_applying_the_feed() {
 TEST(ZeroAlloc, FastBooksNeverAllocateWhileApplyingTheFeed) {
     EXPECT_EQ(allocations_while_applying_the_feed<FastBook>(), 0U);
     EXPECT_EQ(allocations_while_applying_the_feed<TickFastBook>(), 0U);
+    EXPECT_EQ(allocations_while_applying_the_feed<WindowFastBook>(), 0U);
+    EXPECT_EQ(allocations_while_applying_the_feed<Window8FastBook>(), 0U);
 }
 
 // The whole replay path (parser -> book builder -> books, ITCH design §6) on a made-up day of
@@ -252,6 +259,8 @@ template <typename Book> std::uint64_t allocations_while_replaying_itch() {
 TEST(ZeroAlloc, ItchReplayNeverAllocates) {
     EXPECT_EQ(allocations_while_replaying_itch<FastBook>(), 0U);
     EXPECT_EQ(allocations_while_replaying_itch<TickFastBook>(), 0U);
+    EXPECT_EQ(allocations_while_replaying_itch<WindowFastBook>(), 0U);
+    EXPECT_EQ(allocations_while_replaying_itch<Window8FastBook>(), 0U);
 }
 
 // Phase 5: the publisher's binary log. Its buffer is made in the constructor; appending (and the

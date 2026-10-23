@@ -145,6 +145,20 @@ TEST(Fuzz, TickFastBookAgreesWithReference) {
     }
 }
 
+TEST(Fuzz, WindowFastBooksAgreeWithReference) {
+    for (std::uint64_t seed = 1; seed <= 8; ++seed) {
+        // 8 slots: the window slides every few operations. 1,024: the real day's size.
+        if (const auto mismatch =
+                run<ReferenceBook, Window8FastBook>(Options{.seed = seed, .ops = 20'000})) {
+            ADD_FAILURE() << report(*mismatch);
+        }
+        if (const auto mismatch =
+                run<ReferenceBook, WindowFastBook>(Options{.seed = seed, .ops = 20'000})) {
+            ADD_FAILURE() << report(*mismatch);
+        }
+    }
+}
+
 TEST(Fuzz, FastBookAgreesWithReferenceOnATinyBook) {
     const auto mismatch =
         run<ReferenceBook, FastBook>(Options{.seed = 99, .ops = 20'000, .max_orders = 16});

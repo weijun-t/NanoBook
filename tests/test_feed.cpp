@@ -258,17 +258,23 @@ TEST(FeedDifferential, AllBooksAgreeOnRandomFeedInputs) {
     ReferenceBook reference{config};
     FastBook fast{config};
     TickFastBook tick{config};
+    WindowFastBook window{config};
+    Window8FastBook window8{config};
     std::array<std::size_t, 7> seen{}; // how often each FeedResult happened
 
     for (std::size_t i = 0; i < inputs.size(); ++i) {
         const FeedResult expected = support::apply(reference, inputs[i]);
         ASSERT_EQ(support::apply(fast, inputs[i]), expected) << "FastBook, input " << i;
         ASSERT_EQ(support::apply(tick, inputs[i]), expected) << "TickFastBook, input " << i;
+        ASSERT_EQ(support::apply(window, inputs[i]), expected) << "WindowFastBook, input " << i;
+        ASSERT_EQ(support::apply(window8, inputs[i]), expected) << "Window8FastBook, input " << i;
         ++seen[static_cast<std::size_t>(expected)];
 
         ASSERT_TRUE(reference.structure_holds()) << "input " << i;
         ASSERT_TRUE(fast.structure_holds()) << "input " << i;
         ASSERT_TRUE(tick.structure_holds()) << "input " << i;
+        ASSERT_TRUE(window.structure_holds()) << "input " << i;
+        ASSERT_TRUE(window8.structure_holds()) << "input " << i;
         if (i % 16 != 15 && i + 1 != inputs.size()) {
             continue; // the full comparison is slow under the sanitizers: every 16th input
         }
@@ -276,6 +282,12 @@ TEST(FeedDifferential, AllBooksAgreeOnRandomFeedInputs) {
         ASSERT_FALSE(fast_diff) << "FastBook, input " << i << ": " << fast_diff.value_or("");
         const std::optional<std::string> tick_diff = fuzz::compare_state(reference, tick);
         ASSERT_FALSE(tick_diff) << "TickFastBook, input " << i << ": " << tick_diff.value_or("");
+        const std::optional<std::string> window_diff = fuzz::compare_state(reference, window);
+        ASSERT_FALSE(window_diff) << "WindowFastBook, input " << i << ": "
+                                  << window_diff.value_or("");
+        const std::optional<std::string> window8_diff = fuzz::compare_state(reference, window8);
+        ASSERT_FALSE(window8_diff)
+            << "Window8FastBook, input " << i << ": " << window8_diff.value_or("");
     }
     // The stream really exercised every outcome, not only the easy ones.
     for (std::size_t r = 0; r < seen.size(); ++r) {
