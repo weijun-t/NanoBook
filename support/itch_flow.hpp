@@ -8,7 +8,9 @@
  *     moves along by one (fast-book design §6.1);
  *   - how far each new order is from its side's best price, from "improves the best" to "more
  *     than $100 away".
- *   FlowStats keeps them as counts in buckets.
+ *   FlowStats keeps them as counts in buckets. It also feeds every level lookup, creation and
+ *   removal to three WindowModels (itch_window.hpp), W = 256, 1,024 and 4,096: how E7's moving
+ *   window would fare (optimise design §10.5).
  *
  * Why it exists: Phase 3 measured the sorted array's weak spot: a new level deep in a big book
  *   costs 1.41 µs at p50. Whether real flow does that often is fast-book design §13's question,
@@ -41,6 +43,8 @@
 #include "nanobook/itch/book_builder.hpp"
 #include "nanobook/itch/messages.hpp"
 
+#include "itch_window.hpp"
+
 namespace nanobook::itch {
 
 inline constexpr std::size_t kShiftBuckets = 25; // up to 2^24 levels shifted
@@ -64,6 +68,9 @@ enum class Distance : std::uint8_t {
 };
 inline constexpr std::size_t kDistances = 9;
 
+// The window widths simulated (optimise design §10.5).
+inline constexpr std::array<std::int64_t, 3> kWindowWidths{256, 1024, 4096};
+
 struct FlowStats {
     std::array<std::uint64_t, kShiftBuckets> created{}; // new levels, by levels shifted
     std::array<std::uint64_t, kShiftBuckets> removed{}; // vanished levels, by levels shifted
@@ -74,7 +81,10 @@ struct FlowStats {
 
 template <typename Builder> class FlowAnalysis {
 public:
-    explicit FlowAnalysis(Builder &inner) : inner_(inner) {
+    explicit FlowAnalysis(Builder &inner)
+        : inner_(inner), windows_{WindowModel{kWindowWidths[0], inner.locates()},
+                                  WindowModel{kWindowWidths[1], inner.locates()},
+                                  WindowModel{kWindowWidths[2], inner.locates()}} {
         where_.reserve(1 << 22);
     }
 
@@ -97,6 +107,7 @@ public:
     void on(const OrderDelete &d) {
         const auto found = where_.find(d.order_ref);
         if (found != where_.end()) {
+            looked_up(found->second);
             leaving(found->second, d.order_ref);
         }
         inner_.on(d);
@@ -108,6 +119,7 @@ public:
         std::optional<Distance> d;
         if (found != where_.end()) {
             old = found->second;
+            looked_up(*old);
             leaving(*old, u.original_order_ref);
             d = distance(old->locate, old->side, Price{u.price});
         }
@@ -126,6 +138,9 @@ public:
 
     [[nodiscard]] const FlowStats &stats() const {
         return stats_;
+    }
+    [[nodiscard]] const std::array<WindowModel, kWindowWidths.size()> &windows() const {
+        return windows_;
     }
 
 private:
@@ -183,6 +198,7 @@ private:
             return; // the book refused it (counted by the builder)
         }
         where_[ref] = Where{.locate = locate, .side = side, .price = price};
+        looked_up(where_[ref]);
         if (d) {
             ++stats_.distance[static_cast<std::size_t>(*d)];
         }
@@ -190,6 +206,9 @@ private:
             const std::size_t shifted = book.levels_better_than(side, price);
             ++stats_.created[shift_bucket(shifted)];
             stats_.created_shifted += shifted;
+            for (WindowModel &w : windows_) {
+                w.created(locate, side, price);
+            }
         }
     }
 
@@ -201,12 +220,25 @@ private:
             const std::size_t shifted = book.levels_better_than(w.side, w.price);
             ++stats_.removed[shift_bucket(shifted)];
             stats_.removed_shifted += shifted;
+            for (WindowModel &window : windows_) {
+                window.removed(w.locate, w.side, w.price);
+            }
+        }
+    }
+
+    // The book looks this order's level up by price (find or get_or_create).
+    void looked_up(const Where &w) {
+        for (WindowModel &window : windows_) {
+            window.lookup(w.locate, w.side, w.price);
         }
     }
 
     template <typename Message>
     void reduced(const Message &m, std::uint64_t ref, std::uint32_t shares) {
         const auto found = where_.find(ref);
+        if (found != where_.end()) {
+            looked_up(found->second);
+        }
         if (found != where_.end() &&
             inner_.book(found->second.locate).leaves(OrderId{ref}) == Qty{shares}) {
             leaving(found->second, ref); // reduced to zero: it leaves the book
@@ -224,6 +256,7 @@ private:
     Builder &inner_;
     std::unordered_map<std::uint64_t, Where> where_; // resting orders: ref -> stock, side, price
     FlowStats stats_;
+    std::array<WindowModel, kWindowWidths.size()> windows_; // E7's window at each width
 };
 
 } // namespace nanobook::itch

@@ -10,7 +10,8 @@
 > E5 measured, 128 stays (§2). Step 7: E6 measured, the huge-page arena kept; E2's
 > PrefaultAllocator folded into it (§2, §5 B5-E6). A profile before E7 put half the replay in
 > the ID table: E9 added and done first (the user's decision, §2, §7). Step 8: E9a reverted;
-> E9b reverted pending bare metal (§2, §5 B6).
+> E9b reverted pending bare metal (§2, §5 B6). Step 8a: E7's design approved (§10); the window
+> analysis chose W = 1,024 (§10.5).
 
 Phases 1–5 built a correct order book, a way to time it, a real Nasdaq day to feed it, and a
 three-thread pipeline around it. Phase 5 left measured **symptoms**, such as a slow tail, a pipeline
@@ -236,6 +237,8 @@ cheap and well-evidenced first, the big redesign last.
   - So it gets **its own design section, approved separately**, its own fuzzer runs (including
     inputs that force slides), and the full-day differential replay.
 - **Measure:** the real day against the sorted list: throughput, p50, p99 and the slide pauses.
+- **Design:** §10 (approved 2026-10-23). The profile caps the gain at the levels' share, about
+  23% of the replay.
 
 ### E8. Deep inserts (fast-book design §6.1)
 - **Symptom:** 0.02% of level creations shift 1,024 or more levels; about 40 GB of shifting a
@@ -432,3 +435,152 @@ the kept ones, so each table's "before" is the code as it stood at that point.
 | Kernel bypass, network input | Not in NanoBook (README §1) |
 | SIMD searches over levels | No symptom points at the search cost yet; E3 and a profile come first |
 | Rewriting in assembly | Rule 24: every line must stay explainable, and the compiler already emits what we check |
+
+---
+
+## 10. E7 design: the moving window (step 8a)
+
+> **Status:** approved (2026-10-23), every decision in §10.9 as proposed. The window analysis
+> chose W = 1,024 (§10.5). Next: step 8b, the code.
+
+### 10.1 What it is, in plain words
+Today each side's levels are one sorted array (`SortedLevels`). Finding a price is a search, and
+creating or removing a level shifts every better level along by one (the `memmove`). A tick
+array (`TickLevels`) has one slot per price, so it never searches or shifts. But a real day's
+stub quotes spread prices from $0.0001 to $200,000, far too many slots.
+
+The window keeps a tick array only for the prices **near the best**, and a sorted array, as
+today, for the rest:
+
+```
+   far below          ┌──── window: W slots, no search, no shifting ────┐        far above
+  [overflow, sorted]  │   ... $99.98  $99.99  $100.00  $100.01  ...     │  [overflow, sorted]
+                      └─────────────────────────────────────────────────┘
+```
+
+93% of new orders land within $1 of the best (ITCH design §9.1), so almost all level work
+should land in the window.
+
+### 10.2 What it can gain (the ceiling)
+- The profile puts the levels at about **23%** of the replay (17% in `sorted_levels.hpp`, plus
+  about 6% of `memmove`). That is the most E7 can remove, if level work cost nothing.
+- Window work still costs something: a bit test, a slot read, a scan for the best. Phase 2
+  measured the tick array 1.2–4× faster than the sorted list. If the level work gets that much
+  faster, the replay gains about **4% to 17%**: 23% × (1 − 1/1.2) up to 23% × (1 − 1/4).
+- That's the second-largest target left. The largest is the ID table (50%, E9), still open.
+
+### 10.3 The structure: `WindowLevels<W>`
+It has the same interface as `SortedLevels`, so `BasicFastBook<WindowLevels<W>>` runs the same
+tests, fuzzer and tools unchanged (fast-book design §6). Per side:
+- **The window:** W slots, one `Level` each, plus `TickLevels`' two bitmaps (one bit per slot
+  and one per 64 slots). Slot `i` holds the price `base + i × step`.
+- **The overflow:** a sorted array, as today, holding every other price: those outside the
+  window, and those not on the step. `base` is a multiple of the step, so whole-cent prices
+  land exactly on slots.
+- **The rule that keeps it simple:** a price's home is worked out by arithmetic alone. It is in
+  the window if `base ≤ p < base + W × step` and `(p − base) % step == 0`, otherwise it's in the
+  overflow. So each price lives in exactly one place at any moment, and `find`, `get_or_create`
+  and `erase` just pick the home and call it.
+- **`best(side)`:** the better of the window's best (a bitmap scan from the improving edge) and
+  the overflow's best (its last element, O(1)). Both are needed: right after the best jumps, the
+  overflow can hold a better level than any in the window.
+- **`for_each_best_first`:** walks both in price order, like merging two sorted lists. Matching's
+  FOK check and `depth()` use it; the feed replay doesn't.
+- **Step:** 1¢ (100 ITCH ticks) if the window starts at $1 or above, otherwise $0.0001 (1 tick).
+  That's SEC Rule 612 (Reg NMS) as it stood in 2019, the data's year: displayed orders at $1.00
+  or more are priced in whole cents. A price off the step goes to the overflow: slower, never
+  wrong.
+- **Memory:** `std::pmr::vector`, sized by `arena_bytes()` like `SortedLevels`, so the window
+  also sits in E6's huge-page arena. Otherwise the comparison would be unfair.
+- **W is a template parameter.** Index arithmetic becomes shifts and masks, and the fuzzer can
+  use a tiny window (W = 8) without adding a field to `BookConfig`.
+
+### 10.4 When the window moves (the slide)
+- **Placed** around the first level created on a side. It uses nothing from later in the day: a
+  window placed from the same day's statistics would flatter it, like training PGO on the data it
+  is measured on (E4).
+- **Re-centred when the best leaves the middle half** (slots W/4 to 3W/4), so the best lands at
+  W/2. A best that wobbles at the edge can't cause a slide on every message: the next slide needs
+  the best to move another W/4 slots.
+- **The check costs one compare,** and runs only when the best changes: on a new better level,
+  or on erasing the best.
+- **A slide** moves the window's levels that fall outside the new range into the overflow, and
+  the overflow's levels that fall inside it into the window: one merge pass, O(levels moved +
+  overflow levels). `Level` is trivially copyable, and its queue links orders by slot number,
+  not by address, so copying a level keeps its orders.
+- **The pause:** a slide can move up to W levels plus the overflow, a few microseconds, the same
+  order as today's deep inserts (up to 4,095 levels, E8). It is counted, and the latency guards
+  include p99.99 and the maximum.
+- **Pointers:** a `Level*` stays valid only until the next `get_or_create()` or `erase()` on that
+  side. That's already `SortedLevels`' rule, so `FastBook` needs no change.
+
+### 10.5 First, the window analysis (untimed, before any code)
+The best W and the slide policy depend on the day's flow, so they're measured first. `--flow`
+(`support/itch_flow.hpp`) already follows every level. It would also simulate the window on
+prices alone (no `Level`s), for W = 256, 1,024 and 4,096, and report:
+- the share of level operations (create, find, erase) that land in the window;
+- slides per day, and levels moved per slide (median, p99, maximum): the pauses;
+- how many prices are off the step;
+- the memory, all 8,713 books:
+
+| W | Window memory, both sides | Against today's books (384 MB) |
+|---|---|---|
+| 256 | 143 MB | +37% |
+| 1,024 | 571 MB | +149% |
+| 4,096 | 2,284 MB | +595% |
+
+**Choosing W, fixed now:** the smallest W that puts at least 95% of level operations in the
+window, within 1 GB of window memory (the arena touches all of it at start-up). If no W meets
+95%, E7 stops here, and the perf log records why.
+
+**Result (2026-10-23, perf log "E7's window analysis"): W = 1,024.**
+- 98.3% of lookups land in the window, with 571 MB of window memory. W = 256 reaches only
+  93.7%.
+- Slides: about one every 390 messages, usually moving 2–7 levels; the largest moves 234.
+- Slides move 2.65 million levels over the day, against the sorted array's 1.25 billion shifts.
+
+This runs untimed, so it doesn't need an idle laptop.
+
+### 10.6 New failure modes, and the tests that catch them
+
+| Failure | Caught by | Planted bug |
+|---|---|---|
+| A price just inside or outside an edge (`base − step`, `base`, the last slot, `base + W × step`) | Unit tests at each edge | Off by one on the top edge |
+| An off-step price folded into a slot, so two prices share one level | Unit test with a sub-penny price above $1 | Rounding down instead of checking `% step` |
+| `best()` missing a better level in the overflow | Unit test where the best jumps beyond the window | Checking only the window |
+| A slide losing or duplicating a level | Fuzzer at W = 8 (slides every few operations), `structure_holds()` | A slide that skips the last level |
+| Allocating while trading | `test_alloc` for the window book | None needed |
+
+Plus the usual gates (§4): typed tests on all three level structures, fuzzer 10⁷ operations,
+full-day differential replay, golden test, all CI checks.
+
+**Reuse:** `TickLevels`' bitmap code (`set`, `clear`, `next_up`, `next_down`) moves to a shared
+header used by both, and `TickLevels`' machine code is checked unchanged (§4).
+
+### 10.7 Measure and decide
+- **A/B:** `scripts/run_ab_session.sh HEAD OUT --rounds 4 -- nanobook_replay FILE --throughput
+  --latency --core C --csv {out}.csv`, with "after" making `FastBook` use `WindowLevels<W>`.
+  Four rounds, since the last sessions were noisy (E9b).
+- **Decision metric:** throughput. **Guards:** p50 and p99 per message kind, p99.99 and the
+  maximum (the slide pauses).
+- **Rule:** §3.3. It's a lot of new code, so a small gain goes to the user to decide.
+- **E8 afterwards:** deep inserts would only happen in the overflow. E8 is re-judged from E7's
+  flow numbers.
+
+### 10.8 Steps
+| Step | What | Idle laptop? |
+|---|---|---|
+| 8a | This section, approved | No |
+| 8a′ | The window analysis (§10.5): W and the slide policy fixed, perf-log entry | No |
+| 8b | Shared bitmap header (`TickLevels` unchanged), `WindowLevels<W>`, tests, planted bugs, fuzzing, CI gates | No |
+| 8c | The A/B on the real day (§10.7), keep or revert | Yes |
+
+### 10.9 Decisions (approved 2026-10-23)
+
+| # | Question | Proposal | Why |
+|---|---|---|---|
+| W1 | Static or sliding window? | **Sliding**, re-centred when the best leaves the middle half (§10.4) | A static window would have to be placed from the same day's prices (flattering) or yesterday's (missing today's moves) |
+| W2 | How wide? | **From the window analysis**: the smallest W with ≥ 95% of level operations inside, within 1 GB (§10.5) | Memory grows 4× per step of W; the data, not a guess, picks it |
+| W3 | Step | 1¢ at $1 and above, $0.0001 below (Rule 612); off-step prices to the overflow | Needs no statistics, and an unusual price is only slower, never wrong |
+| W4 | W at compile time or run time? | **Compile time** (template parameter) | Shifts instead of divides; the fuzzer gets W = 8 without changing `BookConfig` |
+| W5 | Reuse `TickLevels`' bitmaps? | **Yes**, a shared header, `TickLevels`' machine code checked unchanged | One copy of the trickiest code (the 64-at-a-time scans) |

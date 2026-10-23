@@ -1255,3 +1255,47 @@ is low enough to decide. WSL2, so **not for publishing** (rule 20).
   better in every round). E9b also adds real complexity to a core structure, so it should earn
   its place with clean numbers. **Re-tested on bare metal** with the criteria fixed in advance
   (design §5, B6).
+
+---
+
+## 2026-10-23: E7's window analysis: W = 1,024 chosen (phase 6 step 8a′)
+
+Optimise design §10.5. **Untimed**: counts, not speed, so WSL2 doesn't affect them. Data:
+`docs/data/phase6_wsl/e7_window/flow.txt`.
+
+### Method
+- **The model** (`support/itch_window.hpp`): for every book and side, the prices that have a
+  level, and where a window of W slots would sit (design §10.4). No `Level` is built.
+  - Placed around a side's first level, with the best in slot W/2.
+  - Step 1 cent at $1 and above, $0.0001 below; the window starts on a multiple of it.
+  - Re-centred on the best whenever the best leaves the middle half (slots W/4 to 3W/4).
+- **Driven by `--flow`:** every add, execute, cancel, delete and replace is a lookup by price;
+  every level created or removed may slide the window. W = 256, 1,024 and 4,096 run side by side.
+- **Command:** `nanobook_replay ITCH_FILE --flow`, built at `bcaa82a` plus the model, 4 min 40 s.
+- **Gates:** 2 hand-worked tests (W = 8: edges, the step, both sides' slides, levels moved);
+  3 planted bugs, all caught (top edge off by one, no step check, asks treated like bids); all
+  CI checks.
+
+### Results (30 Jan 2019, 8,713 books)
+
+| W | Window memory | Lookups in the window | Off the step | Outside | Slides | Levels moved by slides | Largest slide |
+|---|---|---|---|---|---|---|---|
+| 256 | 143 MB | 93.68% | 0.07% | 6.25% | 2,971,687 | 6,734,035 | 108 levels |
+| **1,024** | **571 MB** | **98.33%** | 0.09% | 1.59% | 953,652 | 2,650,157 | 234 levels |
+| 4,096 | 2,284 MB | 99.63% | 0.09% | 0.28% | 77,094 | 80,033 | 233 levels |
+
+Slides by levels moved, W = 1,024: 2–3 levels in half of them (480,032), at most 7 in 99.8% (all
+but 1,878 of 953,652).
+
+### What these numbers say
+- **W = 1,024, by the rule fixed in advance:** the smallest width with at least 95% of lookups in
+  the window (98.3%), within 1 GB (571 MB). W = 256 misses the 95%.
+- **Slides are frequent but small.** About one every 390 messages, usually moving 2–7 levels.
+  The largest moves 234 levels (7.5 KB): a fraction of a microsecond. Today's sorted array shifts
+  up to 4,095 levels at once.
+- **Level copying almost disappears:** 2.65 million levels moved by slides over the day, against
+  1.25 billion shifted by today's sorted array (641 million by creations, 613 million by
+  removals): about 470× less. The 1.6% of lookups outside the window still shift in the overflow.
+- **Off-step prices are rare** (0.09%): whole cents above $1 holds, as Rule 612 says.
+- **What this doesn't say:** whether a window lookup is faster than today's search on the real
+  day. Step 8c measures that.

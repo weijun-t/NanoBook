@@ -203,6 +203,7 @@ if(NANOBOOK_BUILD_TESTS)
         tests/itch/test_replay_comparison.cpp
         tests/itch/test_itch_timing.cpp
         tests/itch/test_itch_flow.cpp
+        tests/itch/test_itch_window.cpp
         tests/pipeline/test_spsc_ring.cpp
         tests/pipeline/test_pipeline.cpp
         tests/pipeline/test_binary_log.cpp

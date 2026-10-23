@@ -9,6 +9,7 @@
  *     of ITCH design §8.1 and §8.2; --until stops at a time of day; --flow counts how many price
  *     levels each new or vanishing level shifts in the sorted array, and how far new orders are
  *     from the best price (support/itch_flow.hpp, step 6), and --csv writes those tables;
+ *     --flow also simulates E7's moving window at three widths (support/itch_window.hpp);
  *     --snapshot-csv writes --symbol's whole book at the end of the replay (step 7, for
  *     scripts/plot_depth.py).
  *   - Timing (--throughput, --latency; step 6, design §9): messages per second for the parser
@@ -82,6 +83,7 @@
 #include "itch_flow.hpp"
 #include "itch_replay_comparison.hpp"
 #include "itch_timing.hpp"
+#include "itch_window.hpp"
 #include "huge_page_arena.hpp"
 #include "latency_recorder.hpp"
 #include "page_faults.hpp"
@@ -450,6 +452,49 @@ void print_flow(const FlowStats &s) {
                   << s.distance[d] << std::setw(7) << std::setprecision(2)
                   << 100.0 * static_cast<double>(s.distance[d]) / static_cast<double>(total)
                   << "%\n";
+    }
+}
+
+// E7's moving window, simulated on prices at each width (support/itch_window.hpp, optimise
+// design §10.5): where lookups would land, the memory, and how many levels each slide moves.
+void print_windows(const std::array<WindowModel, kWindowWidths.size()> &windows,
+                   std::size_t books) {
+    const auto share = [](std::uint64_t part, std::uint64_t whole) {
+        return 100.0 * static_cast<double>(part) /
+               static_cast<double>(std::max<std::uint64_t>(whole, 1));
+    };
+    std::cout << "\nMoving window (optimise design §10.5), " << books << " books\n"
+              << "  width  memory MB  in window  off step   outside  placements      slides"
+                 "  levels moved  largest slide\n";
+    for (const WindowModel &w : windows) {
+        const WindowStats &s = w.stats();
+        const std::uint64_t outside = s.lookups - s.in_window - s.off_step;
+        const auto megabytes = static_cast<double>(books) * 2 * static_cast<double>(w.width()) *
+                               sizeof(fast::Level) / 1e6;
+        std::cout << std::setprecision(2) << std::fixed << "  " << std::setw(5) << w.width()
+                  << std::setw(11) << std::setprecision(0) << megabytes << std::setprecision(2)
+                  << std::setw(10) << share(s.in_window, s.lookups) << "%" << std::setw(9)
+                  << share(s.off_step, s.lookups) << "%" << std::setw(9)
+                  << share(outside, s.lookups) << "%" << std::setw(12) << s.placements
+                  << std::setw(12) << s.slides << std::setw(14) << s.moved << std::setw(15)
+                  << s.max_moved << "\n";
+    }
+    for (const WindowModel &w : windows) {
+        const WindowStats &s = w.stats();
+        std::cout << "  W = " << w.width() << ", slides by levels moved:";
+        for (std::size_t b = 0; b < s.moved_per_slide.size(); ++b) {
+            if (s.moved_per_slide[b] == 0) {
+                continue;
+            }
+            const std::uint64_t low = b == 0 ? 0 : std::uint64_t{1} << (b - 1);
+            const std::uint64_t high = b == 0 ? 0 : (std::uint64_t{1} << b) - 1;
+            std::cout << "  " << low;
+            if (high != low) {
+                std::cout << "-" << high;
+            }
+            std::cout << ": " << s.moved_per_slide[b];
+        }
+        std::cout << "\n";
     }
 }
 
@@ -864,6 +909,13 @@ int main(int argc, char **argv) {
         }
         std::cout << "Replay:         " << seconds_since(start) << " s, with the flow analysis\n";
         print_flow(flow.stats());
+        std::size_t books = 0;
+        for (std::size_t locate = 1; locate < builder.locates(); ++locate) {
+            if (builder.name(static_cast<std::uint16_t>(locate)) != Symbol{}) {
+                ++books;
+            }
+        }
+        print_windows(flow.windows(), books);
         if (!o.csv.empty() && !write_flow_csv(o, flow.stats())) {
             return 2;
         }

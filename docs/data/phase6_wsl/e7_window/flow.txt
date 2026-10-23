@@ -1,0 +1,111 @@
+File: data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50 (11245883092 bytes)
+Counting pass:  36.5 s (8713 locates; 0 inputs the counter couldn't follow)
+Building books: 0.2 s (room for 2522876 resting orders in all)
+Replay:         242.9 s, with the flow analysis
+
+Price levels created: 59027714, shifting 641275522 levels in all (20.5 GB moved at 32 bytes each)
+  levels shifted        count   share  cumulative
+  0                   20479654  34.69%     34.69%
+  1                    5800257   9.83%     44.52%
+  2-3                  6534223  11.07%     55.59%
+  4-7                  7332611  12.42%     68.01%
+  8-15                 7846728  13.29%     81.31%
+  16-31                6777056  11.48%     92.79%
+  32-63                2982947   5.05%     97.84%
+  64-127                666896   1.13%     98.97%
+  128-255               428583   0.73%     99.70%
+  256-511               138057   0.23%     99.93%
+  512-1023               27981   0.05%     99.98%
+  1024-2047              10025   0.02%    100.00%
+  2048-4095               2696   0.00%    100.00%
+
+Price levels removed: 59027714, shifting 613308122 levels in all (19.6 GB moved at 32 bytes each)
+  levels shifted        count   share  cumulative
+  0                   18846137  31.93%     31.93%
+  1                    6515643  11.04%     42.97%
+  2-3                  6674010  11.31%     54.27%
+  4-7                  7784290  13.19%     67.46%
+  8-15                 8035645  13.61%     81.07%
+  16-31                6965560  11.80%     92.87%
+  32-63                3008821   5.10%     97.97%
+  64-127                641784   1.09%     99.06%
+  128-255               417432   0.71%     99.77%
+  256-511               124102   0.21%     99.98%
+  512-1023               13128   0.02%    100.00%
+  1024-2047                978   0.00%    100.00%
+  2048-4095                184   0.00%    100.00%
+
+New resting orders by distance from their side's best price: 191919099
+  side was empty             87213   0.05%
+  improves the best       20130766  10.49%
+  at the best             71683163  37.35%
+  behind by < $0.01         281628   0.15%
+  < $0.10                 58828208  30.65%
+  < $1                    27207449  14.18%
+  < $10                   12675290   6.60%
+  < $100                    955444   0.50%
+  $100 or more               69938   0.04%
+
+Moving window (optimise design §10.5), 8713 books
+  width  memory MB  in window  off step   outside  placements      slides  levels moved  largest slide
+    256        143     93.68%     0.07%     6.25%       17389     2971687       6734035            108
+   1024        571     98.33%     0.09%     1.59%       17389      953652       2650157            234
+   4096       2284     99.63%     0.09%     0.28%       17389       77094         80033            233
+  W = 256, slides by levels moved:  0: 161699  1: 530191  2-3: 1923174  4-7: 323587  8-15: 29584  16-31: 2648  32-63: 678  64-127: 126
+  W = 1024, slides by levels moved:  0: 61671  1: 157610  2-3: 480032  4-7: 252461  8-15: 1342  16-31: 343  32-63: 118  64-127: 47  128-255: 28
+  W = 4096, slides by levels moved:  0: 25328  1: 37481  2-3: 12954  4-7: 1100  8-15: 161  16-31: 33  32-63: 33  64-127: 3  128-255: 1
+
+Messages by type
+  A     162970455
+  B           116
+  C        158886
+  D     158273361
+  E       8096995
+  F       1725898
+  H          8805
+  I       3684511
+  J            62
+  L        193769
+  P       1326184
+  Q         17430
+  R          8714
+  S             6
+  U      27222746
+  V             1
+  X       4669874
+  Y          8821
+  all   368366634
+
+Result of every order message
+                  Ok   UnknownOrder DuplicateOrder     InvalidQty   InvalidPrice ReduceTooLarge       BookFull
+  A        162970455              0              0              0              0              0              0
+  F          1725898              0              0              0              0              0              0
+  E          8096995              0              0              0              0              0              0
+  C           158886              0              0              0              0              0              0
+  X          4669874              0              0              0              0              0              0
+  D        158273361              0              0              0              0              0              0
+  U         27222746              0              0              0              0              0              0
+  order messages for a locate no R named: 0
+  bad input (ref 0, or side not B/S):     0
+
+Checks: off (use --check)
+
+Most orders resting at once during the day:
+  AAPL         42774
+  AMZN         39028
+  MSFT         22116
+  FB           20986
+  NVDA         18558
+
+Orders resting at the end of the replay: 0; biggest books:
+  ZYNE             0
+  ZYME             0
+  ZXZZT            0
+  ZXYZ.A           0
+  ZXIET            0
+
+Peak memory: 11109 MB (includes the file's pages read)
+
+real	4m39.989s
+user	4m24.496s
+sys	0m8.250s

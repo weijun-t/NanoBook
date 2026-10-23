@@ -128,6 +128,13 @@ TEST(FlowAnalysis, CountsEveryLevelChangeAndDistanceOfAHandMadeDay) {
     EXPECT_EQ(distance(Distance::Within1Dollar), 1U);    // ref 3
     EXPECT_EQ(distance(Distance::Within100Dollars), 1U); // ref 5, the stub quote
 
+    // Every model saw the day's 10 lookups: 5 adds, a delete, an execute, a cancel, and a
+    // replace's old and new price. Only the bid side was used, so one window was placed.
+    for (const WindowModel &w : flow.windows()) {
+        EXPECT_EQ(w.stats().lookups, 10U);
+        EXPECT_EQ(w.stats().placements, 1U);
+    }
+
     // The analysis only watches: the books are what a plain replay builds.
     BookBuilder<FastBook> plain{configs_for(day), BuilderOptions{}};
     ASSERT_TRUE(parse(day, plain).has_value());
