@@ -7,6 +7,9 @@ Every performance number in this project is recorded here with the environment i
 > Benchmark reports averages, not tail latency (rule 17). They are only valid for comparing books
 > **on the same machine**. Published p50/p99/p99.9 numbers come from the `rdtsc` harness (phase 3)
 > on bare-metal Linux.
+>
+> **Except the entries marked bare metal** (from 2026-10-24): measured on bare-metal Linux with
+> isolated cores, so they can be published. The whole session: `docs/bare-metal-report.md`.
 
 ---
 
@@ -1584,3 +1587,43 @@ The diff of 2026-10-22 (`docs/data/phase6_wsl/e9b_compact/after.diff`), applied 
   presets, format and clang-tidy clean; the full-day differential 0 mismatches (363,118,215
   quick and 61,354 full checks); pipeline checksum `748abedf40533b82`; `nanobook_fuzz` 10
   million operations x 3 seeds on `sorted` and `window`, all PASS.
+
+---
+
+## 2026-10-24: E2 again on today's code: touching kept, by the user's decision (design §5, B5-E2b)
+
+**Bare metal.** B5-E2 (E2's own commit, before huge pages) said revert. On today's code, removing
+the touching loop means 2 MiB pages mapped on first use, which B5-E2 didn't measure, so this
+A/B ran first, with its rule fixed before the data. Data: `docs/data/bare_metal/phase6/b5_e2b/`.
+
+### Change measured (not kept; the exact diff is `after.diff`)
+Only the touching loop in `HugePageArena`'s constructor removed (`support/huge_page_arena.hpp`).
+
+### Method
+- Same machine and setup as "E9b re-added on bare metal" (rebooted with the same boot options).
+- `scripts/run_ab_session.sh HEAD OUT --rounds 4 -- nanobook_replay ITCH_FILE --throughput
+  --latency --core 8 --csv {out}.csv`, 13:08–13:20, before = `1754cdf`, ABBA order.
+- **Rule** (design §5, B5-E2b): keep the touching if it gives a better p99.99 beyond the noise in
+  every round, or removing it makes p50, p99 or throughput worse beyond the noise in every round.
+  Otherwise remove it.
+
+### Results (ns; touching -> without, by round)
+
+| Round | Throughput per message | p50 | p99 | p99.99 | Faults while timed |
+|---|---|---|---|---|---|
+| 1 | 68.4 -> 68.4 | 64.1 -> 64.5 | 299.3 -> 299.3 | 621.7 -> 647.3 | 0 -> 1 |
+| 2 | 68.2 -> 68.3 | 63.2 -> 64.1 | 297.2 -> 296.8 | 619.2 -> 625.0 | 0 -> 1 |
+| 3 | 68.0 -> 68.0 | 63.2 -> 63.7 | 296.4 -> 296.0 | 613.4 -> 621.7 | 0 -> 1 |
+| 4 | 68.0 -> 68.3 | 63.2 -> 63.7 | 296.8 -> 297.2 | 620.0 -> 619.2 | 0 -> 1 |
+
+### What these numbers say
+- **No difference beyond the noise.** Touching's p99.99 is better in 3 rounds, not 4, and the
+  four "touching" runs alone spread over 8 ns. So **the rule says remove it.**
+- **Without the loop there is 1 fault, not about 200.** The order pool and ID table are written
+  in full when a book is built; the level arrays are only `reserve()`d, but they share their
+  2 MiB pages with touched neighbours. Zero faults without the loop is layout luck: a big book's
+  level array could grow into an untouched page on another day, and that fault (clearing 2 MiB)
+  would land while trading.
+- **Decision (the user's): keep the loop, overriding the rule.** The rule's reason to remove it,
+  "simpler, faster start-up", is worth almost nothing; the loop makes "no page fault while
+  trading" a guarantee at no measured cost. The arena's description now says why.

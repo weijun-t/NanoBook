@@ -1,6 +1,6 @@
 # NanoBook: Bare-Metal Session Report
 
-**Phases 3–5 published numbers and phase 6's re-checks** · 24 October 2026 · C++23, GCC 14.3.0, Ubuntu 26.04.1 LTS on bare metal · Session run; decisions pending (§6)
+**Phases 3–5 published numbers and phase 6's re-checks** · 24 October 2026 · C++23, GCC 14.3.0, Ubuntu 26.04.1 LTS on bare metal · Session run; all decisions made (§6)
 
 ---
 
@@ -14,7 +14,7 @@ phase 6's decisions** (optimise design §5, B1–B7), using rules written down b
 
 | | |
 |---|---|
-| Status | **All runs done**, in one session on 24 October. Raw data in `docs/data/bare_metal/`. Three decisions wait for the user (§6) |
+| Status | **All runs done**, in one session on 24 October. Raw data in `docs/data/bare_metal/`. All three decisions made (§6) |
 | Real Nasdaq day, one thread | **75 ns per message** (13.4 M messages/s); WSL2 at the end of phase 6: about 92 ns |
 | Real day, slowest 1 in 10,000 messages (p99.99) | **0.65 µs**; WSL2: about 11 µs |
 | Pipeline p99 at 1–4 M messages/s | **about 0.65 µs**; WSL2: 65–72 µs |
@@ -268,17 +268,41 @@ Benchmark (29% apart), unexplained. On bare metal: **8.7 ns in both**. It was th
 
 ---
 
-## 6. Decisions for the user
+## 6. Decisions
 
-| # | Question | What the rule or data says |
+| # | Question | Decision |
 |---|---|---|
-| 1 | **E2**: stop pre-touching the arena? | The rule fixed on 2026-10-21 says **revert**: no measurable p99.99 gain |
-| 2 | **E9b**: re-add 8-byte ID entries? | The rule fixed on 2026-10-22 says **re-add**: 7% faster, p50 24% better, 4 of 4 rounds |
-| 3 | **E7**: adopt the window? | No rule decides it: 15% faster and p99 equal, but p99.99 2.5–6× worse |
+| 1 | **E2**: stop pre-touching the arena? | **Keep the touching** (the user overrode the rule, with the reason recorded; §6.1) |
+| 2 | **E9b**: re-add 8-byte ID entries? | **Re-added**, by its rule: 7% faster, p50 24% better, 4 of 4 rounds (commit `1754cdf`) |
+| 3 | **E7**: adopt the window? | **Not the default.** It stays a tested option (`--book window`): 15% faster and p99 equal, but p99.99 2.5–6× worse |
 
-After the decisions: write the perf-log entries, update optimise design §5 and the README status,
-mark phases 3–6 complete, and commit the data. The two `perf.data` files from B2 (about 17 MB,
-which found nothing) can stay out of git.
+### 6.1 E2 again, on today's code (B5-E2b)
+B5-E2 (§4.2) ran on E2's own commit, before huge pages. On today's code, removing the touching
+loop means 2 MiB pages are mapped on first use, which could cost much more than 4 KiB ones. So
+one more A/B ran first, after a reboot with the isolated cores, with its rule fixed before the
+data (optimise design §5, B5-E2b). Before = `1754cdf` (touching), after = the loop removed; 4
+rounds, CPU 8. Data: `docs/data/bare_metal/phase6/b5_e2b/`.
+
+| (ns, 4 rounds each) | Touching | Without touching |
+|---|---|---|
+| ns per message | 68.0–68.4 | 68.0–68.4 |
+| p50 | 63.2–64.1 | 63.7–64.5 |
+| p99 | 296.4–299.3 | 296.0–299.3 |
+| p99.99 | 613.4–621.7 | 619.2–647.3 |
+| Page faults while timed | 0 | **1** |
+
+- **By the rule, remove it:** touching wasn't better beyond the noise in every round (round 4
+  went the other way), and removing it wasn't worse beyond the noise in every round.
+- **But the 1 fault is luck, not design.** The order pool and the ID table are written in full
+  when a book is built, so their pages are touched anyway. The level arrays are only reserved.
+  They escape faults because each 2 MiB page they sit in also holds a neighbour's pool or table.
+  On another day, a big book's level array could grow into a page nobody touched, and that
+  fault (clearing 2 MiB) would land in the middle of trading.
+- **Decision (the user's): keep the loop, overriding the rule.** The rule's reason to remove it
+  ("simpler, faster start-up") is worth almost nothing; the loop turns "no page faults while
+  trading" from layout luck into a guarantee, at no measured cost.
+
+The two `perf.data` files from B2 (about 17 MB, which found nothing) stay out of git.
 
 ---
 
@@ -289,7 +313,7 @@ which found nothing) can stay out of git.
 | `phase3/` | Latency session: two rounds, throughput mode, Google Benchmark, charts |
 | `phase4/` | Two full-day replays (`.txt`, `.csv`, histograms) |
 | `phase5/` | Ring benchmark, whole-day throughput, paced latency at five rates, two rounds each |
-| `phase6/b5_e6`, `b5_e2`, `b5_e3`, `b5_e1`, `b6_e9b`, `b7_e7` | The A/B sessions (`progress.log`, every run's output, `after.diff` where there is one) |
+| `phase6/b5_e6`, `b5_e2`, `b5_e2b`, `b5_e3`, `b5_e1`, `b6_e9b`, `b7_e7` | The A/B sessions (`progress.log`, every run's output, `after.diff` where there is one) |
 | `phase6/perf_b1_b7/` | Interval counters for B1 and B7; `b1_per_message.txt` |
 | `phase6/snoop_b2/` | Cross-core counters for B2 |
 | `phase6/perf_b3/` | Counters around `match` in both tools |

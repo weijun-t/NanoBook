@@ -1,0 +1,41 @@
+File: /home/ubuntu/NanoBook/data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50 (11245883092 bytes)
+*** NOT FOR PUBLISHING: the commit is unknown or has uncommitted changes (README rule 19) ***
+cpu              Intel(R) Core(TM) i7-14650HX
+logical cores    24
+os               Ubuntu 26.04.1 LTS
+kernel           Linux 7.0.0-30-generic x86_64
+virtual machine  no
+isolated cores   8-13
+nohz_full cores  8-13
+governor         performance
+turbo            on
+compiler         GCC 14.3.0
+build type       Release
+flags            -std=c++23 -O3 -DNDEBUG
+commit           1754cdf27116-dirty
+pinned to core   8
+counter          2.4192 ticks per ns
+timer overhead   min 22 ticks (subtracted from every latency sample)
+windows          1024 MiB, loaded before the clock starts
+
+Throughput (checks off; 368366634 messages, 11 windows; checksum 13154425643777011431)
+  parse only:        0.99 s, 2.7 ns per message, 371.9 M messages/s
+  parse + FastBook:  25.20 s, 68.4 ns per message, 14.6 M messages/s
+  the books' share:  65.7 ns per message (96% of the time)
+  page faults while timed: parse only 0 minor, 0 major; parse + FastBook 1 minor, 0 major
+  books:             328 MB arena, 0 MB of it on 2 MiB pages
+
+Latency of every 8th order message, FastBook (45389776 samples; ns, timer overhead subtracted)
+tag      ITCH       count       min       p50       p90       p99     p99.9    p99.99       max      mean
+add      A, F    20584856      10.3      70.7     119.5     231.1     308.4     510.9     26267      71.4
+match    E, C     1030612       7.9      43.8     156.2     284.4     404.3     535.3     24852      68.7
+cancel   D       19786668      10.7      55.8     164.5     306.7     445.2     627.5     26574      78.5
+modify   X         584111       8.3      31.0     106.2     243.5     398.5         -     12839      48.0
+replace  U        3403529      14.5     130.6     260.4     415.4     567.5     782.1     26401     145.9
+all              45389776       7.9      64.5     156.7     299.3     444.4     647.3     26574      79.8
+  dropped (moved core) 0, clamped (too long) 0, refused (full) 0; page faults while timed: 1 minor, 0 major
+  books: 328 MB arena, 0 MB of it on 2 MiB pages
+
+counter drift during the run: 0.009 parts per million
+wrote /home/ubuntu/NanoBook/docs/data/bare_metal/phase6/b5_e2b/after_round1.csv and /home/ubuntu/NanoBook/docs/data/bare_metal/phase6/b5_e2b/after_round1_histogram.csv
+*** NOT FOR PUBLISHING: the commit is unknown or has uncommitted changes (README rule 19) ***

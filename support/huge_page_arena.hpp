@@ -23,7 +23,10 @@
  *     memory turning into huge pages meanwhile (a sanitizer's shadow memory, on a kernel set to
  *     "always"), which made the count exceed the arena on CI.
  *   - One write per 4 KiB page now, at start-up (rule 1), so no page is first touched while
- *     trading: this also does what E2's PrefaultAllocator did.
+ *     trading: this also does what E2's PrefaultAllocator did. Without it the real day took 1
+ *     fault, not 0 (optimise design §5, B5-E2b): the pool and id table are written when built,
+ *     but the level arrays are only reserve()d, and they escape faults only because they share
+ *     2 MiB pages with touched neighbours. The loop makes that a guarantee, at no measured cost.
  *   - std::pmr::monotonic_buffer_resource hands out the bytes in order and frees nothing until
  *     the arena goes: the books live as long as it does. Its upstream is null_memory_resource, so
  *     a wrong size throws std::bad_alloc instead of quietly falling back to normal pages.

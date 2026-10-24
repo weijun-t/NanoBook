@@ -4,6 +4,11 @@
 
 ---
 
+**Update, 24 October 2026:** the bare-metal re-checks are done (`docs/bare-metal-report.md`). E1b,
+E3 and E6 held; **E9b was re-added** (7% faster, p50 24% better, in all 4 rounds); E2's touching
+stays, by the user's decision over its rule; the moving window stays an option, not the default.
+The WSL2 numbers below are unchanged, as measured.
+
 ## 1. Summary
 
 Phases 1–5 built a correct order book, a way to time it, a real Nasdaq day to feed it, and a

@@ -1,0 +1,29 @@
+# *** NOT FOR PUBLISHING: the commit is unknown or has uncommitted changes (README rule 19) ***
+# cpu: Intel(R) Core(TM) i7-14650HX
+# logical cores: 24
+# os: Ubuntu 26.04.1 LTS
+# kernel: Linux 7.0.0-30-generic x86_64
+# virtual machine: no
+# isolated cores: 8-13
+# nohz_full cores: 8-13
+# governor: performance
+# turbo: on
+# compiler: GCC 14.3.0
+# build type: Release
+# flags: -std=c++23 -O3 -DNDEBUG
+# commit: 1754cdf27116-dirty
+# pinned to core: 8
+# counter ticks per ns: 2.419200
+# counter drift during the run (parts per million): 0.016247
+# timer overhead min (ticks, subtracted): 22
+# input: /home/ubuntu/NanoBook/data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50
+# latency: every 8th order message; windows of 1024 MiB
+mode,scenario,book,tag,count,min_ns,p50_ns,p90_ns,p99_ns,p999_ns,p9999_ns,max_ns,mean_ns,dropped,clamped,timed_allocations
+throughput,itch_day,parse_only,all,368366634,,,,,,,,2.7,,,
+throughput,itch_day,FastBook,all,368366634,,,,,,,,68.3,,,
+latency,itch_day,FastBook,add,20584856,10.3,69.0,118.6,230.2,306.7,464.6,30987.1,70.8,,,
+latency,itch_day,FastBook,match,1030612,8.3,43.8,153.8,281.9,400.5,518.4,25313.7,67.9,,,
+latency,itch_day,FastBook,cancel,19786668,10.3,55.8,162.5,304.2,442.7,606.8,17240.4,77.9,,,
+latency,itch_day,FastBook,modify,584111,8.3,30.6,103.8,240.6,393.1,552.2,4469.2,47.1,,,
+latency,itch_day,FastBook,replace,3403529,14.1,130.6,259.2,413.4,562.2,732.1,25582.4,145.4,,,
+latency,itch_day,FastBook,all,45389776,8.3,63.7,155.0,297.2,441.1,619.2,30987.1,79.1,,,
