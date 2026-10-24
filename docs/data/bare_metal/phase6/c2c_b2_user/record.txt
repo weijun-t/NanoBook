@@ -1,0 +1,4 @@
+WARNING: A requested CPU in '8,10,12' is not supported by PMU 'cpu_atom' (CPUs 16-23) for event 'cpu_atom/mem-loads,ldlat=30/P'
+WARNING: A requested CPU in '8,10,12' is not supported by PMU 'cpu_atom' (CPUs 16-23) for event 'cpu_atom/mem-stores/P'
+[ perf record: Woken up 36 times to write data ]
+[ perf record: Captured and wrote 12.312 MB c2c_b2_user/perf.data (105468 samples) ]

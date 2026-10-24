@@ -1,0 +1,18 @@
+# cpu: Intel(R) Core(TM) i7-14650HX
+# logical cores: 24
+# os: Ubuntu 26.04.1 LTS
+# kernel: Linux 7.0.0-30-generic x86_64
+# virtual machine: no
+# isolated cores: 8-13
+# nohz_full cores: 8-13
+# governor: performance
+# turbo: on
+# compiler: GCC 14.3.0
+# build type: Release
+# flags: -std=c++23 -O3 -DNDEBUG
+# commit: 943fe708a59e
+# cores: 8,10,12
+# input: data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50
+# paced: 4000000 records/s from 10:00:00 to 10:05:00
+mode,scenario,book,tag,count,min_ns,p50_ns,p90_ns,p99_ns,p999_ns,p9999_ns,max_ns,mean_ns,dropped,clamped,timed_allocations
+latency,pipeline_4000000,pipeline,all,5641949,214.5,389.0,519.6,696.1,886.2,1393.4,5671.7,410.9,0,0,

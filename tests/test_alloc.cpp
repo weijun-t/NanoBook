@@ -162,15 +162,18 @@ TEST(ZeroAlloc, OrderPoolAndQueuesNeverAllocateAfterConstruction) {
 
 TEST(ZeroAlloc, IdTableNeverAllocatesAfterConstruction) {
     fast::IdTable table{1000};
+    std::vector<OrderId> ids(1000); // what the pool would know: the id in each slot
+    const auto id_of = [&ids](std::uint32_t slot) { return ids[slot]; };
     const std::uint64_t n = allocations_during([&] {
         std::uint64_t next = 1;
         for (int round = 0; round < 50; ++round) {
             const std::uint64_t first = next;
             for (std::uint32_t i = 0; i < 1000; ++i) {
+                ids[i] = OrderId{next};
                 table.insert(OrderId{next++}, i);
             }
             for (std::uint64_t id = first; id < next; ++id) {
-                table.erase(OrderId{id});
+                table.erase(OrderId{id}, id_of);
             }
         }
         keep(&table);

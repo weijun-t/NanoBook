@@ -1,0 +1,8 @@
+before_round1  book pass 27s  cycles/msg  376.9  IPC 0.88  L1m  3.85  L2m  1.87  L3m 0.521  STLBhit 3.735  walks 0.0511
+               counting pass: walks/msg 1.207
+before_round2  book pass 28s  cycles/msg  378.1  IPC 0.88  L1m  3.86  L2m  1.87  L3m 0.522  STLBhit 3.738  walks 0.0508
+               counting pass: walks/msg 1.215
+after_round1   book pass 25s  cycles/msg  324.9  IPC 0.93  L1m  4.00  L2m  1.90  L3m 0.567  STLBhit 3.229  walks 0.0433
+               counting pass: walks/msg 1.202
+after_round2   book pass 24s  cycles/msg  322.1  IPC 0.92  L1m  3.94  L2m  1.89  L3m 0.564  STLBhit 3.193  walks 0.0432
+               counting pass: walks/msg 1.206

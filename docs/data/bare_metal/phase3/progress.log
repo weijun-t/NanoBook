@@ -1,0 +1,52 @@
+[08:51:15] building gcc-release
+[08:51:15] start: commit 943fe708a59e, core 8, 1000000 samples per run
+[08:51:15] latency round 1
+[08:51:29]   exit 0
+[08:51:29] throughput mode
+[08:51:41]   exit 0
+[08:51:41] google benchmark ^BM_AddResting<ReferenceBook>$
+[08:51:44]   exit 0
+[08:51:44] google benchmark ^BM_AddResting<FastBook>$
+[08:51:49]   exit 0
+[08:51:49] google benchmark ^BM_AddResting<TickFastBook>$
+[08:51:59]   exit 0
+[08:51:59] google benchmark ^BM_Cancel<ReferenceBook>$
+[08:52:02]   exit 0
+[08:52:02] google benchmark ^BM_Cancel<FastBook>$
+[08:52:07]   exit 0
+[08:52:07] google benchmark ^BM_Cancel<TickFastBook>$
+[08:52:16]   exit 0
+[08:52:16] google benchmark ^BM_MatchOne<ReferenceBook>$
+[08:52:23]   exit 0
+[08:52:23] google benchmark ^BM_MatchOne<FastBook>$
+[08:52:32]   exit 0
+[08:52:32] google benchmark ^BM_MatchOne<TickFastBook>$
+[08:52:41]   exit 0
+[08:52:41] google benchmark ^BM_Sweep<ReferenceBook>/10/
+[08:52:42]   exit 0
+[08:52:42] google benchmark ^BM_Sweep<FastBook>/10/
+[08:52:42]   exit 0
+[08:52:42] google benchmark ^BM_Sweep<TickFastBook>/10/
+[08:52:43]   exit 0
+[08:52:43] google benchmark ^BM_LargeCancel<ReferenceBook>/
+[08:52:46]   exit 0
+[08:52:46] google benchmark ^BM_LargeCancel<FastBook>/
+[08:52:46]   exit 0
+[08:52:46] google benchmark ^BM_LargeCancel<TickFastBook>/
+[08:52:47]   exit 0
+[08:52:47] google benchmark ^BM_LargeAdd<ReferenceBook>/
+[08:52:49]   exit 0
+[08:52:49] google benchmark ^BM_LargeAdd<FastBook>/
+[08:52:50]   exit 0
+[08:52:50] google benchmark ^BM_LargeAdd<TickFastBook>/
+[08:52:50]   exit 0
+[08:52:50] google benchmark ^BM_Aged<ReferenceBook>/
+[08:52:51]   exit 0
+[08:52:51] google benchmark ^BM_Aged<FastBook>/
+[08:52:51]   exit 0
+[08:52:51] google benchmark ^BM_Aged<TickFastBook>/
+[08:52:51]   exit 0
+[08:52:51] latency round 2
+[08:53:05]   exit 0
+wrote latency_percentiles.png and latency_histograms.png in /home/ubuntu/NanoBook/docs/data/bare_metal/phase3
+[08:53:10] done: /home/ubuntu/NanoBook/docs/data/bare_metal/phase3

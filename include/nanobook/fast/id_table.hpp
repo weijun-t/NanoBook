@@ -3,29 +3,38 @@
  *
  * What it does: Answers "which pool slot holds order #7?" for cancels and modifies. insert() when
  *   an order starts resting, erase() when it stops, find() to look one up (kNone if it isn't here).
+ *   find() and erase() take id_of: a function giving the id of the order in a slot (the book
+ *   passes "read it from the pool"), used to confirm a match.
  *
  * Why it exists: Order ids are big and spread out (exchange-wide, with gaps), slots are small and
  *   packed, so a translation table is needed. The reference book uses a tree: about 14 pointer
  *   jumps across memory for 10,000 orders. This table usually needs 1 or 2 reads, all in one
  *   array, and never allocates after construction (fast-book design §5.1).
  *
- * How it works: Open addressing with linear probing. An id's home position comes from a fixed
- *   scramble formula: multiply by 11400714819323198485 (2^64 divided by the golden ratio) and keep
- *   the top bits ("Fibonacci hashing"). Exchange ids arrive in near-sequential runs, and the
- *   multiply spreads neighbours apart. If the home is taken, try the next entry, wrapping at the
- *   end. The table has at least twice as many entries as max_orders, so it is never more than half
- *   full and runs stay short. Removal uses backward shift: after emptying an entry, later entries
- *   in the same run slide back into the hole when that brings them closer to home, so a search can
- *   never stop early at a gap, and no "deleted" markers pile up over a trading day.
+ * How it works: Open addressing with linear probing. An id's 64-bit hash is a fixed scramble:
+ *   multiply by 11400714819323198485 (2^64 divided by the golden ratio; odd, so different ids
+ *   always give different hashes). Its top bits are the id's home entry ("Fibonacci hashing").
+ *   Exchange ids arrive in near-sequential runs, and the multiply spreads neighbours apart. If the
+ *   home is taken, try the next entry, wrapping at the end. The table has at least twice as many
+ *   entries as max_orders, so it is never more than half full and runs stay short. Removal uses
+ *   backward shift: after emptying an entry, later entries in the same run slide back into the
+ *   hole when that brings them closer to home, so a search can never stop early at a gap, and no
+ *   "deleted" markers pile up over a trading day.
+ *   - 8-byte entries (optimise design E9b): an entry keeps the top 32 bits of the hash (its tag)
+ *     and the slot, not the 8-byte id. Equal tags are confirmed with id_of(slot): the order's own
+ *     id in the pool, which the book reads next anyway. Two different ids share a tag about once
+ *     in 4 billion, and then the confirmation tells them apart. The home is the top bits of the
+ *     hash, so it can be recomputed from the tag alone, which backward shift needs.
  *
- * Data structures: std::pmr::vector<Entry>, sized once to a power of two. Entry = {id, slot}, 16
- *   bytes with padding. id 0 marks an empty entry: the exchange never issues id 0. pmr: the memory
- *   comes from the default memory resource when the table is built (plain new/delete, or the
- *   timed tools' huge-page arena: optimise design E6).
+ * Data structures: std::pmr::vector<Entry>, sized once to a power of two. Entry = {tag, slot}, 8
+ *   bytes; slot kNone marks an empty entry. pmr: the memory comes from the default memory
+ *   resource when the table is built (plain new/delete, or the timed tools' huge-page arena:
+ *   optimise design E6).
  *
- * Trade-offs: Memory is 2 x max_orders (rounded up to a power of two) x 16 bytes: 32 MB for 1M
- *   orders. A 12-byte packed entry, or storing only the slot and reading the id from the pool,
- * would be smaller but cost an extra read; design §5.1 measures those later.
+ * Trade-offs: Memory is 2 x max_orders (rounded up to a power of two) x 8 bytes: 16 MB for 1M
+ *   orders, half the 16-byte entries' size, so twice as many entries fit in each cache level. The
+ *   cost is the confirmation read of the slot, on a match only. At most 2^31 orders, so the home
+ *   fits in the tag's 32 bits (asserted). id 0 is never stored: the exchange never issues it.
  */
 
 #pragma once
@@ -48,6 +57,7 @@ public:
     explicit IdTable(std::uint32_t max_orders)
         : entries_(table_size(max_orders)), mask_(entries_.size() - 1),
           shift_(64 - std::countr_zero(entries_.size())) {
+        assert(shift_ >= 32 && "more than 2^32 entries: the home no longer fits in the tag");
     }
 
     // The bytes a table for `max_orders` takes from its memory resource.
@@ -55,47 +65,52 @@ public:
         return table_size(max_orders) * sizeof(Entry);
     }
 
-    // Adds `id` -> `slot`. `id` must not be 0 and must not already be in the table.
+    // Adds `id` -> `slot`. `id` must not be 0 and must not already be in the table (the book
+    // checks with find() first).
     void insert(OrderId id, std::uint32_t slot) {
-        assert(id.value != 0 && "id 0 marks an empty entry");
+        assert(id.value != 0 && "id 0 is never a real order");
+        assert(slot != kNone && "kNone marks an empty entry");
         assert(2 * (size_ + 1) <= entries_.size() && "more entries than max_orders");
         std::size_t i = home(id);
-        while (entries_[i].id.value != 0) {
-            assert(entries_[i].id != id && "id is already in the table");
+        while (entries_[i].slot != kNone) {
             i = (i + 1) & mask_;
         }
-        entries_[i] = Entry{.id = id, .slot = slot};
+        entries_[i] = Entry{.tag = tag(id), .slot = slot};
         ++size_;
     }
 
-    // The slot holding `id`, or kNone. Stops at the first empty entry: backward-shift removal
-    // guarantees an id is never stored past an empty entry on its way from home.
-    [[nodiscard]] std::uint32_t find(OrderId id) const {
+    // The slot holding `id`, or kNone. id_of(slot) gives the id stored in a slot. Stops at the
+    // first empty entry: backward-shift removal guarantees an id is never stored past an empty
+    // entry on its way from home.
+    template <typename IdOf> [[nodiscard]] std::uint32_t find(OrderId id, IdOf &&id_of) const {
         if (id.value == 0) {
-            return kNone; // 0 is the empty marker, never a real order
+            return kNone; // never a real order
         }
+        const std::uint32_t t = tag(id);
         for (std::size_t i = home(id);; i = (i + 1) & mask_) {
-            if (entries_[i].id == id) {
-                return entries_[i].slot;
-            }
-            if (entries_[i].id.value == 0) {
+            const Entry e = entries_[i];
+            if (e.slot == kNone) {
                 return kNone;
+            }
+            if (e.tag == t && id_of(e.slot) == id) {
+                return e.slot;
             }
         }
     }
 
-    // Removes `id`, which must be in the table.
-    void erase(OrderId id) {
+    // Removes `id`, which must be in the table. id_of as for find().
+    template <typename IdOf> void erase(OrderId id, IdOf &&id_of) {
+        const std::uint32_t t = tag(id);
         std::size_t hole = home(id);
-        while (entries_[hole].id != id) {
-            assert(entries_[hole].id.value != 0 && "erasing an id that isn't in the table");
+        while (entries_[hole].tag != t || id_of(entries_[hole].slot) != id) {
+            assert(entries_[hole].slot != kNone && "erasing an id that isn't in the table");
             hole = (hole + 1) & mask_;
         }
         // Backward shift: walk the rest of the run. An entry can move into the hole unless its
         // home lies after the hole (cyclically, in (hole, j]): moving it there would put it before
         // its own home, where a search would never look.
-        for (std::size_t j = (hole + 1) & mask_; entries_[j].id.value != 0; j = (j + 1) & mask_) {
-            if (!in_cyclic_range(home(entries_[j].id), hole, j)) {
+        for (std::size_t j = (hole + 1) & mask_; entries_[j].slot != kNone; j = (j + 1) & mask_) {
+            if (!in_cyclic_range(home_of_tag(entries_[j].tag), hole, j)) {
                 entries_[hole] = entries_[j];
                 hole = j;
             }
@@ -113,8 +128,11 @@ public:
 
     // Where `id` would be stored if nothing collided (public for the unit tests).
     [[nodiscard]] std::size_t home(OrderId id) const {
-        constexpr std::uint64_t kFibonacci = 11400714819323198485ULL; // 2^64 / golden ratio
-        return static_cast<std::size_t>((id.value * kFibonacci) >> shift_);
+        return static_cast<std::size_t>(hash(id) >> shift_);
+    }
+    // The top 32 bits of `id`'s hash: what an entry stores (public for the unit tests).
+    [[nodiscard]] static std::uint32_t tag(OrderId id) {
+        return static_cast<std::uint32_t>(hash(id) >> 32U);
     }
 
     // Checks that every entry can be found: no empty entry between its home and where it sits, and
@@ -122,12 +140,12 @@ public:
     [[nodiscard]] bool consistent() const {
         std::size_t count = 0;
         for (std::size_t p = 0; p < entries_.size(); ++p) {
-            if (entries_[p].id.value == 0) {
+            if (entries_[p].slot == kNone) {
                 continue;
             }
             ++count;
-            for (std::size_t i = home(entries_[p].id); i != p; i = (i + 1) & mask_) {
-                if (entries_[i].id.value == 0) {
+            for (std::size_t i = home_of_tag(entries_[p].tag); i != p; i = (i + 1) & mask_) {
+                if (entries_[i].slot == kNone) {
                     return false;
                 }
             }
@@ -137,9 +155,19 @@ public:
 
 private:
     struct Entry {
-        OrderId id{}; // 0 = empty
-        std::uint32_t slot{kNone};
+        std::uint32_t tag{};       // top 32 bits of the id's hash
+        std::uint32_t slot{kNone}; // kNone = empty
     };
+    static_assert(sizeof(Entry) == 8);
+
+    static std::uint64_t hash(OrderId id) {
+        constexpr std::uint64_t kFibonacci = 11400714819323198485ULL; // 2^64 / golden ratio
+        return id.value * kFibonacci;
+    }
+    // The home of an id with this tag: the hash's top (64 - shift_) bits are the tag's top ones.
+    [[nodiscard]] std::size_t home_of_tag(std::uint32_t t) const {
+        return static_cast<std::size_t>(t >> (shift_ - 32));
+    }
 
     // At least twice max_orders, rounded up to a power of two (so "& mask_" can wrap).
     [[nodiscard]] static std::size_t table_size(std::uint32_t max_orders) {

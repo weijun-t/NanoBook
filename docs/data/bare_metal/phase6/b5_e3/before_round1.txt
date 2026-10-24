@@ -1,0 +1,37 @@
+File: /home/ubuntu/NanoBook/data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50 (11245883092 bytes)
+cpu              Intel(R) Core(TM) i7-14650HX
+logical cores    24
+os               Ubuntu 26.04.1 LTS
+kernel           Linux 7.0.0-30-generic x86_64
+virtual machine  no
+isolated cores   8-13
+nohz_full cores  8-13
+governor         performance
+turbo            on
+compiler         GCC 14.3.0
+build type       Release
+flags            -std=c++23 -O3 -DNDEBUG
+commit           8fd676adf6d2
+pinned to core   8
+counter          2.4192 ticks per ns
+timer overhead   min 20 ticks (subtracted from every latency sample)
+windows          1024 MiB, loaded before the clock starts
+
+Throughput (checks off; 368366634 messages, 11 windows; checksum 13154425643777011431)
+  parse only:        1.45 s, 3.9 ns per message, 254.5 M messages/s
+  parse + FastBook:  32.28 s, 87.6 ns per message, 11.4 M messages/s
+  the books' share:  83.7 ns per message (96% of the time)
+  page faults while timed: parse only 0 minor, 0 major; parse + FastBook 0 minor, 0 major
+
+Latency of every 8th order message, FastBook (45389776 samples; ns, timer overhead subtracted)
+tag      ITCH       count       min       p50       p90       p99     p99.9    p99.99       max      mean
+add      A, F    20584856      10.7      90.9     148.0     262.5     353.8     576.2     27437      92.3
+match    E, C     1030612       9.9      90.5     219.1     383.2     547.7     738.7     13055     112.3
+cancel   D       19786668      10.3      89.3     218.7     384.8     546.0     757.7     25480     112.1
+modify   X         584111       8.7      43.8     129.0     277.4     435.3         -      4530      61.8
+replace  U        3403529      14.1     155.8     296.0     464.6     630.0     849.5     26457     173.4
+all              45389776       8.7      92.2     200.1     360.4     524.1     746.9     27437     107.0
+  dropped (moved core) 0, clamped (too long) 0, refused (full) 0; page faults while timed: 0 minor, 0 major
+
+counter drift during the run: 0.003 parts per million
+wrote /home/ubuntu/NanoBook/docs/data/bare_metal/phase6/b5_e3/before_round1.csv and /home/ubuntu/NanoBook/docs/data/bare_metal/phase6/b5_e3/before_round1_histogram.csv

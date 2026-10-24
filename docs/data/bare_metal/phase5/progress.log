@@ -1,0 +1,31 @@
+[08:56:34] building gcc-release
+[08:56:34] start: commit 943fe708a59e, cores 8,10,12, rates 500000 1000000 2000000 4000000 8000000, window 10:00:00-10:05:00
+[08:56:34] round 1: ring benchmark (cores 8,10)
+[08:56:42]   exit 0
+[08:56:42] round 1: throughput, one thread then three
+[08:58:26]   exit 0
+[08:58:26] round 1: latency at 500000 records/s
+[08:59:08]   exit 0
+[08:59:08] round 1: latency at 1000000 records/s
+[08:59:44]   exit 0
+[08:59:44] round 1: latency at 2000000 records/s
+[09:00:17]   exit 0
+[09:00:17] round 1: latency at 4000000 records/s
+[09:00:49]   exit 0
+[09:00:49] round 1: latency at 8000000 records/s
+[09:01:20]   exit 0
+[09:01:20] round 2: ring benchmark (cores 8,10)
+[09:01:27]   exit 0
+[09:01:27] round 2: throughput, one thread then three
+[09:03:12]   exit 0
+[09:03:12] round 2: latency at 500000 records/s
+[09:03:53]   exit 0
+[09:03:53] round 2: latency at 1000000 records/s
+[09:04:29]   exit 0
+[09:04:29] round 2: latency at 2000000 records/s
+[09:05:02]   exit 0
+[09:05:02] round 2: latency at 4000000 records/s
+[09:05:33]   exit 0
+[09:05:33] round 2: latency at 8000000 records/s
+[09:06:04]   exit 0
+[09:06:04] done: /home/ubuntu/NanoBook/docs/data/bare_metal/phase5

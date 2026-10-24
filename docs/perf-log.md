@@ -1542,3 +1542,45 @@ in E1b, so they say nothing here.
 - **Not kept** (design §3.3: no guard may get worse). Ring 2's ping-pong is the price of
   delivering every update at once. A system that only cares about throughput at full load (a
   replay, a backtest) would take (c); the code is in `docs/data/phase6_wsl/e1d_known/after.diff`.
+
+---
+
+## 2026-10-24: E9b re-added on bare metal (optimise design §5, B6)
+
+Optimise design E9b, re-tested with the criteria fixed on 2026-10-22. **Bare metal**: the numbers
+can be published. **Kept: better in all 4 rounds, far beyond the noise.** Data:
+`docs/data/bare_metal/phase6/b6_e9b/` (the whole session: `docs/bare-metal-report.md`).
+
+### Change
+The diff of 2026-10-22 (`docs/data/phase6_wsl/e9b_compact/after.diff`), applied unchanged to
+`943fe70`: 8-byte `{tag, slot}` ID-table entries, a tag match confirmed by `id_of(slot)`.
+
+### Method
+- **Machine:** i7-14650HX, Ubuntu 26.04.1 LTS on bare metal (live USB stick), Linux
+  7.0.0-30-generic with `isolcpus=8-13 nohz_full=8-13 rcu_nocbs=8-13`, pinned to CPU 8,
+  `performance` governor, turbo on (5.2 GHz), GCC 14.3.0 `-O3`, idle laptop on power.
+- `scripts/run_ab_session.sh HEAD OUT --rounds 4 -- nanobook_replay ITCH_FILE --throughput
+  --latency --core 8 --csv {out}.csv`, 09:35–09:46, before = `943fe70`, ABBA order.
+- **Rule** (design §5, B6): keep if throughput is better in every round by more than the noise,
+  and p50 and p99 are not worse beyond theirs.
+
+### Results (ns; 4 rounds each)
+
+| | Before (16 B entries) | After (8 B entries) |
+|---|---|---|
+| Throughput, ns per message | 73.0, 72.9, 73.0, 73.0 | 68.2, 68.2, 68.2, 68.3 |
+| p50, all kinds | 84.3 in all 4 | 63.7–64.5 |
+| p99, all kinds | 315.8–316.2 | 296.8–297.6 |
+| p99.99 | 636.6–643.6 | 620.0–623.3 |
+| add, p50 (round 1) | 86.0 | 68.2 |
+| cancel, p50 (round 1) | 65.7 | 56.2 |
+
+### What these numbers say
+- **7% more throughput in every round,** with 0.1 ns between rounds of the same side: the
+  noise that hid it on WSL2 (5–11% between rounds) is gone.
+- **p50 24% better, p99 6% better.** Half the replay's time is in the ID table (the profile of
+  2026-10-22); 8-byte entries put twice as many in each cache line.
+- **Decision: kept,** by the rule. Gates re-run on the new code: all 790 / 771 tests in the 6
+  presets, format and clang-tidy clean; the full-day differential 0 mismatches (363,118,215
+  quick and 61,354 full checks); pipeline checksum `748abedf40533b82`; `nanobook_fuzz` 10
+  million operations x 3 seeds on `sorted` and `window`, all PASS.

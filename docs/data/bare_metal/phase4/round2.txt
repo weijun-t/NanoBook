@@ -1,0 +1,39 @@
+File: data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50 (11245883092 bytes)
+cpu              Intel(R) Core(TM) i7-14650HX
+logical cores    24
+os               Ubuntu 26.04.1 LTS
+kernel           Linux 7.0.0-30-generic x86_64
+virtual machine  no
+isolated cores   8-13
+nohz_full cores  8-13
+governor         performance
+turbo            on
+compiler         GCC 14.3.0
+build type       Release
+flags            -std=c++23 -O3 -DNDEBUG
+commit           943fe708a59e
+pinned to core   8
+counter          2.4192 ticks per ns
+timer overhead   min 22 ticks (subtracted from every latency sample)
+windows          1024 MiB, loaded before the clock starts
+
+Throughput (checks off; 368366634 messages, 11 windows; checksum 13154425643777011431)
+  parse only:        1.47 s, 4.0 ns per message, 250.4 M messages/s
+  parse + FastBook:  27.76 s, 75.4 ns per message, 13.3 M messages/s
+  the books' share:  71.4 ns per message (95% of the time)
+  page faults while timed: parse only 0 minor, 0 major; parse + FastBook 0 minor, 0 major
+  books:             384 MB arena, 384 MB of it on 2 MiB pages
+
+Latency of every 8th order message, FastBook (45389776 samples; ns, timer overhead subtracted)
+tag      ITCH       count       min       p50       p90       p99     p99.9    p99.99       max      mean
+add      A, F    20584856       9.9      85.6     131.9     244.7     331.1     519.2     25242      81.6
+match    E, C     1030612       9.5      49.2     167.4     300.9     422.5     547.7     25290      76.6
+cancel   D       19786668       9.1      64.9     178.2     321.2     457.2     633.7     26597      87.4
+modify   X         584111      10.3      29.8      98.8     237.7     390.6         -      4405      45.7
+replace  U        3403529      13.6     141.4     269.5     421.6     568.0     756.0     26560     156.6
+all              45389776       9.1      83.9     171.5     312.5     453.5     646.9     26597      89.2
+  dropped (moved core) 0, clamped (too long) 0, refused (full) 0; page faults while timed: 0 minor, 0 major
+  books: 384 MB arena, 384 MB of it on 2 MiB pages
+
+counter drift during the run: 0.025 parts per million
+wrote docs/data/bare_metal/phase4/round2.csv and docs/data/bare_metal/phase4/round2_histogram.csv

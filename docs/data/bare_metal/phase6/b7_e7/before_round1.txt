@@ -1,0 +1,39 @@
+File: /home/ubuntu/NanoBook/data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50 (11245883092 bytes)
+cpu              Intel(R) Core(TM) i7-14650HX
+logical cores    24
+os               Ubuntu 26.04.1 LTS
+kernel           Linux 7.0.0-30-generic x86_64
+virtual machine  no
+isolated cores   8-13
+nohz_full cores  8-13
+governor         performance
+turbo            on
+compiler         GCC 14.3.0
+build type       Release
+flags            -std=c++23 -O3 -DNDEBUG
+commit           943fe708a59e
+pinned to core   8
+counter          2.4192 ticks per ns
+timer overhead   min 22 ticks (subtracted from every latency sample)
+windows          1024 MiB, loaded before the clock starts
+
+Throughput (checks off; 368366634 messages, 11 windows; checksum 13154425643777011431)
+  parse only:        0.99 s, 2.7 ns per message, 372.2 M messages/s
+  parse + FastBook:  26.90 s, 73.0 ns per message, 13.7 M messages/s
+  the books' share:  70.3 ns per message (96% of the time)
+  page faults while timed: parse only 0 minor, 0 major; parse + FastBook 0 minor, 0 major
+  books:             384 MB arena, 384 MB of it on 2 MiB pages
+
+Latency of every 8th order message, FastBook (45389776 samples; ns, timer overhead subtracted)
+tag      ITCH       count       min       p50       p90       p99     p99.9    p99.99       max      mean
+add      A, F    20584856      10.3      86.0     131.9     241.8     324.1     496.0     25289      82.8
+match    E, C     1030612       9.5      51.7     173.2     309.2     430.3     549.4     12836      79.2
+cancel   D       19786668       9.1      65.3     184.4     327.8     463.0     629.1     26587      88.9
+modify   X         584111      10.3      31.0     111.2     252.1     405.9         -      4401      49.4
+replace  U        3403529      13.2     142.2     272.8     425.3     573.7     759.3     27723     158.1
+all              45389776       9.1      84.3     174.9     316.2     458.0     642.8     27723      90.6
+  dropped (moved core) 0, clamped (too long) 0, refused (full) 0; page faults while timed: 0 minor, 0 major
+  books: 384 MB arena, 384 MB of it on 2 MiB pages
+
+counter drift during the run: 0.003 parts per million
+wrote /home/ubuntu/NanoBook/docs/data/bare_metal/phase6/b7_e7/before_round1.csv and /home/ubuntu/NanoBook/docs/data/bare_metal/phase6/b7_e7/before_round1_histogram.csv

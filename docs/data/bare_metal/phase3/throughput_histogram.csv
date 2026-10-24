@@ -1,0 +1,23 @@
+# cpu: Intel(R) Core(TM) i7-14650HX
+# logical cores: 24
+# os: Ubuntu 26.04.1 LTS
+# kernel: Linux 7.0.0-30-generic x86_64
+# virtual machine: no
+# isolated cores: 8-13
+# nohz_full cores: 8-13
+# governor: performance
+# turbo: on
+# compiler: GCC 14.3.0
+# build type: Release
+# flags: -std=c++23 -O3 -DNDEBUG
+# commit: 943fe708a59e
+# pinned to core: 8
+# counter ticks per ns: 2.419200
+# counter spread (parts per million): 0.159115
+# counter drift during the run (parts per million): 0.009133
+# timer overhead min (ticks, subtracted): 22
+# timer overhead median (ticks): 24
+# mode: throughput
+# per run: 1000000
+# seed: 42
+scenario,book,tag,low_ns,high_ns,count

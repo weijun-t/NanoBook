@@ -1,0 +1,13 @@
+[09:06:14] before: 82557e6274eb (82557e6), preset gcc-release; after: 43f939e99451, no uncommitted changes, preset gcc-release
+[09:06:14] building before (worktree at /dev/shm/nb-b5_e6/build/ab-before)
+[09:06:23] building after (this working tree)
+[09:06:32] start: nanobook_replay /home/ubuntu/NanoBook/data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50 --throughput --latency --core 8 --csv {out}.csv; 2 rounds, order ABBA; the laptop must stay idle
+[09:06:32] round 1: before
+[09:08:03]   exit 0
+[09:08:03] round 1: after
+[09:09:29]   exit 0
+[09:09:29] round 2: after
+[09:10:55]   exit 0
+[09:10:55] round 2: before
+[09:12:25]   exit 0
+[09:12:25] done: /home/ubuntu/NanoBook/docs/data/bare_metal/phase6/b5_e6

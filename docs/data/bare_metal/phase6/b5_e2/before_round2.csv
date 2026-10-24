@@ -1,0 +1,28 @@
+# cpu: Intel(R) Core(TM) i7-14650HX
+# logical cores: 24
+# os: Ubuntu 26.04.1 LTS
+# kernel: Linux 7.0.0-30-generic x86_64
+# virtual machine: no
+# isolated cores: 8-13
+# nohz_full cores: 8-13
+# governor: performance
+# turbo: on
+# compiler: GCC 14.3.0
+# build type: Release
+# flags: -std=c++23 -O3 -DNDEBUG
+# commit: 319850a51f52
+# pinned to core: 8
+# counter ticks per ns: 2.419200
+# counter drift during the run (parts per million): 0.142430
+# timer overhead min (ticks, subtracted): 22
+# input: /home/ubuntu/NanoBook/data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50
+# latency: every 8th order message; windows of 1024 MiB
+mode,scenario,book,tag,count,min_ns,p50_ns,p90_ns,p99_ns,p999_ns,p9999_ns,max_ns,mean_ns,dropped,clamped,timed_allocations
+throughput,itch_day,parse_only,all,368366634,,,,,,,,2.6,,,
+throughput,itch_day,FastBook,all,368366634,,,,,,,,87.0,,,
+latency,itch_day,FastBook,add,20584856,9.9,90.1,148.0,261.2,351.4,596.9,26441.8,91.5,,,
+latency,itch_day,FastBook,match,1030612,8.7,89.3,217.0,378.2,539.4,734.5,12970.8,111.1,,,
+latency,itch_day,FastBook,cancel,19786668,9.1,88.5,216.6,381.5,541.9,746.9,30040.1,110.9,,,
+latency,itch_day,FastBook,modify,584111,7.9,43.0,129.4,274.9,432.8,606.8,4468.4,61.1,,,
+latency,itch_day,FastBook,replace,3403529,13.2,155.4,294.7,461.3,622.5,858.1,28744.6,172.8,,,
+latency,itch_day,FastBook,all,45389776,7.9,90.9,199.2,358.0,519.2,744.5,30040.1,106.1,,,

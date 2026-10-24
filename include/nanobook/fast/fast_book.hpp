@@ -112,7 +112,7 @@ public:
         return levels_.better_than(side, price);
     }
     [[nodiscard]] std::optional<Qty> leaves(OrderId id) const {
-        const std::uint32_t slot = ids_.find(id);
+        const std::uint32_t slot = ids_.find(id, id_of());
         return slot == kNone ? std::nullopt : std::optional<Qty>{pool_[slot].leaves};
     }
     [[nodiscard]] std::size_t order_count() const {
@@ -152,6 +152,11 @@ private:
     void remove_and_tidy(std::uint32_t slot);
 
     BookConfig config_;
+    // For the id table: the id of the order in a slot, which confirms a tag match (E9b).
+    [[nodiscard]] auto id_of() const {
+        return [this](std::uint32_t slot) { return pool_[slot].id; };
+    }
+
     OrderPool pool_;
     Levels levels_;
     IdTable ids_;       // resting orders only
@@ -213,7 +218,7 @@ void BasicFastBook<Levels>::handle(const Cancel &cancel, EventBuffer &out) {
     assert(out.capacity() >= config_.max_events_per_input());
     out.clear();
 
-    const std::uint32_t slot = ids_.find(cancel.id);
+    const std::uint32_t slot = ids_.find(cancel.id, id_of());
     if (slot == kNone) {
         out.push(Event::make_rejected(cancel.id, RejectReason::UnknownOrder));
         return;
@@ -238,7 +243,7 @@ void BasicFastBook<Levels>::handle(const Modify &modify, EventBuffer &out) {
     assert(out.capacity() >= config_.max_events_per_input());
     out.clear();
 
-    const std::uint32_t slot = ids_.find(modify.id);
+    const std::uint32_t slot = ids_.find(modify.id, id_of());
     if (slot == kNone) {
         out.push(Event::make_rejected(modify.id, RejectReason::UnknownOrder));
         return;
@@ -274,7 +279,7 @@ void BasicFastBook<Levels>::handle(const Modify &modify, EventBuffer &out) {
     const Qty to_trade = modify.new_total_qty - order.filled;
     const Qty remaining = match(order.id, order.owner, order.side, modify.new_price, to_trade, out);
     if (remaining == Qty{0}) {
-        ids_.erase(order.id);
+        ids_.erase(order.id, id_of());
         pool_.release(slot);
         return;
     }
@@ -295,7 +300,7 @@ template <typename Levels> FeedResult BasicFastBook<Levels>::apply(const FeedAdd
     if (!config_.in_band(add.price)) {
         return FeedResult::InvalidPrice; // also keeps TickLevels' array index in range
     }
-    if (ids_.find(add.id) != kNone) {
+    if (ids_.find(add.id, id_of()) != kNone) {
         return FeedResult::DuplicateOrder;
     }
     if (pool_.full()) {
@@ -316,7 +321,7 @@ template <typename Levels> FeedResult BasicFastBook<Levels>::apply(const FeedAdd
 }
 
 template <typename Levels> FeedResult BasicFastBook<Levels>::apply(const FeedReduce &reduce) {
-    const std::uint32_t slot = ids_.find(reduce.id);
+    const std::uint32_t slot = ids_.find(reduce.id, id_of());
     if (slot == kNone) {
         return FeedResult::UnknownOrder;
     }
@@ -339,7 +344,7 @@ template <typename Levels> FeedResult BasicFastBook<Levels>::apply(const FeedRed
 }
 
 template <typename Levels> FeedResult BasicFastBook<Levels>::apply(const FeedRemove &remove) {
-    const std::uint32_t slot = ids_.find(remove.id);
+    const std::uint32_t slot = ids_.find(remove.id, id_of());
     if (slot == kNone) {
         return FeedResult::UnknownOrder;
     }
@@ -348,7 +353,7 @@ template <typename Levels> FeedResult BasicFastBook<Levels>::apply(const FeedRem
 }
 
 template <typename Levels> FeedResult BasicFastBook<Levels>::apply(const FeedReplace &replace) {
-    const std::uint32_t slot = ids_.find(replace.old_id);
+    const std::uint32_t slot = ids_.find(replace.old_id, id_of());
     if (slot == kNone) {
         return FeedResult::UnknownOrder;
     }
@@ -358,7 +363,7 @@ template <typename Levels> FeedResult BasicFastBook<Levels>::apply(const FeedRep
     if (!config_.in_band(replace.price)) {
         return FeedResult::InvalidPrice;
     }
-    if (replace.new_id != replace.old_id && ids_.find(replace.new_id) != kNone) {
+    if (replace.new_id != replace.old_id && ids_.find(replace.new_id, id_of()) != kNone) {
         return FeedResult::DuplicateOrder;
     }
     // Take the order off its level but keep its slot (as Modify does), then put it back as the
@@ -371,7 +376,7 @@ template <typename Levels> FeedResult BasicFastBook<Levels>::apply(const FeedRep
     if (level->queue.empty()) {
         levels_.erase(order.side, order.price);
     }
-    ids_.erase(replace.old_id);
+    ids_.erase(replace.old_id, id_of());
     order.id = replace.new_id;
     order.price = replace.price;
     order.leaves = replace.qty;
@@ -511,7 +516,7 @@ void BasicFastBook<Levels>::remove_resting(Level &level, std::uint32_t slot) {
     const Order &order = pool_[slot];
     level.total -= order.leaves;
     level.queue.unlink(pool_, slot);
-    ids_.erase(order.id);
+    ids_.erase(order.id, id_of());
     pool_.release(slot);
 }
 
@@ -601,7 +606,7 @@ template <typename Levels> bool BasicFastBook<Levels>::structure_holds() const {
             for (std::uint32_t s = level.queue.front(); s != kNone; s = pool_[s].next) {
                 const Order &o = pool_[s];
                 if (o.price != level.price || o.side != side || o.leaves <= Qty{0} ||
-                    o.filled < Qty{0} || ids_.find(o.id) != s) {
+                    o.filled < Qty{0} || ids_.find(o.id, id_of()) != s) {
                     ok = false; // on the right level, quantities valid, the index points back here
                     return false;
                 }

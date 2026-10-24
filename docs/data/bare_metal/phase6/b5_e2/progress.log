@@ -1,0 +1,13 @@
+[09:12:25] before: 319850a51f52 (319850a); after: 8fd676adf6d2, no uncommitted changes
+[09:12:25] building before (worktree at /dev/shm/nb-b5_e2/build/ab-before)
+[09:12:35] building after (this working tree)
+[09:12:44] start: nanobook_replay /home/ubuntu/NanoBook/data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50 --throughput --latency --core 8 --csv {out}.csv; 2 rounds, order ABBA; the laptop must stay idle
+[09:12:44] round 1: before
+[09:14:20]   exit 0
+[09:14:20] round 1: after
+[09:15:58]   exit 0
+[09:15:58] round 2: after
+[09:17:35]   exit 0
+[09:17:35] round 2: before
+[09:19:12]   exit 0
+[09:19:12] done: /home/ubuntu/NanoBook/docs/data/bare_metal/phase6/b5_e2

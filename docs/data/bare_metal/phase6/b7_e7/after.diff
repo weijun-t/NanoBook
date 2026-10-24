@@ -1,0 +1,63 @@
+diff --git a/support/huge_page_arena.hpp b/support/huge_page_arena.hpp
+index 6bbf7a4..2150e4f 100644
+--- a/support/huge_page_arena.hpp
++++ b/support/huge_page_arena.hpp
+@@ -181,12 +181,14 @@ private:
+     std::pmr::memory_resource *previous_;
+ };
+ 
+-// Bytes for one FastBook per config: the arrays themselves, plus up to 64 bytes of alignment per
+-// array (the monotonic resource aligns each one; 4 arrays per book).
+-inline std::size_t arena_bytes(const std::vector<BookConfig> &configs) {
++// Bytes for one Book per config: the arrays themselves, plus up to 64 bytes of alignment per
++// array (the monotonic resource aligns each one; 4 arrays per book, and WindowLevels counts its
++// own extra ones).
++template <typename Book = FastBook>
++std::size_t arena_bytes(const std::vector<BookConfig> &configs) {
+     std::size_t total = 0;
+     for (const BookConfig &config : configs) {
+-        total += FastBook::arena_bytes(config) + (std::size_t{4} * 64);
++        total += Book::arena_bytes(config) + (std::size_t{4} * 64);
+     }
+     return total;
+ }
+diff --git a/tools/nanobook_replay.cpp b/tools/nanobook_replay.cpp
+index cdefda1..97bea38 100644
+--- a/tools/nanobook_replay.cpp
++++ b/tools/nanobook_replay.cpp
+@@ -97,6 +97,9 @@ using namespace nanobook;
+ using namespace nanobook::itch;
+ using Clock = std::chrono::steady_clock;
+ 
++// The book the timing modes replay into. E7's A/B (optimise design §10.7): WindowFastBook.
++using TimedBook = WindowFastBook;
++
+ constexpr std::string_view kUsage =
+     "usage: nanobook_replay FILE [--symbol AAPL] [--depth N] [--until HH:MM:SS] [--check]\n"
+     "                       [--structure-every N] [--differential] [--flow [--csv FILE.csv]]\n"
+@@ -692,9 +695,10 @@ int run_timing(const Options &o, std::span<const std::byte> bytes) {
+         if (failed(parsed, "parse only")) {
+             return 1;
+         }
+-        support::HugePageArena arena{support::arena_bytes(configs)}; // outlives the books
++        support::HugePageArena arena{
++            support::arena_bytes<TimedBook>(configs)}; // outlives the books
+         auto builder =
+-            support::build_books<BookBuilder<FastBook>>(arena, configs, BuilderOptions{});
++            support::build_books<BookBuilder<TimedBook>>(arena, configs, BuilderOptions{});
+         const auto replayed = replay_in_windows(bytes, window, builder);
+         if (failed(replayed, "replay")) {
+             return 1;
+@@ -725,9 +729,10 @@ int run_timing(const Options &o, std::span<const std::byte> bytes) {
+     if (o.latency) {
+         // Room for every Nth of the most order messages the file could hold (21 bytes each).
+         Recorder recorder{bytes.size() / (kLengthPrefix + 19) / o.every + 1};
+-        support::HugePageArena arena{support::arena_bytes(configs)}; // outlives the books
++        support::HugePageArena arena{
++            support::arena_bytes<TimedBook>(configs)}; // outlives the books
+         auto builder =
+-            support::build_books<BookBuilder<FastBook>>(arena, configs, BuilderOptions{});
++            support::build_books<BookBuilder<TimedBook>>(arena, configs, BuilderOptions{});
+         TimedOrders timed{builder, recorder, o.every};
+         const auto replayed = replay_in_windows(bytes, window, timed);
+         if (failed(replayed, "latency")) {
