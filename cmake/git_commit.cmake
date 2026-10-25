@@ -4,7 +4,7 @@
 #   `#define NANOBOOK_GIT_COMMIT "<commit>"` to OUT, e.g. "51e4122a0c3d" or "51e4122a0c3d-dirty"
 #   when tracked files have uncommitted changes. "unknown" if git or the repository isn't there.
 #
-# Why it exists: Every published latency number states the commit it came from (README rule 19).
+# Why it exists: Every published latency number states the commit it came from (plan rule 19).
 #   Reading the commit only when CMake configures would go stale after the next commit, so
 #   CMakeLists.txt runs this script at configure time AND on every build.
 #

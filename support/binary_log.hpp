@@ -7,7 +7,7 @@
  *   every byte it writes, so two runs can be proved identical without keeping their files.
  *   read_log() reads a log back (nanobook_logdump, the tests).
  *
- * Why it exists: README rule 7: logging is asynchronous and binary. The engine thread never
+ * Why it exists: plan rule 7: logging is asynchronous and binary. The engine thread never
  *   touches the file: the publisher thread does (pipeline design §6), and turning numbers into
  *   text happens afterwards, in nanobook_logdump. Rule 11: the same day must give a byte-identical
  *   log however the threads were scheduled, which is how step 3 proves the pipeline changed

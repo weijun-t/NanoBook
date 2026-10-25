@@ -1,5 +1,5 @@
 /*
- * test_alloc.cpp: zero-allocation tests (README rule 1).
+ * test_alloc.cpp: zero-allocation tests (plan rule 1).
  *
  * What it does: First checks the allocation counter on code whose allocations are known (one new
  *   counts 1, none counts 0). Then points it at engine code: the EventBuffer, the fast book's
@@ -182,7 +182,7 @@ TEST(ZeroAlloc, IdTableNeverAllocatesAfterConstruction) {
     EXPECT_EQ(table.size(), 0U);
 }
 
-// Phase 2's exit test (README rule 1, fast-book design §8.4): the WHOLE fast book allocates
+// Phase 2's exit test (plan rule 1, fast-book design §8.4): the WHOLE fast book allocates
 // nothing while trading. Build it (allocations allowed: start-up), warm it up with a random
 // stream, then 100,000 more random orders, cancels and modifies must make exactly 0 allocations.
 template <typename Book> std::uint64_t allocations_while_trading(std::uint32_t max_orders) {

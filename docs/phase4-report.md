@@ -71,7 +71,7 @@ The README's exit criteria for phase 4, and where each stands:
 |---|---|
 | A full-day replay completes | **Met** (§6.1) |
 | The consistency checks pass | **Met**: every check, every message (§6.1, §6.2) |
-| Messages/sec and per-message latency are reported | **Met on WSL2** (§8); the numbers to publish need bare metal (README rule 20), step 8 |
+| Messages/sec and per-message latency are reported | **Met on WSL2** (§8); the numbers to publish need bare metal (plan rule 20), step 8 |
 
 ---
 
@@ -83,7 +83,7 @@ The README's exit criteria for phase 4, and where each stands:
 each field at the spec's byte offset. ITCH numbers are big-endian, so each field is read with
 `std::memcpy` and `std::byteswap`: on both GCC 14 and Clang 19 that compiles to **one load and one
 byte-swap instruction** (checked in the assembly). No `reinterpret_cast` of the buffer (strict
-aliasing and alignment UB, README §4). Dispatch is a `switch` on the type letter; the handler is a
+aliasing and alignment UB, plan §4). Dispatch is a `switch` on the type letter; the handler is a
 template parameter, so no virtual calls (rule 4). Errors are `std::expected`, never exceptions.
 
 ### 4.2 The feed operations (step 3)

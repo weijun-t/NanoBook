@@ -7,7 +7,11 @@
 > Step 4: libFuzzer target with a structured mode (§2), a planted bug caught in 0.4 s. Step 5:
 > interview notes. Step 5b: the release session as one script (§3.4). Step 6 found the synthetic
 > `match` 8–17% slower since E9b; checked on WSL2 and published as measured, the user's decision
-> (perf log 2026-10-25): the README says so in one line.
+> (perf log 2026-10-25): the README says so in one line. Step 7: the README front page, from the
+> release session's numbers and charts (`docs/img/release_*`); the plan moved to `docs/plan.md`,
+> and "README rule N" / "README §N" became "plan rule N" / "plan §N" everywhere. Step 8: every
+> Markdown link, image and backticked repo path checked (four stale paths fixed); the design
+> notes' status headers say each phase is complete; the interview notes use the release numbers.
 
 Phases 0–6 built, tested, measured and tuned NanoBook. The work is real, but a stranger landing on
 the repo sees a **plan** (the README is still the project's rule book) and a pile of reports.
@@ -73,7 +77,7 @@ Phase 7 is done when:
 
 ---
 
-## 2. What's missing today (README §6 and §7 against the repo)
+## 2. What's missing today (plan §6 and §7 against the repo)
 
 | Promised in the README | State | Proposal |
 |---|---|---|
@@ -216,7 +220,7 @@ call stack is inlined). Drawn with Brendan Gregg's FlameGraph, cloned at a pinne
 build folder (not copied into the repo). SVG in `docs/img/`; the published one comes from §3.4.
 
 ### 6.2 `scripts/plot_compare.py`
-Reads two CSVs from the same tool and draws their percentile curves on one chart (README §7.5).
+Reads two CSVs from the same tool and draws their percentile curves on one chart (plan §7.5).
 Used once, for "phase 5's end against the release" from §3.4.
 
 ---
@@ -247,7 +251,7 @@ Used once, for "phase 5's end against the release" from §3.4.
 | Q2 | What "reproduce in 10 minutes" covers | Quick level (§0.2); the full level stated with its download | Honest: the download isn't ours to speed up |
 | Q3 | Last bare-metal session at the release commit | **Yes** (§3.4), about an hour on the stick | One commit for every README number; also the clean-room timing and the flame graph |
 | Q4 | Flame graph source | Bare metal (cycles), script tested on WSL2 first | Same standard as every published number |
-| Q5 | `plot_compare.py` | Build it, for one chart (phase 6's total) | Promised in README §7.5; cheap; the chart is a strong talking point |
+| Q5 | `plot_compare.py` | Build it, for one chart (phase 6's total) | Promised in plan §7.5; cheap; the chart is a strong talking point |
 | Q6 | libFuzzer on the ITCH parser | **Yes**, small: one target, a `clang-fuzz` preset, 60 s in CI | A feed handler must survive malformed bytes; about 40 lines |
 | Q7 | Interview notes | Separate `docs/interview-notes.md`, 6 bullets on the front page | Too long for the README; the bullets make the link worth clicking |
 | Q8 | A real stranger | Ask one friend to follow the quickstart once, after step 7 | The only true test of the exit criterion; optional |
@@ -256,7 +260,7 @@ Used once, for "phase 5's end against the release" from §3.4.
 
 ## 9. Out of scope for phase 7
 - **New optimisations.** Phase 6 is closed; the code freezes at step 6.
-- **The live view** (README §1): optional, after phase 7, a separate process.
-- **C++26 reflection** for tooling (README §2): a separate, deliberate step, if ever.
+- **The live view** (plan §1): optional, after phase 7, a separate process.
+- **C++26 reflection** for tooling (plan §2): a separate, deliberate step, if ever.
 - **Docker image.** Would make "a stranger" easier, but adds a toolchain to maintain; the CI
   workflow already proves a clean Ubuntu 24.04 can build from scratch.

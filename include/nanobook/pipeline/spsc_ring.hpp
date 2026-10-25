@@ -9,7 +9,7 @@
  * Why it exists: The pipeline's three threads hand records to each other (pipeline design §2).
  *   A mutex would cost tens of nanoseconds per hand-over and can put a thread to sleep (a system
  *   call, rule 6). With one writer and one reader, no lock is needed: each side writes only its
- *   own counter (README rule 5).
+ *   own counter (plan rule 5).
  *
  * How it works (pipeline design §3):
  *   - head_ counts records pushed, tail_ records popped. Both only increase; a record's slot is

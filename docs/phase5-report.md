@@ -86,7 +86,7 @@ The README's exit criteria for phase 5, and where each stands:
 | Exit criterion | Status |
 |---|---|
 | TSan is clean | **Met**: every test passes under `gcc-tsan` and `clang-tsan`, in CI on every push (§6.4) |
-| End-to-end latency percentiles are reported | **Met on WSL2** (§8); the numbers to publish need bare metal (README rule 20) |
+| End-to-end latency percentiles are reported | **Met on WSL2** (§8); the numbers to publish need bare metal (plan rule 20) |
 | Also required (rules 1, 11): no allocation after start-up; byte-identical output to one thread | **Met** (§6.2, §6.3) |
 
 ---
@@ -239,7 +239,7 @@ sets the speed.
 **Latency** needs care. If the feed pushes as fast as it can, every queue is always full, and
 "latency" just measures queue length. Worse, if the feed stamps each record **when it actually
 sends it**, a stall hides itself. A record due at t = 0 but sent at t = 50 µs is stamped 50 µs,
-and its 50 µs wait never shows. This is **coordinated omission** (README rule 18): the
+and its 50 µs wait never shows. This is **coordinated omission** (plan rule 18): the
 measurement politely waits for the system, which a real market never does.
 
 So the latency runs are **paced** (`support/pacing.hpp`):

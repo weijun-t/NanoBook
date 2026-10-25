@@ -1,7 +1,7 @@
 # Phase 2 design: the fast book
 
 > **Status:** approved (2026-10-17). Items marked **[MEASURE]** are decided by a benchmark, not in
-> advance (README rule 10). Changes from here on are made by an edit plus a note in the commit message.
+> advance (plan rule 10). Changes from here on are made by an edit plus a note in the commit message.
 > Decided: price levels (§6): sorted list is the main design, the tick array an experiment, the
 > moving window postponed to phase 6. Reusing the exchange's id table (§5.3) stays an experiment.
 > **Phase 2 complete (2026-10-18):** all §11 steps done; both exit criteria met (fuzzer 162 million
@@ -330,7 +330,7 @@ exchange tests run on it unchanged.
 | Tick levels | Band edges; finding the next price across empty 64-price blocks; the last level emptied |
 | Sorted levels | Insert at the best end, the deep end, the middle; binary search on both sides |
 
-### 8.3 Differential fuzzer: `tools/nanobook_fuzz`
+### 8.3 Differential fuzzer: `tools/nanobook_fuzz.cpp`
 **Idea:** the reference book is trusted, so the right answer doesn't have to be known in advance.
 Feed both books the same random inputs and compare.
 
@@ -461,7 +461,7 @@ part just changed, and each swap gets its own before/after number.
 | Idea | Where it belongs |
 |---|---|
 | Price prediction, order-book imbalance models, optimal execution | **Not part of an order book** (that's a trading strategy). Optional "phase 8". |
-| Kernel bypass, DPDK, special network cards, FPGAs | **Not in NanoBook**: there is no network (README §1). An interview talking point only. |
+| Kernel bypass, DPDK, special network cards, FPGAs | **Not in NanoBook**: there is no network (plan §1). An interview talking point only. |
 | Moving-window tick array (§6.3) | Phase 6, only if the tick-array experiment is clearly faster |
 | `[[likely]]`, `__builtin_expect`, manual prefetch | Phase 6, only with before/after numbers (rule 10) |
 | `-march=native`, LTO, PGO | Phase 6 |

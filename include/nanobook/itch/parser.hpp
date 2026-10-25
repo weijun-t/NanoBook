@@ -14,7 +14,7 @@
  *   length in kMessageLength (one array read), then a switch on the type letter. Each case reads
  *   its fields at the spec's offsets, written as literal numbers so they can be checked against
  *   the spec's tables line by line. Numbers are big-endian: memcpy into an integer, then
- *   std::byteswap (no reinterpret_cast of the buffer: strict aliasing and alignment UB, README
+ *   std::byteswap (no reinterpret_cast of the buffer: strict aliasing and alignment UB, plan
  *   §4). Stopping at an incomplete message lets a caller feed the file in windows (design §4)
  *   and carry the leftover bytes over.
  *

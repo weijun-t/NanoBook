@@ -9,7 +9,7 @@
 #   do, in the order lbr, dwarf, fp (below). Writes OUT_DIR/flamegraph.svg, folded.txt,
 #   replay.txt and progress.log. About 3 minutes, most of it the replay.
 #
-# Why it exists: README §7.3 promises a flame graph, and phase 7 puts one in the README (polish
+# Why it exists: plan §7.3 promises a flame graph, and phase 7 puts one in the README (polish
 #   design §6.1): the first picture to show where a message's time goes.
 #
 # How it works:

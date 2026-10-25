@@ -18,7 +18,7 @@ and the first performance baseline.
 | Bug checks | **13 deliberately planted bugs**, all caught by the tests (§7.3) |
 | Code size | About 1,050 lines of engine code; 2,600 including tests and benchmarks |
 | Baseline | 31–137 ns per operation and **2 heap allocations per added order** (§8) |
-| Commits | 12 small commits before this report, each building and passing tests (README rule 21) |
+| Commits | 12 small commits before this report, each building and passing tests (plan rule 21) |
 
 ---
 
@@ -55,7 +55,7 @@ come from tests, random streams, and later (phase 4) a real day of Nasdaq data.
 | `-Werror` with strict warnings | Conversions, sign mistakes and shadowing are build errors |
 | clang-format, clang-tidy | Style and suspicious patterns are checked in CI |
 | GitHub Actions | Every push builds and tests every preset |
-| `-fno-exceptions` (engine only) | A `throw` inside the engine does not compile (README rule 3) |
+| `-fno-exceptions` (engine only) | A `throw` inside the engine does not compile (plan rule 3) |
 
 ---
 

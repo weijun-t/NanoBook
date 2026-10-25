@@ -66,7 +66,7 @@ here is why" is as useful as a win, and the perf log records both the same way.
 - **WSL2:** Linux running inside Windows, this laptop's set-up. It hides the CPU's hardware
   counters (cache misses, TLB misses), so every "because of the cache" explanation here stays a
   **hypothesis** until the bare-metal session (§9). Numbers from WSL2 are marked **not for
-  publishing** (README rule 20).
+  publishing** (plan rule 20).
 
 ---
 

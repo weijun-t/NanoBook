@@ -13,8 +13,10 @@
 > (§9, §13), TickFastBook can't hold the real day (§9), the flow analysis (§9.1); step 6 split
 > into 6a, 6b, 6c (§12). Step 6c: the timed runs (§12; numbers in `docs/perf-log.md`). Step 7a:
 > the snapshot and flow CSVs and the two plot scripts (§10); step 7 split into 7a and 7b (§12).
-> Step 7b: the phase 4 report; phase 4 complete except step 8, the bare-metal numbers. Phase 3 step 6 (the bare-metal
-> run) is still open; phase 4's own published numbers come from the same Ubuntu session.
+> Step 7b: the phase 4 report; phase 4 complete except step 8, the bare-metal numbers.
+> **Phase 4 complete (2026-10-24):** step 8 published from the bare-metal session, with phase
+> 3's (`docs/bare-metal-report.md`); re-run at the release commit on 2026-10-25
+> (`docs/data/bare_metal/release/phase4/`).
 
 Phases 1–3 built **the core of an exchange** and fed it orders we made up. Phase 4 plays the other
 side: **a trading firm watching Nasdaq on one real trading day**. It rebuilds every stock's book
@@ -56,7 +58,7 @@ left at $190.05 or below, so they wait in the book as a new bid.
 | **`Exchange`** | `include/nanobook/exchange.hpp` | One book per stock; give each order an id; send it to its stock's book |
 
 A real exchange also has network connections, account and risk checks, fees and settlement. Those
-are left out on purpose (README §1). NanoBook is the part that **holds the orders and decides
+are left out on purpose (plan §1). NanoBook is the part that **holds the orders and decides
 the trades**, which is the part that has to be fast.
 
 ### 0.4 Phase 4: the trading firm's side
@@ -114,7 +116,7 @@ insert rare or common? Those answers decide what phase 6 optimises.
 ## 1. Goal and exit criteria
 
 **Goal:** `nanobook_replay` reads a full-day ITCH 5.0 file, rebuilds the book of every stock, and
-prints the top levels of one stock plus stats (README §7.4).
+prints the top levels of one stock plus stats (plan §7.4).
 
 **Phase 4 is done when** (README roadmap):
 1. A **full-day replay completes**.
@@ -240,7 +242,7 @@ What it tells us:
 
 - **mmap:** the kernel maps the file into our address space, so the bytes are read in place, with
   no `read()` copies into buffers.
-- **Pre-fault before timing (README §7.2):** touch every page first so the timed replay
+- **Pre-fault before timing (plan §7.2):** touch every page first so the timed replay
   measures the book, not the disk.
 - **Windows, because of §2's memory limit:** pre-fault a **window** (say 1 GiB, aligned to whole
   messages), replay it with the clock running, then release it with `madvise(MADV_DONTNEED)`
@@ -254,7 +256,7 @@ Cost: one pass over the file. Pre-faulting is cold path.
 ## 5. Parsing
 
 - **No `reinterpret_cast` of the buffer onto a struct.** That's undefined behaviour (strict
-  aliasing, alignment; README §4). Each field is read with a small helper: `std::memcpy` into an
+  aliasing, alignment; plan §4). Each field is read with a small helper: `std::memcpy` into an
   integer, then `std::byteswap`. **Checked in step 2** (`-O2` assembly, GCC 14 and Clang 19): a
   4- or 8-byte field is exactly one load plus one `bswap`. The 6-byte timestamp is read as 2 bytes
   plus 4 bytes and combined: two loads, two swaps, a shift and an OR (7 instructions).
@@ -395,7 +397,7 @@ present.
 ### 8.4 Parser tests
 Each message type decoded from hand-made bytes (big-endian values, the 6-byte timestamp). Plus:
 lengths that are too short, too long, or past the end of the file are all rejected. That's the
-groundwork for the optional libFuzzer target (README §7.1).
+groundwork for the optional libFuzzer target (plan §7.1).
 
 ### 8.5 The first full-day replay (step 4b, 2026-10-20)
 `nanobook_replay data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50 --check
@@ -506,7 +508,7 @@ What it answers (fast-book design §13):
 | `scripts/plot_phase4.py` (step 7a) | The phase 4 report's charts: latency per message kind against phase 3 (`phase4_latency.png`), and the flow analysis (`phase4_flow.png`, from `nanobook_replay --flow --csv FILE`) |
 
 Same rules as phase 3: tools outside the library, public API only, all printing after the timed
-region (README §7.4).
+region (plan §7.4).
 
 ---
 
@@ -516,7 +518,7 @@ region (README §7.4).
 |---|---|
 | `include/nanobook/itch/messages.hpp` | The decoded message structs and type letters |
 | `include/nanobook/itch/parser.hpp` | Field readers (`memcpy` + `byteswap`), the `switch`, length checks |
-| `include/nanobook/itch/file.hpp`, `src/itch/file.cpp` | mmap, windows, pre-fault |
+| `support/mapped_file.hpp`, `support/itch_timing.hpp` | mmap; windows, pre-fault (built in `support/`: only the tools and their tests read files) |
 | `include/nanobook/itch/book_builder.hpp` | Messages → feed operations on `books[locate]`, stats |
 | Reference and fast books | The four feed operations (§6.1), a `FeedBook` concept |
 | `support/itch_encoder.hpp` | Test-only: writes ITCH bytes (golden test, parser tests) |
@@ -564,9 +566,9 @@ region (README §7.4).
 
 | Idea | Where it belongs |
 |---|---|
-| Threads: parser on one core, books on another, over a ring buffer | Phase 5 (README §5 pipeline) |
+| Threads: parser on one core, books on another, over a ring buffer | Phase 5 (plan §5 pipeline) |
 | Optimising what the replay shows is slow | Phase 6, with before/after numbers (rule 10) |
 | `perf` profiles and flame graphs of the replay | Phase 6 (needs bare metal) |
-| Live network feed (MoldUDP64, SoupBinTCP) | Not in NanoBook: there is no network (README §1) |
-| libFuzzer on the parser | Optional, after phase 4 (README §7.1) |
+| Live network feed (MoldUDP64, SoupBinTCP) | Not in NanoBook: there is no network (plan §1) |
+| libFuzzer on the parser | Optional, after phase 4 (plan §7.1) |
 | Trading on the rebuilt book (signals, strategies) | Not part of an order book. Optional "phase 8" |

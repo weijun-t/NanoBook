@@ -8,7 +8,7 @@ What it does: Reads the files scripts/run_pipeline_session.sh wrote and writes t
   Usage: .venv/bin/python scripts/plot_phase5.py [--data DIR] [--out DIR]
   (defaults: docs/data/phase5_wsl and docs/img).
 
-Why it exists: README §7.5: the plots read only recorded files and never touch the engine, so
+Why it exists: plan §7.5: the plots read only recorded files and never touch the engine, so
   they can be redrawn at any time from the numbers in docs/perf-log.md.
 
 How it works:
@@ -22,13 +22,16 @@ How it works:
     round, so the round-to-round noise shows.
   - Colours (dataviz reference palette): the four percentiles are ordered, so one hue, light to
     dark (blue steps 250, 400, 550, 700; ordinal ramps from step 250 clear 2:1 on the light
-    surface), and every line is labelled at its end, so colour is never the only key.
+    surface), and every line is labelled at its left end, so colour is never the only key.
+    The four lines are close there, so the labels are spread: each at least 1.7x above the one
+    below (log axis), the group centred on the lines.
 
 Trade-offs: Static PNGs for the report, light mode only. Needs matplotlib (requirements.txt).
 """
 
 import argparse
 import csv
+import math
 import re
 from pathlib import Path
 
@@ -113,6 +116,20 @@ def fmt_ns(v: float, _pos=None) -> str:
     return f"{v:g} ns"
 
 
+def spread(ys: list[float], ratio: float) -> list[float]:
+    """Label heights on a log axis: each at least `ratio` above the one below, centred on ys."""
+    order = sorted(range(len(ys)), key=lambda i: ys[i])
+    logs = [math.log(ys[i]) for i in order]
+    placed = [logs[0]]
+    for value in logs[1:]:
+        placed.append(max(value, placed[-1] + math.log(ratio)))
+    shift = (sum(logs) - sum(placed)) / len(logs)  # keep the group's middle on the lines'
+    out = [0.0] * len(ys)
+    for i, value in zip(order, placed):
+        out[i] = math.exp(value + shift)
+    return out
+
+
 def tidy(ax, grid_axis: str = "y") -> None:
     for side in ("top", "right", "left"):
         ax.spines[side].set_visible(False)
@@ -143,13 +160,14 @@ def plot_latency(data: Path, out: Path) -> float:
     rows = {rate: [latency_row(data, rate, rnd) for rnd in ROUNDS] for rate in RATES}
     xs = [rate / 1e6 for rate in RATES]
     fig, ax = plt.subplots(figsize=(8, 4.6))
+    lines = []
     for label, column, colour in PERCENTILES:
         ys = [sum(float(r[column]) for r in rows[rate]) / len(ROUNDS) for rate in RATES]
         ax.plot(xs, ys, color=colour, linewidth=2, marker="o", markersize=5,
                 markeredgecolor=SURFACE, markeredgewidth=1)
-        nudge = {"p90": 1.2, "p50": 1 / 1.2}.get(label, 1)  # p50 and p90 are close: spread them
-        ax.text(xs[0] / 1.1, ys[0] * nudge, label, ha="right", va="center", fontsize=8,
-                color=INK_2)
+        lines.append((label, ys[0]))
+    for label, y in zip([name for name, _ in lines], spread([y for _, y in lines], 1.7)):
+        ax.text(xs[0] / 1.1, y, label, ha="right", va="center", fontsize=8, color=INK_2)
     capacity = sum(sustained_rate(r, RATES[-1]) for r in rows[RATES[-1]]) / len(ROUNDS)
     ax.axvline(capacity / 1e6, color=MUTED, linewidth=1, linestyle="--")
     ax.axvspan(capacity / 1e6, xs[-1] * 1.3, color=GRID, alpha=0.45, linewidth=0)

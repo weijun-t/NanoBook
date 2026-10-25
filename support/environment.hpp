@@ -1,5 +1,5 @@
 /*
- * environment.hpp: collects the facts every published latency number must state (README rule 19).
+ * environment.hpp: collects the facts every published latency number must state (plan rule 19).
  *
  * What it does: collect_environment() reads, once at start-up: the CPU model and how many logical
  *   cores there are, the kernel and OS, whether this is a virtual machine (WSL2 or any other),
@@ -162,10 +162,10 @@ struct Environment {
     // bare metal (rule 20) and from code that is exactly one commit (rule 19).
     [[nodiscard]] std::string unpublishable_reason() const {
         if (virtual_machine != "no") {
-            return "measured in a virtual machine (README rule 20)";
+            return "measured in a virtual machine (plan rule 20)";
         }
         if (commit == "unknown" || commit.ends_with("-dirty")) {
-            return "the commit is unknown or has uncommitted changes (README rule 19)";
+            return "the commit is unknown or has uncommitted changes (plan rule 19)";
         }
         return "";
     }

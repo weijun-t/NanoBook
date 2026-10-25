@@ -33,7 +33,7 @@ and experiment, with charts.
 |---|---|---|
 | 0 | Design note (`docs/fast-book-design.md`) | ✓ Done |
 | 1 | Zero-allocation test tool (a counting `operator new`) | ✓ Done |
-| 2 | Differential fuzzer (`tools/nanobook_fuzz`) | ✓ Done |
+| 2 | Differential fuzzer (`tools/nanobook_fuzz.cpp`) | ✓ Done |
 | 3 | Order pool and intrusive queue, with unit tests | ✓ Done |
 | 4 | Fast book v1: correct first, with temporary parts | ✓ Done |
 | 5 | Flat hash table (`IdTable`) replaces the temporary id lookup | ✓ Done |

@@ -10,7 +10,7 @@ What it does: Reads the CSV files in docs/data/ and writes seven PNG charts to d
   phase2_drift.png    the same code timed in different sessions: why every comparison is same-session
   Usage: .venv/bin/python scripts/plot_phase2.py
 
-Why it exists: README §7.5: the plots read only CSV and never touch the engine, so they can be
+Why it exists: plan §7.5: the plots read only CSV and never touch the engine, so they can be
   redrawn at any time from the numbers recorded in docs/perf-log.md.
 
 How it works: matplotlib, one figure per chart. Times differ by up to 600x between benchmarks

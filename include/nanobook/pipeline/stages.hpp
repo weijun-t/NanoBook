@@ -10,7 +10,7 @@
  *   the answer the pipeline must match, byte for byte.
  *
  * Why it exists: Phase 5 splits the work so the stages overlap and the engine's core does only
- *   book work. The book itself stays single-threaded (README rule 5): only the engine thread
+ *   book work. The book itself stays single-threaded (plan rule 5): only the engine thread
  *   ever touches it.
  *
  * How it works:

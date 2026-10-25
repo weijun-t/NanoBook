@@ -7,6 +7,7 @@
 > **Revised (2026-10-16), approved scope change:** several symbols behind one `Exchange` that
 > assigns order ids from one exchange-wide counter, like Nasdaq (§3.1). This replaces
 > sender-chosen ids, `DuplicateId` and the "highest id seen" rule.
+> **Phase 1 complete (2026-10-16):** see `docs/phase1-report.md`.
 
 The reference book is the slow, obviously correct engine for **one symbol**. An `Exchange` in front
 of it (§3.1) owns one book per symbol, numbers every order, and routes each message to its book. Phase 2's fast book must produce the
@@ -260,7 +261,7 @@ race is between the sender and the engine, and total-qty semantics make that rac
 
 ## 8. Error handling
 
-- The engine library is built with `-fno-exceptions` (README rule 3). A `throw` will not compile.
+- The engine library is built with `-fno-exceptions` (plan rule 3). A `throw` will not compile.
 - Every error is a `Rejected` event. Internal helpers that can fail return `std::expected`.
 - Don't call standard functions that report errors by throwing: no `map::at`, no
   `expected::value()`. Use `find`, and check `has_value()` before using `*`.
@@ -364,7 +365,7 @@ inside without changing any behaviour.
 | **Per-book config, set at construction** | `BookConfig { min_price, max_price, max_orders, max_qty }`. Both books take the same config. Each symbol gets its own (inside `ExchangeConfig`) (a $5 stock and a $700,000 stock need very different bands). | Everything the fast book needs can be sized **once at start-up**. |
 | **Fixed order capacity `max_orders`** | A full book gives `Rejected{BookFull}` (rule 8). Choose it generously: room for 1M orders is tens of MB. | An order pool of `max_orders` slots, allocated once. Nothing allocates while trading (rule 1). Real engines are sized in advance in the same way. |
 | **Maximum order size `max_qty`** | An order or modify whose (total) qty is above it is `InvalidQty`. A config is only valid if `max_orders × max_qty` fits in 64 bits. | **Correctness, not speed**: every sum the book computes (a level's qty, the look-first count) adds at most `max_orders` orders of at most `max_qty` each, so signed overflow (undefined behaviour) becomes impossible. It costs one comparison per order. Real exchanges have the same limit as a fat-finger check. |
-| **Price band `[min_price, max_price]`** | Prices outside it are `InvalidPrice`. `min_price ≥ 1`. | **Mainly a real exchange rule**: exchanges reject prices outside a band (e.g. US Limit Up-Limit Down, price collars), much like fat-finger checks. The fast book **must work correctly for any band**, including very wide ones. Whether to exploit a narrow band with a tick-indexed array, or to use a sorted vector of levels that needs no band, is a phase 2 **benchmark** decision (README §5). |
+| **Price band `[min_price, max_price]`** | Prices outside it are `InvalidPrice`. `min_price ≥ 1`. | **Mainly a real exchange rule**: exchanges reject prices outside a band (e.g. US Limit Up-Limit Down, price collars), much like fat-finger checks. The fast book **must work correctly for any band**, including very wide ones. Whether to exploit a narrow band with a tick-indexed array, or to use a sorted vector of levels that needs no band, is a phase 2 **benchmark** decision (plan §5). |
 | **Exchange-assigned ids and a fixed id table** | `ExchangeConfig { max_orders_per_session, one BookConfig per symbol }`. The table has one 2-byte entry per id, allocated once (100M orders/day ≈ 200 MB). When every id is used, new orders get `IdsExhausted`. | **Hot path:** a new order writes one entry. Ids go up by one, so the writes are sequential and the CPU prefetches them. Cancel and Modify carry the symbol, so they **never read** the table unless the order isn't found (the cold path). The real cost (cache space used by the table writes) gets measured in phase 2 and 3, not guessed (rule 10). |
 | **Events go into a caller-provided buffer** | The engine appends to a fixed-capacity array that the caller owns. Worst case per input: `max_orders + 2` events (a sweep that touches every resting order, plus `New` and a closing `Canceled`). | No `vector` growth per input. The buffer is reused, so it stays in cache. |
 | **Events are small, fixed-size structs** | Plain integers and enums only: no strings, no pointers, no `std::variant`. Each event's `sizeof` is `static_assert`ed. | Copying an event is a few register moves. A trade (four 8-byte fields plus a tag) is about 40 bytes, so events pack tightly into 64-byte cache lines. |
@@ -377,7 +378,7 @@ Where the speed actually comes from (phase 2, measured there, not here):
   cancel is O(1) and allocates nothing.
 - **Hot fields first**: price, qty, side and the list links sit together in the first 64 bytes of an
   order. Cold fields (owner, original total) come after them.
-- The README's §4 table of `std::map` and `std::list` costs is the "before" picture that phase 2 must
+- The plan's §4 table of `std::map` and `std::list` costs is the "before" picture that phase 2 must
   beat with numbers.
 
 ---

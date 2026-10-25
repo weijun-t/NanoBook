@@ -7,7 +7,7 @@
 ## 1. Summary
 
 Every number before this session came from WSL2, a virtual machine, and was marked "not for
-publishing" (README rule 20). This session ran the same tools on the same laptop, booted into
+publishing" (plan rule 20). This session ran the same tools on the same laptop, booted into
 Linux directly from a USB stick, with three physical cores set aside for the measurements. It
 does two jobs: it produces the **published numbers** for phases 3, 4 and 5, and it **re-checks
 phase 6's decisions** (optimise design §5, B1–B7), using rules written down before the data.

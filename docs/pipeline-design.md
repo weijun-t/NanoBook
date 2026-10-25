@@ -7,10 +7,13 @@
 > after CI timed out on 4 vCPUs (§3.5). Step 3: the log as built (§6). Step 4a: the timing modes as
 > built, with the warm-up settle time (§9.2a); step 4 split into 4a and 4b (§11). Step 4b: how
 > full the rings get (§3.4). Step 5: the phase 5 report, `docs/phase5-report.md`.
+> **Phase 5 complete (2026-10-24):** the published numbers from bare metal
+> (`docs/bare-metal-report.md`); re-run at the release commit on 2026-10-25
+> (`docs/data/bare_metal/release/phase5/`).
 
 Phases 1–4 ran everything on **one thread**: read a message, apply it to the book, then the next.
 Phase 5 splits that work into **three stages on three threads**, connected by **lock-free
-single-producer single-consumer (SPSC) ring buffers** that NanoBook writes itself (README §5,
+single-producer single-consumer (SPSC) ring buffers** that NanoBook writes itself (plan §5,
 roadmap phase 5). The book stays single-threaded (rule 5): threads are for the stages around it,
 never for the book itself.
 
@@ -71,7 +74,7 @@ atomics with **memory orders** say exactly which reorderings are forbidden:
 
 That pair is the whole trick. It is cheaper than the default `seq_cst` (no full fence on x86), and
 §3.3 shows why it is exactly enough, and why `relaxed` would be a bug. `volatile` does none of this
-(README §4).
+(plan §4).
 
 ---
 
@@ -428,5 +431,5 @@ one core), so two stages never share one core's caches and execution units.
 | Several engine threads, one per group of stocks ("sharding") | Later, optional: one book stays single-threaded either way |
 | Multi-producer or multi-consumer queues | Not needed: every link here has one writer and one reader |
 | Optimising the ring (batching, 64 vs 128 padding, huge pages) | Phase 6, with before/after numbers (rule 10) |
-| Network input (UDP, kernel bypass) | Not in NanoBook (README §1) |
-| A live view of the published book | Optional, after phase 7 (README §2), as a separate process |
+| Network input (UDP, kernel bypass) | Not in NanoBook (plan §1) |
+| A live view of the published book | Optional, after phase 7 (plan §2), as a separate process |

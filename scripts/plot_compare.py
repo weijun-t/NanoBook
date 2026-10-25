@@ -6,7 +6,7 @@ What it does: Reads CSV files written by nanobook_replay --latency or nanobook_b
   Usage: .venv/bin/python scripts/plot_compare.py --before A1.csv A2.csv --after B1.csv B2.csv
            --out FILE.png [--labels BEFORE AFTER] [--book FastBook] [--title TEXT]
 
-Why it exists: README §7.5 promises a before/after chart, and phase 7 uses it once, for the whole
+Why it exists: plan §7.5 promises a before/after chart, and phase 7 uses it once, for the whole
   of phase 6 in one picture (polish design §6.2). A table gives the numbers; the chart shows
   at a glance where on the curve a change helped, and whether the rounds agree.
 

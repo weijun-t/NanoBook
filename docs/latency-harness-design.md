@@ -7,11 +7,14 @@
 > Edits (2026-10-18, step 3a): the `other` tag (§5.3); scenarios moved into
 > `support/latency_scenarios.hpp` so tests can check them (§11); step 3 split into 3a and 3b (§12).
 > Step 3b: the CSV output is two files, summary and histogram (§9).
+> **Phase 3 complete (2026-10-24):** step 6, the published run, on bare metal
+> (`docs/bare-metal-report.md`); re-run at the release commit on 2026-10-25
+> (`docs/data/bare_metal/release/phase3/`, the README's numbers).
 
 Phase 2 proved the fast book correct and measured its **average** speed with Google Benchmark.
 Phase 3 builds the tool that measures **every single operation**, so the report can show the
-typical case *and* the slow ones (README rules 16, 17). It changes nothing in the engine: the
-harness is a tool outside the library that only uses the books' public API (README §7.4).
+typical case *and* the slow ones (plan rules 16, 17). It changes nothing in the engine: the
+harness is a tool outside the library that only uses the books' public API (plan §7.4).
 
 ---
 
@@ -46,7 +49,7 @@ p90   = 15 ns
 max   = 480 ns                ← the one that matters to a trader waiting on it
 ```
 
-In trading, the slow operation is a missed trade, so the tail is the headline number. README §4:
+In trading, the slow operation is a missed trade, so the tail is the headline number. plan §4:
 "A 50 ns mean with a 50 µs p99.9 is a bad engine."
 
 The sorted array's known weakness (fast-book design §6.1, deep inserts) is exactly this: rare,
@@ -75,7 +78,7 @@ clock changes with turbo. So the harness reports **nanoseconds**, never "cycles"
 
 ### 3.2 Why not `std::chrono`
 `std::chrono::steady_clock` calls `clock_gettime`. On Linux that usually avoids a real system call
-(the vDSO), but it does more work than one instruction, and README rule 6 bans it in tight loops.
+(the vDSO), but it does more work than one instruction, and plan rule 6 bans it in tight loops.
 It is used once, at start-up, to calibrate the counter (§4).
 
 ### 3.3 Reading it safely: two kinds of reordering
@@ -244,7 +247,7 @@ fences themselves cost. It should roughly agree with Google Benchmark on the sam
 large disagreement means one of the two tools is wrong.
 
 ### 6.4 Not coordinated omission (yet)
-README rule 18 warns about coordinated omission: in a pipeline, if the engine falls behind, the
+plan rule 18 warns about coordinated omission: in a pipeline, if the engine falls behind, the
 orders queuing up wait too, and timing only the engine hides that wait. Phase 3 replays from an
 array with nothing waiting, so it measures **service time** (how long the book takes per input),
 which is what's wanted here. Phase 5's pipeline measures response time, and that's where rule 18
@@ -306,9 +309,9 @@ cancel   1000000    …      …      …      …      …       …        …
 has the histogram buckets (two kinds of rows in one file would be awkward to load). `--raw
 FILE.csv` writes every sample in the order it was taken (large; for one-off investigation, such
 as whether slow samples repeat at a fixed interval). All printing and file writing happens
-**after** the timed loop (README §7.4).
+**after** the timed loop (plan §7.4).
 
-**Plot:** `scripts/plot_latency.py` reads only the CSV (README §7.5):
+**Plot:** `scripts/plot_latency.py` reads only the CSV (plan §7.5):
 1. a histogram per scenario with a log-scale time axis, the three books overlaid;
 2. a **percentile curve**: x axis p50 → p90 → p99 → p99.9 → p99.99 (spaced by "number of nines"),
    y axis latency, one line per book. This is the headline README image.

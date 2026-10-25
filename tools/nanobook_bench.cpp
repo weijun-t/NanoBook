@@ -13,7 +13,7 @@
  *   Exit code 0 means every run finished, 2 bad arguments or an unwritable file, 3 the counter or
  *   the pinning is not usable on this machine.
  *
- * Why it exists: Google Benchmark reports averages; phase 3 reports the tail too (README rules 16,
+ * Why it exists: Google Benchmark reports averages; phase 3 reports the tail too (plan rules 16,
  *   17). Every published latency number comes from this tool, with its environment (rule 19).
  *
  * How it works: First the environment (support/environment.hpp) and the timer: check the

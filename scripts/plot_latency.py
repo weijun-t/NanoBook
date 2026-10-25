@@ -9,7 +9,7 @@ What it does: Reads the CSV files nanobook_bench writes (--csv FILE.csv gives FI
   Usage: .venv/bin/python scripts/plot_latency.py FILE.csv [--out-dir DIR] [--prefix NAME]
   (defaults: the CSV's own folder, prefix "latency").
 
-Why it exists: README §7.5: the percentile curve is the headline chart, and the plots read only
+Why it exists: plan §7.5: the percentile curve is the headline chart, and the plots read only
   CSV, never the engine. Every chart carries the environment it was measured in (rule 19), and a
   NOT FOR PUBLISHING banner if the CSV came from a virtual machine (rule 20).
 

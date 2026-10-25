@@ -9,7 +9,7 @@ What it does: Reads CSV files in docs/data/ and writes two PNG charts to docs/im
   Usage: .venv/bin/python scripts/plot_phase4.py [--data DIR] [--out DIR]
   (defaults: docs/data and docs/img).
 
-Why it exists: README §7.5: the plots read only CSV and never touch the engine, so they can be
+Why it exists: plan §7.5: the plots read only CSV and never touch the engine, so they can be
   redrawn at any time from the numbers recorded in docs/perf-log.md and docs/itch-design.md §9.1.
 
 How it works:

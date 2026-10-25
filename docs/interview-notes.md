@@ -12,7 +12,7 @@ i7-14650HX, GCC 14.3, `-O3`) unless it says WSL2. Longer explanations are in the
 NanoBook is a limit order book in C++23. It has a simple **reference book** (`std::map`,
 `std::list`) as the answer key, and a **fast book** with no heap allocation while trading. It
 rebuilds every stock's book from a real Nasdaq day, 368 million ITCH messages, at **about 68 ns
-per message** on one core, with the slowest 1 in 10,000 messages at about **0.62 µs**. A
+per message** on one core, with the slowest 1 in 10,000 messages at about **0.61 µs**. A
 three-thread pipeline over my own lock-free ring buffers adds about **0.65 µs at p99** from feed to
 publisher, up to 4 million messages a second. The fast book matches the reference book after
 every one of 363 million real order messages and 162 million random operations.
@@ -54,6 +54,9 @@ Each entry: **chose**, **instead of**, **because** (with the evidence), **would 
   table needs one entry per id of the whole day in every book, and ITCH ids are exchange-wide.
   The profile then showed **half the replay inside the ID table** (phase 6), so halving the entry
   fits twice as many per cache line: **7% faster on the day, p50 24% better**, in 4 of 4 rounds.
+  The cost: confirming a tag match reads the order's id from the pool, a second read that waits
+  on the first. In the synthetic `match` test, where everything is in L1, that made `match`
+  8–17% slower; on the real day matches got 13–21% faster at p50 (perf log, 2026-10-25).
 - **Would revisit if:** ids were dense per book (then a direct table wins outright).
 
 ### 2.4 Orders in a pool with intrusive lists, `uint32_t` indices
@@ -93,8 +96,8 @@ Each entry: **chose**, **instead of**, **because** (with the evidence), **would 
 ### 2.7 Three threads are slower than one, and that's fine
 - **Chose:** a feed → engine → publisher pipeline, each on its own pinned core.
 - **Instead of:** doing everything on one thread.
-- **Because:** the book is 97% of the work, so the engine thread is the bottleneck either way.
-  Unpaced over the whole day, three threads run at **0.80×** the speed of one (bare metal): every
+- **Because:** the book is 96% of the work, so the engine thread is the bottleneck either way.
+  Unpaced over the whole day, three threads run at **0.78×** the speed of one (bare metal): every
   hand-over moves cache lines between cores. With the feed backing off when ring 1 is full (E1b),
   that improved by 16%. The pipeline still wins when there's slow work to take off the engine:
   writing the 20 GB log to disk, three threads were faster (81.7 s against 86.0 s, WSL2).

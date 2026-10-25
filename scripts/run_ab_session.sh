@@ -22,7 +22,7 @@
 #   "after" with one more environment variable, e.g. GLIBC_TUNABLES=glibc.malloc.hugetlb=1 (huge
 #   pages from malloc, optimise design E6): the same code, run differently.
 #
-# Why it exists: README rules 10 and 22: no optimisation without a before/after table. Timing
+# Why it exists: plan rules 10 and 22: no optimisation without a before/after table. Timing
 #   "before" today and "after" tomorrow would blame the laptop's mood on the change.
 #
 # How it works:

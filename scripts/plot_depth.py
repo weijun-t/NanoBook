@@ -7,7 +7,7 @@ What it does: Reads the CSV `nanobook_replay --symbol S --until T --snapshot-csv
     .venv/bin/python scripts/plot_depth.py SNAPSHOT.csv [--levels 50] [--out FILE.png]
   (default output: the CSV's name with .png).
 
-Why it exists: README §7.5: "that the book reconstructed from real ITCH data looks right". A
+Why it exists: plan §7.5: "that the book reconstructed from real ITCH data looks right". A
   real book is easy to recognise: a narrow spread, and depth that builds up away from it.
 
 How it works: Only the `--levels` levels nearest the best price on each side are drawn. Real

@@ -34,7 +34,7 @@ namespace nanobook {
 // is a compile error. They have the same size and generate the same machine code as the bare
 // integer. Every field defaults to 0, so a default-constructed value is never garbage.
 
-// Price in ticks (e.g. 1 tick = $0.01). Never floating point (README rule 2).
+// Price in ticks (e.g. 1 tick = $0.01). Never floating point (plan rule 2).
 struct Price {
     std::int64_t ticks{};
 

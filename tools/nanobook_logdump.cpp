@@ -8,7 +8,7 @@
  *   not a NanoBook log, or ends in the middle of a record; 2 bad arguments.
  *     nanobook_logdump LOG [--head N]
  *
- * Why it exists: README rule 7: the hot path writes fixed-size binary records and something else
+ * Why it exists: plan rule 7: the hot path writes fixed-size binary records and something else
  *   formats them. Formatting text at millions of records per second would slow the publisher,
  *   so it happens here, afterwards, only when someone wants to read the log.
  *

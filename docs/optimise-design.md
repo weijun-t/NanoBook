@@ -17,7 +17,8 @@
 > 7–12% faster but paced p90 worse (§2). Step 10: the phase 6 report. Phase 6 complete except the
 > bare-metal re-checks (§5). Bare-metal session (2026-10-24): every row of §5 done; E9b re-added
 > (B6), E2's touching kept by the user's decision over its rule (B5-E2b), the window not the
-> default (B7).
+> default (B7). **Phase 6 complete.** Its total, measured at the release commit (2026-10-25):
+> 86.4 → 67.9 ns per message on the real day (`docs/data/bare_metal/release/phase6_total/`).
 
 Phases 1–5 built a correct order book, a way to time it, a real Nasdaq day to feed it, and a
 three-thread pipeline around it. Phase 5 left measured **symptoms**, such as a slow tail, a pipeline
@@ -466,7 +467,7 @@ the kept ones, so each table's "before" is the code as it stood at that point.
 | Idea | Why not |
 |---|---|
 | Several engine threads, one per group of stocks (sharding) | A new architecture, not an optimisation; one book stays single-threaded (rule 5). Optional, later |
-| Kernel bypass, network input | Not in NanoBook (README §1) |
+| Kernel bypass, network input | Not in NanoBook (plan §1) |
 | SIMD searches over levels | No symptom points at the search cost yet; E3 and a profile come first |
 | Rewriting in assembly | Rule 24: every line must stay explainable, and the compiler already emits what we check |
 

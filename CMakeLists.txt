@@ -227,7 +227,7 @@ if(NANOBOOK_BUILD_TESTS)
     nanobook_uses_environment(nanobook_tests)
     gtest_discover_tests(nanobook_tests)
 
-    # Zero-allocation tests (README rule 1, fast-book design §8.4): their own program, because
+    # Zero-allocation tests (plan rule 1, fast-book design §8.4): their own program, because
     # the counting operator new would replace the normal one for every test in the program.
     if(NOT NANOBOOK_SANITIZER)
         add_executable(nanobook_alloc_tests tests/test_alloc.cpp)
@@ -295,7 +295,7 @@ if(NANOBOOK_BUILD_BENCH)
 endif()
 
 # ---------------------------------------------------------------------------
-# 9. libFuzzer target (README §7.1, polish design Q6): random bytes into the ITCH parser and
+# 9. libFuzzer target (plan §7.1, polish design Q6): random bytes into the ITCH parser and
 #    two book builders. Clang only; the clang-fuzz preset adds ASan and UBSan.
 # ---------------------------------------------------------------------------
 if(NANOBOOK_BUILD_LIBFUZZER)

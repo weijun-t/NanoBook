@@ -12,7 +12,7 @@
  *     cmake --workflow --preset clang-fuzz        (builds it)
  *     build/clang-fuzz/nanobook_fuzz_itch -max_total_time=60 CORPUS_DIR
  *
- * Why it exists: README §7.1 and polish design Q6. A feed handler reads bytes it doesn't control:
+ * Why it exists: plan §7.1 and polish design Q6. A feed handler reads bytes it doesn't control:
  *   a damaged file, a bug upstream. It must reject bad input, never crash. The unit tests check
  *   the bad inputs someone thought of; a fuzzer finds the ones nobody did. Parsing alone is a
  *   small target (every length is checked first), so the bytes go on into the books, where

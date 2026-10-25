@@ -1,7 +1,7 @@
 # Performance log
 
 Every performance number in this project is recorded here with the environment it came from
-(README rule 19). Each optimisation adds a before/after table (rule 22).
+(plan rule 19). Each optimisation adds a before/after table (rule 22).
 
 > **None of these numbers are for publishing.** They were measured on WSL2 (rule 20), and Google
 > Benchmark reports averages, not tail latency (rule 17). They are only valid for comparing books
@@ -48,7 +48,7 @@ The "before" column that the phase 2 fast book must beat (design §13).
 
 - **Adding allocates twice per order.** One `std::list` node for the order, one `std::map` node in
   the id lookup, plus a new `std::map` node whenever a price level is created (the extra 0.01).
-  This is the README rule 1 violation that phase 2 must remove: its target is **exactly 0**.
+  This is the plan rule 1 violation that phase 2 must remove: its target is **exactly 0**.
 - **Cancel is the slowest single operation**, about 2.3 times slower than add. Two `std::map`
   lookups (id → order, then price → level) jump between nodes all over the heap. Shuffled cancels
   touch memory in no particular order, so the CPU can't predict what to load next.
@@ -800,8 +800,9 @@ it if the result is worse** (design §5, B5). WSL2, so **not for publishing** (r
   fewer price levels than resting orders.
 
 ### Change
-- `include/nanobook/fast/prefault_allocator.hpp`: `PrefaultAllocator<T>`, `std::allocator<T>`
-  plus one write per 4 KiB page (and one at the last byte) as the memory is handed out.
+- `include/nanobook/fast/prefault_allocator.hpp` (removed later, by E6: the huge-page arena
+  touches every page instead): `PrefaultAllocator<T>`, `std::allocator<T>` plus one write per
+  4 KiB page (and one at the last byte) as the memory is handed out.
 - `SortedLevels` uses `std::vector<Level, PrefaultAllocator<Level>>`; nothing else changes.
 - **Cost:** the whole 161 MB becomes resident at start-up, against about 20 MB touched before.
 
@@ -982,7 +983,7 @@ as presets for the bare-metal re-check. WSL2, so **not for publishing** (rule 20
 
 ## 2026-10-22: E5, ring padding: 64 against 128 bytes (phase 6 step 6)
 
-Optimise design E5. **Not kept: 128 bytes stays** (README rule 9, decision Q4 of the pipeline
+Optimise design E5. **Not kept: 128 bytes stays** (plan rule 9, decision Q4 of the pipeline
 design). WSL2, so **not for publishing** (rule 20).
 
 ### Question

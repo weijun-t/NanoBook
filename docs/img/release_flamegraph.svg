@@ -1,0 +1,1963 @@
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" width="1400" height="558" onload="init(evt)" viewBox="0 0 1400 558" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<!-- Flame graph stack visualization. See https://github.com/brendangregg/FlameGraph for latest version, and http://www.brendangregg.com/flamegraphs.html for examples. -->
+<!-- NOTES:  -->
+<defs>
+	<linearGradient id="background" y1="0" y2="1" x1="0" x2="0" >
+		<stop stop-color="#eeeeee" offset="5%" />
+		<stop stop-color="#eeeeb0" offset="95%" />
+	</linearGradient>
+</defs>
+<style type="text/css">
+	text { font-family:Verdana; font-size:12px; fill:rgb(0,0,0); }
+	#search, #ignorecase { opacity:0.1; cursor:pointer; }
+	#search:hover, #search.show, #ignorecase:hover, #ignorecase.show { opacity:1; }
+	#subtitle { text-anchor:middle; font-color:rgb(160,160,160); }
+	#title { text-anchor:middle; font-size:17px}
+	#unzoom { cursor:pointer; }
+	#frames > *:hover { stroke:black; stroke-width:0.5; cursor:pointer; }
+	.hide { display:none; }
+	.parent { opacity:0.5; }
+</style>
+<script type="text/ecmascript">
+<![CDATA[
+	"use strict";
+	var details, searchbtn, unzoombtn, matchedtxt, svg, searching, currentSearchTerm, ignorecase, ignorecaseBtn;
+	function init(evt) {
+		details = document.getElementById("details").firstChild;
+		searchbtn = document.getElementById("search");
+		ignorecaseBtn = document.getElementById("ignorecase");
+		unzoombtn = document.getElementById("unzoom");
+		matchedtxt = document.getElementById("matched");
+		svg = document.getElementsByTagName("svg")[0];
+		searching = 0;
+		currentSearchTerm = null;
+
+		// use GET parameters to restore a flamegraphs state.
+		var params = get_params();
+		if (params.x && params.y)
+			zoom(find_group(document.querySelector('[x="' + params.x + '"][y="' + params.y + '"]')));
+                if (params.s) search(params.s);
+	}
+
+	// event listeners
+	window.addEventListener("click", function(e) {
+		var target = find_group(e.target);
+		if (target) {
+			if (target.nodeName == "a") {
+				if (e.ctrlKey === false) return;
+				e.preventDefault();
+			}
+			if (target.classList.contains("parent")) unzoom(true);
+			zoom(target);
+			if (!document.querySelector('.parent')) {
+				// we have basically done a clearzoom so clear the url
+				var params = get_params();
+				if (params.x) delete params.x;
+				if (params.y) delete params.y;
+				history.replaceState(null, null, parse_params(params));
+				unzoombtn.classList.add("hide");
+				return;
+			}
+
+			// set parameters for zoom state
+			var el = target.querySelector("rect");
+			if (el && el.attributes && el.attributes.y && el.attributes._orig_x) {
+				var params = get_params()
+				params.x = el.attributes._orig_x.value;
+				params.y = el.attributes.y.value;
+				history.replaceState(null, null, parse_params(params));
+			}
+		}
+		else if (e.target.id == "unzoom") clearzoom();
+		else if (e.target.id == "search") search_prompt();
+		else if (e.target.id == "ignorecase") toggle_ignorecase();
+	}, false)
+
+	// mouse-over for info
+	// show
+	window.addEventListener("mouseover", function(e) {
+		var target = find_group(e.target);
+		if (target) details.nodeValue = "Function: " + g_to_text(target);
+	}, false)
+
+	// clear
+	window.addEventListener("mouseout", function(e) {
+		var target = find_group(e.target);
+		if (target) details.nodeValue = ' ';
+	}, false)
+
+	// ctrl-F for search
+	// ctrl-I to toggle case-sensitive search
+	window.addEventListener("keydown",function (e) {
+		if (e.keyCode === 114 || (e.ctrlKey && e.keyCode === 70)) {
+			e.preventDefault();
+			search_prompt();
+		}
+		else if (e.ctrlKey && e.keyCode === 73) {
+			e.preventDefault();
+			toggle_ignorecase();
+		}
+	}, false)
+
+	// functions
+	function get_params() {
+		var params = {};
+		var paramsarr = window.location.search.substr(1).split('&');
+		for (var i = 0; i < paramsarr.length; ++i) {
+			var tmp = paramsarr[i].split("=");
+			if (!tmp[0] || !tmp[1]) continue;
+			params[tmp[0]]  = decodeURIComponent(tmp[1]);
+		}
+		return params;
+	}
+	function parse_params(params) {
+		var uri = "?";
+		for (var key in params) {
+			uri += key + '=' + encodeURIComponent(params[key]) + '&';
+		}
+		if (uri.slice(-1) == "&")
+			uri = uri.substring(0, uri.length - 1);
+		if (uri == '?')
+			uri = window.location.href.split('?')[0];
+		return uri;
+	}
+	function find_child(node, selector) {
+		var children = node.querySelectorAll(selector);
+		if (children.length) return children[0];
+	}
+	function find_group(node) {
+		var parent = node.parentElement;
+		if (!parent) return;
+		if (parent.id == "frames") return node;
+		return find_group(parent);
+	}
+	function orig_save(e, attr, val) {
+		if (e.attributes["_orig_" + attr] != undefined) return;
+		if (e.attributes[attr] == undefined) return;
+		if (val == undefined) val = e.attributes[attr].value;
+		e.setAttribute("_orig_" + attr, val);
+	}
+	function orig_load(e, attr) {
+		if (e.attributes["_orig_"+attr] == undefined) return;
+		e.attributes[attr].value = e.attributes["_orig_" + attr].value;
+		e.removeAttribute("_orig_"+attr);
+	}
+	function g_to_text(e) {
+		var text = find_child(e, "title").firstChild.nodeValue;
+		return (text)
+	}
+	function g_to_func(e) {
+		var func = g_to_text(e);
+		// if there's any manipulation we want to do to the function
+		// name before it's searched, do it here before returning.
+		return (func);
+	}
+	function update_text(e) {
+		var r = find_child(e, "rect");
+		var t = find_child(e, "text");
+		var w = parseFloat(r.attributes.width.value) -3;
+		var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+		t.attributes.x.value = parseFloat(r.attributes.x.value) + 3;
+
+		// Smaller than this size won't fit anything
+		if (w < 2 * 12 * 0.59) {
+			t.textContent = "";
+			return;
+		}
+
+		t.textContent = txt;
+		var sl = t.getSubStringLength(0, txt.length);
+		// check if only whitespace or if we can fit the entire string into width w
+		if (/^ *$/.test(txt) || sl < w)
+			return;
+
+		// this isn't perfect, but gives a good starting point
+		// and avoids calling getSubStringLength too often
+		var start = Math.floor((w/sl) * txt.length);
+		for (var x = start; x > 0; x = x-2) {
+			if (t.getSubStringLength(0, x + 2) <= w) {
+				t.textContent = txt.substring(0, x) + "..";
+				return;
+			}
+		}
+		t.textContent = "";
+	}
+
+	// zoom
+	function zoom_reset(e) {
+		if (e.attributes != undefined) {
+			orig_load(e, "x");
+			orig_load(e, "width");
+		}
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_reset(c[i]);
+		}
+	}
+	function zoom_child(e, x, ratio) {
+		if (e.attributes != undefined) {
+			if (e.attributes.x != undefined) {
+				orig_save(e, "x");
+				e.attributes.x.value = (parseFloat(e.attributes.x.value) - x - 10) * ratio + 10;
+				if (e.tagName == "text")
+					e.attributes.x.value = find_child(e.parentNode, "rect[x]").attributes.x.value + 3;
+			}
+			if (e.attributes.width != undefined) {
+				orig_save(e, "width");
+				e.attributes.width.value = parseFloat(e.attributes.width.value) * ratio;
+			}
+		}
+
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_child(c[i], x - 10, ratio);
+		}
+	}
+	function zoom_parent(e) {
+		if (e.attributes) {
+			if (e.attributes.x != undefined) {
+				orig_save(e, "x");
+				e.attributes.x.value = 10;
+			}
+			if (e.attributes.width != undefined) {
+				orig_save(e, "width");
+				e.attributes.width.value = parseInt(svg.width.baseVal.value) - (10 * 2);
+			}
+		}
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_parent(c[i]);
+		}
+	}
+	function zoom(node) {
+		var attr = find_child(node, "rect").attributes;
+		var width = parseFloat(attr.width.value);
+		var xmin = parseFloat(attr.x.value);
+		var xmax = parseFloat(xmin + width);
+		var ymin = parseFloat(attr.y.value);
+		var ratio = (svg.width.baseVal.value - 2 * 10) / width;
+
+		// XXX: Workaround for JavaScript float issues (fix me)
+		var fudge = 0.0001;
+
+		unzoombtn.classList.remove("hide");
+
+		var el = document.getElementById("frames").children;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			var a = find_child(e, "rect").attributes;
+			var ex = parseFloat(a.x.value);
+			var ew = parseFloat(a.width.value);
+			var upstack;
+			// Is it an ancestor
+			if (0 == 0) {
+				upstack = parseFloat(a.y.value) > ymin;
+			} else {
+				upstack = parseFloat(a.y.value) < ymin;
+			}
+			if (upstack) {
+				// Direct ancestor
+				if (ex <= xmin && (ex+ew+fudge) >= xmax) {
+					e.classList.add("parent");
+					zoom_parent(e);
+					update_text(e);
+				}
+				// not in current path
+				else
+					e.classList.add("hide");
+			}
+			// Children maybe
+			else {
+				// no common path
+				if (ex < xmin || ex + fudge >= xmax) {
+					e.classList.add("hide");
+				}
+				else {
+					zoom_child(e, xmin, ratio);
+					update_text(e);
+				}
+			}
+		}
+		search();
+	}
+	function unzoom(dont_update_text) {
+		unzoombtn.classList.add("hide");
+		var el = document.getElementById("frames").children;
+		for(var i = 0; i < el.length; i++) {
+			el[i].classList.remove("parent");
+			el[i].classList.remove("hide");
+			zoom_reset(el[i]);
+			if(!dont_update_text) update_text(el[i]);
+		}
+		search();
+	}
+	function clearzoom() {
+		unzoom();
+
+		// remove zoom state
+		var params = get_params();
+		if (params.x) delete params.x;
+		if (params.y) delete params.y;
+		history.replaceState(null, null, parse_params(params));
+	}
+
+	// search
+	function toggle_ignorecase() {
+		ignorecase = !ignorecase;
+		if (ignorecase) {
+			ignorecaseBtn.classList.add("show");
+		} else {
+			ignorecaseBtn.classList.remove("show");
+		}
+		reset_search();
+		search();
+	}
+	function reset_search() {
+		var el = document.querySelectorAll("#frames rect");
+		for (var i = 0; i < el.length; i++) {
+			orig_load(el[i], "fill")
+		}
+		var params = get_params();
+		delete params.s;
+		history.replaceState(null, null, parse_params(params));
+	}
+	function search_prompt() {
+		if (!searching) {
+			var term = prompt("Enter a search term (regexp " +
+			    "allowed, eg: ^ext4_)"
+			    + (ignorecase ? ", ignoring case" : "")
+			    + "\nPress Ctrl-i to toggle case sensitivity", "");
+			if (term != null) search(term);
+		} else {
+			reset_search();
+			searching = 0;
+			currentSearchTerm = null;
+			searchbtn.classList.remove("show");
+			searchbtn.firstChild.nodeValue = "Search"
+			matchedtxt.classList.add("hide");
+			matchedtxt.firstChild.nodeValue = ""
+		}
+	}
+	function search(term) {
+		if (term) currentSearchTerm = term;
+		if (currentSearchTerm === null) return;
+
+		var re = new RegExp(currentSearchTerm, ignorecase ? 'i' : '');
+		var el = document.getElementById("frames").children;
+		var matches = new Object();
+		var maxwidth = 0;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			var func = g_to_func(e);
+			var rect = find_child(e, "rect");
+			if (func == null || rect == null)
+				continue;
+
+			// Save max width. Only works as we have a root frame
+			var w = parseFloat(rect.attributes.width.value);
+			if (w > maxwidth)
+				maxwidth = w;
+
+			if (func.match(re)) {
+				// highlight
+				var x = parseFloat(rect.attributes.x.value);
+				orig_save(rect, "fill");
+				rect.attributes.fill.value = "rgb(230,0,230)";
+
+				// remember matches
+				if (matches[x] == undefined) {
+					matches[x] = w;
+				} else {
+					if (w > matches[x]) {
+						// overwrite with parent
+						matches[x] = w;
+					}
+				}
+				searching = 1;
+			}
+		}
+		if (!searching)
+			return;
+		var params = get_params();
+		params.s = currentSearchTerm;
+		history.replaceState(null, null, parse_params(params));
+
+		searchbtn.classList.add("show");
+		searchbtn.firstChild.nodeValue = "Reset Search";
+
+		// calculate percent matched, excluding vertical overlap
+		var count = 0;
+		var lastx = -1;
+		var lastw = 0;
+		var keys = Array();
+		for (k in matches) {
+			if (matches.hasOwnProperty(k))
+				keys.push(k);
+		}
+		// sort the matched frames by their x location
+		// ascending, then width descending
+		keys.sort(function(a, b){
+			return a - b;
+		});
+		// Step through frames saving only the biggest bottom-up frames
+		// thanks to the sort order. This relies on the tree property
+		// where children are always smaller than their parents.
+		var fudge = 0.0001;	// JavaScript floating point
+		for (var k in keys) {
+			var x = parseFloat(keys[k]);
+			var w = matches[keys[k]];
+			if (x >= lastx + lastw - fudge) {
+				count += w;
+				lastx = x;
+				lastw = w;
+			}
+		}
+		// display matched percent
+		matchedtxt.classList.remove("hide");
+		var pct = 100 * count / maxwidth;
+		if (pct != 100) pct = pct.toFixed(1)
+		matchedtxt.firstChild.nodeValue = "Matched: " + pct + "%";
+	}
+]]>
+</script>
+<rect x="0.0" y="0" width="1400.0" height="558.0" fill="url(#background)"  />
+<text id="title" x="700.00" y="24" >nanobook_replay: a real Nasdaq day, where the time goes</text>
+<text id="subtitle" x="700.00" y="48" >Intel(R) Core(TM) i7-14650HX, 7.0.0-30-generic, cycles:u at 1999 Hz, stacks: lbr, core 8, commit f895be621b01</text>
+<text id="details" x="10.00" y="541" > </text>
+<text id="unzoom" x="10.00" y="24" class="hide">Reset Zoom</text>
+<text id="search" x="1290.00" y="24" >Search</text>
+<text id="ignorecase" x="1374.00" y="24" >ic</text>
+<text id="matched" x="1290.00" y="541" > </text>
+<g id="frames">
+<g >
+<title>uninitialized_construct_using_allocator::{lambda#1}::operator() (15 samples, 0.02%)</title><rect x="161.8" y="93" width="0.2" height="15.0" fill="rgb(211,28,6)" rx="2" ry="2" />
+<text  x="164.81" y="103.5" ></text>
+</g>
+<g >
+<title>vector::size (7 samples, 0.01%)</title><rect x="644.9" y="221" width="0.1" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="647.92" y="231.5" ></text>
+</g>
+<g >
+<title>allocator_traits::construct (154 samples, 0.16%)</title><rect x="1031.9" y="221" width="2.2" height="15.0" fill="rgb(219,65,15)" rx="2" ry="2" />
+<text  x="1034.86" y="231.5" ></text>
+</g>
+<g >
+<title>_Hashtable::find (4,614 samples, 4.90%)</title><rect x="1040.1" y="269" width="67.6" height="15.0" fill="rgb(241,166,39)" rx="2" ry="2" />
+<text  x="1043.14" y="279.5" >_Hashta..</text>
+</g>
+<g >
+<title>_Mod_range_hashing::operator() (4,398 samples, 4.67%)</title><rect x="1129.2" y="189" width="64.5" height="15.0" fill="rgb(221,76,18)" rx="2" ry="2" />
+<text  x="1132.23" y="199.5" >_Mod_ra..</text>
+</g>
+<g >
+<title>IdTable::home_of_tag (113 samples, 0.12%)</title><rect x="214.8" y="237" width="1.6" height="15.0" fill="rgb(254,225,54)" rx="2" ry="2" />
+<text  x="217.77" y="247.5" ></text>
+</g>
+<g >
+<title>IdTable::hash (85 samples, 0.09%)</title><rect x="593.5" y="253" width="1.2" height="15.0" fill="rgb(231,119,28)" rx="2" ry="2" />
+<text  x="596.45" y="263.5" ></text>
+</g>
+<g >
+<title>vector::size (31 samples, 0.03%)</title><rect x="727.3" y="237" width="0.5" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="730.33" y="247.5" ></text>
+</g>
+<g >
+<title>_Hashtable::_M_insert_bucket_begin (336 samples, 0.36%)</title><rect x="997.7" y="237" width="4.9" height="15.0" fill="rgb(251,214,51)" rx="2" ry="2" />
+<text  x="1000.65" y="247.5" ></text>
+</g>
+<g >
+<title>vector::_M_insert_aux (271 samples, 0.29%)</title><rect x="645.5" y="205" width="4.0" height="15.0" fill="rgb(241,165,39)" rx="2" ry="2" />
+<text  x="648.54" y="215.5" ></text>
+</g>
+<g >
+<title>latency::read_stamp (17 samples, 0.02%)</title><rect x="801.3" y="333" width="0.2" height="15.0" fill="rgb(234,136,32)" rx="2" ry="2" />
+<text  x="804.26" y="343.5" ></text>
+</g>
+<g >
+<title>__sort_fn::operator() (20 samples, 0.02%)</title><rect x="801.0" y="349" width="0.3" height="15.0" fill="rgb(225,95,22)" rx="2" ry="2" />
+<text  x="803.97" y="359.5" ></text>
+</g>
+<g >
+<title>_Mod_range_hashing::operator() (170 samples, 0.18%)</title><rect x="1035.3" y="173" width="2.5" height="15.0" fill="rgb(221,76,18)" rx="2" ry="2" />
+<text  x="1038.35" y="183.5" ></text>
+</g>
+<g >
+<title>_Hash_code_base::_M_hash_code (21 samples, 0.02%)</title><rect x="959.4" y="189" width="0.4" height="15.0" fill="rgb(250,207,49)" rx="2" ry="2" />
+<text  x="962.44" y="199.5" ></text>
+</g>
+<g >
+<title>IntrusiveQueue::push_back (50 samples, 0.05%)</title><rect x="634.1" y="253" width="0.7" height="15.0" fill="rgb(216,53,12)" rx="2" ry="2" />
+<text  x="637.08" y="263.5" ></text>
+</g>
+<g >
+<title>IdTable::tag (45 samples, 0.05%)</title><rect x="684.2" y="253" width="0.7" height="15.0" fill="rgb(252,220,52)" rx="2" ry="2" />
+<text  x="687.20" y="263.5" ></text>
+</g>
+<g >
+<title>IdTable::home (41 samples, 0.04%)</title><rect x="654.1" y="253" width="0.6" height="15.0" fill="rgb(248,201,48)" rx="2" ry="2" />
+<text  x="657.06" y="263.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (249 samples, 0.26%)</title><rect x="645.8" y="109" width="3.7" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="648.81" y="119.5" ></text>
+</g>
+<g >
+<title>__equal::equal (21 samples, 0.02%)</title><rect x="753.5" y="285" width="0.3" height="15.0" fill="rgb(211,31,7)" rx="2" ry="2" />
+<text  x="756.53" y="295.5" ></text>
+</g>
+<g >
+<title>allocator_traits::construct (15 samples, 0.02%)</title><rect x="161.8" y="205" width="0.2" height="15.0" fill="rgb(219,65,15)" rx="2" ry="2" />
+<text  x="164.81" y="215.5" ></text>
+</g>
+<g >
+<title>vector::operator[] (58 samples, 0.06%)</title><rect x="694.8" y="253" width="0.9" height="15.0" fill="rgb(209,21,5)" rx="2" ry="2" />
+<text  x="697.84" y="263.5" ></text>
+</g>
+<g >
+<title>_ZSt5applyIZSt39uninitialized_construct_using_allocatorIN8nanobook4fast5LevelENSt3pmr21polymorphic_allocatorIS3_EEJS3_EEPT_S8_RKT0_DpOT1_EUlDpOT_E_TkSt12__tuple_likeSt5tupleIJOS3_EEEDcOS7_OS9_ (8 samples, 0.01%)</title><rect x="645.6" y="141" width="0.2" height="15.0" fill="rgb(218,60,14)" rx="2" ry="2" />
+<text  x="648.64" y="151.5" ></text>
+</g>
+<g >
+<title>__new_allocator::allocate (1,745 samples, 1.85%)</title><rect x="1006.3" y="189" width="25.6" height="15.0" fill="rgb(226,98,23)" rx="2" ry="2" />
+<text  x="1009.30" y="199.5" >_..</text>
+</g>
+<g >
+<title>BookBuilder::on (45,654 samples, 48.47%)</title><rect x="85.0" y="333" width="668.8" height="15.0" fill="rgb(241,169,40)" rx="2" ry="2" />
+<text  x="87.97" y="343.5" >BookBuilder::on</text>
+</g>
+<g >
+<title>_Hashtable::_M_bucket_index (22 samples, 0.02%)</title><rect x="959.4" y="221" width="0.4" height="15.0" fill="rgb(212,34,8)" rx="2" ry="2" />
+<text  x="962.44" y="231.5" ></text>
+</g>
+<g >
+<title>vector::operator[] (94 samples, 0.10%)</title><rect x="1265.4" y="285" width="1.4" height="15.0" fill="rgb(209,21,5)" rx="2" ry="2" />
+<text  x="1268.41" y="295.5" ></text>
+</g>
+<g >
+<title>move_backward (256 samples, 0.27%)</title><rect x="645.8" y="189" width="3.7" height="15.0" fill="rgb(245,187,44)" rx="2" ry="2" />
+<text  x="648.76" y="199.5" ></text>
+</g>
+<g >
+<title>__copy_move_backward_a1 (208 samples, 0.22%)</title><rect x="162.0" y="173" width="3.1" height="15.0" fill="rgb(236,143,34)" rx="2" ry="2" />
+<text  x="165.03" y="183.5" ></text>
+</g>
+<g >
+<title>__copy_move_a1 (388 samples, 0.41%)</title><rect x="707.1" y="189" width="5.7" height="15.0" fill="rgb(218,59,14)" rx="2" ry="2" />
+<text  x="710.07" y="199.5" ></text>
+</g>
+<g >
+<title>replay_in_windows (804 samples, 0.85%)</title><rect x="784.4" y="317" width="11.8" height="15.0" fill="rgb(246,191,45)" rx="2" ry="2" />
+<text  x="787.40" y="327.5" ></text>
+</g>
+<g >
+<title>allocator::allocate (1,745 samples, 1.85%)</title><rect x="1006.3" y="205" width="25.6" height="15.0" fill="rgb(249,203,48)" rx="2" ry="2" />
+<text  x="1009.30" y="215.5" >a..</text>
+</g>
+<g >
+<title>vector::size (32 samples, 0.03%)</title><rect x="159.4" y="237" width="0.4" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="162.36" y="247.5" ></text>
+</g>
+<g >
+<title>_Hash_code_base::_M_bucket_index (4,398 samples, 4.67%)</title><rect x="1129.2" y="205" width="64.5" height="15.0" fill="rgb(234,134,32)" rx="2" ry="2" />
+<text  x="1132.23" y="215.5" >_Hash_c..</text>
+</g>
+<g >
+<title>SortedLevels::lower_bound (90 samples, 0.10%)</title><rect x="751.8" y="237" width="1.4" height="15.0" fill="rgb(229,113,27)" rx="2" ry="2" />
+<text  x="754.84" y="247.5" ></text>
+</g>
+<g >
+<title>_Hashtable::_M_insert_unique_node (691 samples, 0.73%)</title><rect x="996.2" y="253" width="10.1" height="15.0" fill="rgb(253,224,53)" rx="2" ry="2" />
+<text  x="999.17" y="263.5" ></text>
+</g>
+<g >
+<title>vector::size (18 samples, 0.02%)</title><rect x="752.9" y="221" width="0.3" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="755.90" y="231.5" ></text>
+</g>
+<g >
+<title>_Hashtable::_M_find_before_node (4,353 samples, 4.62%)</title><rect x="1044.0" y="237" width="63.7" height="15.0" fill="rgb(212,34,8)" rx="2" ry="2" />
+<text  x="1046.96" y="247.5" >_Hashta..</text>
+</g>
+<g >
+<title>IdTable::tag (15 samples, 0.02%)</title><rect x="697.3" y="253" width="0.2" height="15.0" fill="rgb(252,220,52)" rx="2" ry="2" />
+<text  x="700.27" y="263.5" ></text>
+</g>
+<g >
+<title>_Hashtable::_M_bucket_index (4,398 samples, 4.67%)</title><rect x="1129.2" y="221" width="64.5" height="15.0" fill="rgb(212,34,8)" rx="2" ry="2" />
+<text  x="1132.23" y="231.5" >_Hashta..</text>
+</g>
+<g >
+<title>_Hashtable::_M_bucket_index (229 samples, 0.24%)</title><rect x="1040.5" y="253" width="3.4" height="15.0" fill="rgb(212,34,8)" rx="2" ry="2" />
+<text  x="1043.54" y="263.5" ></text>
+</g>
+<g >
+<title>_Mod_range_hashing::operator() (730 samples, 0.78%)</title><rect x="1108.2" y="205" width="10.7" height="15.0" fill="rgb(221,76,18)" rx="2" ry="2" />
+<text  x="1111.24" y="215.5" ></text>
+</g>
+<g >
+<title>__new_allocator::deallocate (1,739 samples, 1.85%)</title><rect x="1220.3" y="157" width="25.5" height="15.0" fill="rgb(228,106,25)" rx="2" ry="2" />
+<text  x="1223.30" y="167.5" >_..</text>
+</g>
+<g >
+<title>allocator_traits::construct (11 samples, 0.01%)</title><rect x="161.5" y="221" width="0.2" height="15.0" fill="rgb(219,65,15)" rx="2" ry="2" />
+<text  x="164.55" y="231.5" ></text>
+</g>
+<g >
+<title>OrderPool::operator[] (29 samples, 0.03%)</title><rect x="684.9" y="237" width="0.4" height="15.0" fill="rgb(236,145,34)" rx="2" ry="2" />
+<text  x="687.89" y="247.5" ></text>
+</g>
+<g >
+<title>polymorphic_allocator::construct (8 samples, 0.01%)</title><rect x="645.6" y="173" width="0.2" height="15.0" fill="rgb(211,29,7)" rx="2" ry="2" />
+<text  x="648.64" y="183.5" ></text>
+</g>
+<g >
+<title>vector::size (222 samples, 0.24%)</title><rect x="728.7" y="301" width="3.2" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="731.69" y="311.5" ></text>
+</g>
+<g >
+<title>SortedLevels::lower_bound (3,295 samples, 3.50%)</title><rect x="268.7" y="253" width="48.2" height="15.0" fill="rgb(229,113,27)" rx="2" ry="2" />
+<text  x="271.67" y="263.5" >Sort..</text>
+</g>
+<g >
+<title>_Hashtable_alloc::_M_deallocate_node (72 samples, 0.08%)</title><rect x="1038.5" y="205" width="1.1" height="15.0" fill="rgb(222,81,19)" rx="2" ry="2" />
+<text  x="1041.54" y="215.5" ></text>
+</g>
+<g >
+<title>SortedLevels::lower_bound (610 samples, 0.65%)</title><rect x="636.1" y="237" width="8.9" height="15.0" fill="rgb(229,113,27)" rx="2" ry="2" />
+<text  x="639.09" y="247.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (53,856 samples, 57.18%)</title><rect x="10.0" y="429" width="789.0" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="13.01" y="439.5" >[libc.so.6]</text>
+</g>
+<g >
+<title>equal_to::operator() (4,033 samples, 4.28%)</title><rect x="1048.7" y="189" width="59.0" height="15.0" fill="rgb(239,158,37)" rx="2" ry="2" />
+<text  x="1051.65" y="199.5" >equal_..</text>
+</g>
+<g >
+<title>__equal_aux1 (44 samples, 0.05%)</title><rect x="628.4" y="285" width="0.6" height="15.0" fill="rgb(235,141,33)" rx="2" ry="2" />
+<text  x="631.39" y="295.5" ></text>
+</g>
+<g >
+<title>OrderPool::operator[] (11 samples, 0.01%)</title><rect x="244.2" y="237" width="0.1" height="15.0" fill="rgb(236,145,34)" rx="2" ry="2" />
+<text  x="247.16" y="247.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (1,188 samples, 1.26%)</title><rect x="1013.1" y="157" width="17.4" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1016.09" y="167.5" ></text>
+</g>
+<g >
+<title>BasicFastBook::remove_resting (4,337 samples, 4.60%)</title><rect x="181.9" y="269" width="63.5" height="15.0" fill="rgb(254,225,53)" rx="2" ry="2" />
+<text  x="184.85" y="279.5" >BasicF..</text>
+</g>
+<g >
+<title>_Hashtable::_M_rehash (12 samples, 0.01%)</title><rect x="799.1" y="301" width="0.2" height="15.0" fill="rgb(208,14,3)" rx="2" ry="2" />
+<text  x="802.11" y="311.5" ></text>
+</g>
+<g >
+<title>latency::read_stamp (18 samples, 0.02%)</title><rect x="801.5" y="333" width="0.3" height="15.0" fill="rgb(234,136,32)" rx="2" ry="2" />
+<text  x="804.51" y="343.5" ></text>
+</g>
+<g >
+<title>[unknown] (75 samples, 0.08%)</title><rect x="1244.7" y="141" width="1.1" height="15.0" fill="rgb(210,24,5)" rx="2" ry="2" />
+<text  x="1247.68" y="151.5" ></text>
+</g>
+<g >
+<title>SortedLevels::levels (204 samples, 0.22%)</title><rect x="265.7" y="253" width="3.0" height="15.0" fill="rgb(222,81,19)" rx="2" ry="2" />
+<text  x="268.69" y="263.5" ></text>
+</g>
+<g >
+<title>vector::operator[] (385 samples, 0.41%)</title><rect x="165.1" y="253" width="5.6" height="15.0" fill="rgb(209,21,5)" rx="2" ry="2" />
+<text  x="168.08" y="263.5" ></text>
+</g>
+<g >
+<title>__introsort_loop (13 samples, 0.01%)</title><rect x="801.0" y="269" width="0.2" height="15.0" fill="rgb(229,114,27)" rx="2" ry="2" />
+<text  x="803.98" y="279.5" ></text>
+</g>
+<g >
+<title>__copy_move_a (339 samples, 0.36%)</title><rect x="257.7" y="205" width="4.9" height="15.0" fill="rgb(234,135,32)" rx="2" ry="2" />
+<text  x="260.66" y="215.5" ></text>
+</g>
+<g >
+<title>DayCounter::remove (366 samples, 0.39%)</title><rect x="1034.8" y="285" width="5.3" height="15.0" fill="rgb(237,149,35)" rx="2" ry="2" />
+<text  x="1037.78" y="295.5" ></text>
+</g>
+<g >
+<title>BasicFastBook::link_into_level (1,186 samples, 1.26%)</title><rect x="633.4" y="269" width="17.4" height="15.0" fill="rgb(254,229,54)" rx="2" ry="2" />
+<text  x="636.42" y="279.5" ></text>
+</g>
+<g >
+<title>_Hashtable::_M_remove_bucket_begin (48 samples, 0.05%)</title><rect x="1037.8" y="205" width="0.7" height="15.0" fill="rgb(246,192,46)" rx="2" ry="2" />
+<text  x="1040.84" y="215.5" ></text>
+</g>
+<g >
+<title>ParseOnly::on_skipped (9 samples, 0.01%)</title><rect x="761.7" y="333" width="0.1" height="15.0" fill="rgb(239,159,38)" rx="2" ry="2" />
+<text  x="764.67" y="343.5" ></text>
+</g>
+<g >
+<title>vector::size (7 samples, 0.01%)</title><rect x="706.2" y="237" width="0.1" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="709.16" y="247.5" ></text>
+</g>
+<g >
+<title>SortedLevels::lower_bound (613 samples, 0.65%)</title><rect x="247.1" y="253" width="9.0" height="15.0" fill="rgb(229,113,27)" rx="2" ry="2" />
+<text  x="250.14" y="263.5" ></text>
+</g>
+<g >
+<title>replay_in_windows (40,147 samples, 42.62%)</title><rect x="801.8" y="365" width="588.2" height="15.0" fill="rgb(246,191,45)" rx="2" ry="2" />
+<text  x="804.80" y="375.5" >replay_in_windows</text>
+</g>
+<g >
+<title>construct_at (8 samples, 0.01%)</title><rect x="645.6" y="61" width="0.2" height="15.0" fill="rgb(233,130,31)" rx="2" ry="2" />
+<text  x="648.64" y="71.5" ></text>
+</g>
+<g >
+<title>build_books (33 samples, 0.04%)</title><rect x="13.4" y="381" width="0.4" height="15.0" fill="rgb(237,150,36)" rx="2" ry="2" />
+<text  x="16.36" y="391.5" ></text>
+</g>
+<g >
+<title>nanobook::operator== (650 samples, 0.69%)</title><rect x="685.3" y="253" width="9.5" height="15.0" fill="rgb(244,179,42)" rx="2" ry="2" />
+<text  x="688.31" y="263.5" ></text>
+</g>
+<g >
+<title>OrderPool::operator[] (88 samples, 0.09%)</title><rect x="129.5" y="253" width="1.3" height="15.0" fill="rgb(236,145,34)" rx="2" ry="2" />
+<text  x="132.49" y="263.5" ></text>
+</g>
+<g >
+<title>__invoke_impl (8 samples, 0.01%)</title><rect x="645.6" y="93" width="0.2" height="15.0" fill="rgb(207,9,2)" rx="2" ry="2" />
+<text  x="648.64" y="103.5" ></text>
+</g>
+<g >
+<title>vector::operator[] (8 samples, 0.01%)</title><rect x="634.7" y="221" width="0.1" height="15.0" fill="rgb(209,21,5)" rx="2" ry="2" />
+<text  x="637.69" y="231.5" ></text>
+</g>
+<g >
+<title>__copy_move_backward::__copy_move_b (256 samples, 0.27%)</title><rect x="645.8" y="125" width="3.7" height="15.0" fill="rgb(208,14,3)" rx="2" ry="2" />
+<text  x="648.76" y="135.5" ></text>
+</g>
+<g >
+<title>_Hashtable::_M_find_before_node (11,029 samples, 11.71%)</title><rect x="834.6" y="237" width="161.6" height="15.0" fill="rgb(212,34,8)" rx="2" ry="2" />
+<text  x="837.59" y="247.5" >_Hashtable::_M_find_..</text>
+</g>
+<g >
+<title>expected::expected (252 samples, 0.27%)</title><rect x="13.9" y="365" width="3.7" height="15.0" fill="rgb(232,125,30)" rx="2" ry="2" />
+<text  x="16.87" y="375.5" ></text>
+</g>
+<g >
+<title>__copy_move_a1 (339 samples, 0.36%)</title><rect x="257.7" y="189" width="4.9" height="15.0" fill="rgb(218,59,14)" rx="2" ry="2" />
+<text  x="260.66" y="199.5" ></text>
+</g>
+<g >
+<title>_ZSt5applyIZSt39uninitialized_construct_using_allocatorIN8nanobook4fast5LevelENSt3pmr21polymorphic_allocatorIS3_EEJS3_EEPT_S8_RKT0_DpOT1_EUlDpOT_E_TkSt12__tuple_likeSt5tupleIJOS3_EEEDcOS7_OS9_ (11 samples, 0.01%)</title><rect x="161.5" y="173" width="0.2" height="15.0" fill="rgb(218,60,14)" rx="2" ry="2" />
+<text  x="164.55" y="183.5" ></text>
+</g>
+<g >
+<title>_Hashtable_base::_M_equals (4,301 samples, 4.57%)</title><rect x="1044.7" y="221" width="63.0" height="15.0" fill="rgb(236,142,34)" rx="2" ry="2" />
+<text  x="1047.73" y="231.5" >_Hasht..</text>
+</g>
+<g >
+<title>unordered_map::erase (10,754 samples, 11.42%)</title><rect x="1107.9" y="285" width="157.5" height="15.0" fill="rgb(232,125,30)" rx="2" ry="2" />
+<text  x="1110.86" y="295.5" >unordered_map::erase</text>
+</g>
+<g >
+<title>_Mod_range_hashing::operator() (219 samples, 0.23%)</title><rect x="1040.7" y="221" width="3.2" height="15.0" fill="rgb(221,76,18)" rx="2" ry="2" />
+<text  x="1043.68" y="231.5" ></text>
+</g>
+<g >
+<title>BookConfig::in_band (115 samples, 0.12%)</title><rect x="323.6" y="285" width="1.7" height="15.0" fill="rgb(230,118,28)" rx="2" ry="2" />
+<text  x="326.59" y="295.5" ></text>
+</g>
+<g >
+<title>IdTable::tag (75 samples, 0.08%)</title><rect x="616.1" y="269" width="1.1" height="15.0" fill="rgb(252,220,52)" rx="2" ry="2" />
+<text  x="619.15" y="279.5" ></text>
+</g>
+<g >
+<title>std::operator== (21 samples, 0.02%)</title><rect x="753.5" y="317" width="0.3" height="15.0" fill="rgb(229,110,26)" rx="2" ry="2" />
+<text  x="756.53" y="327.5" ></text>
+</g>
+<g >
+<title>vector::operator[] (832 samples, 0.88%)</title><rect x="598.9" y="269" width="12.2" height="15.0" fill="rgb(209,21,5)" rx="2" ry="2" />
+<text  x="601.89" y="279.5" ></text>
+</g>
+<g >
+<title>IdTable::insert (616 samples, 0.65%)</title><rect x="611.1" y="285" width="9.0" height="15.0" fill="rgb(224,88,21)" rx="2" ry="2" />
+<text  x="614.08" y="295.5" ></text>
+</g>
+<g >
+<title>__rdtscp (18 samples, 0.02%)</title><rect x="801.5" y="317" width="0.3" height="15.0" fill="rgb(248,200,47)" rx="2" ry="2" />
+<text  x="804.51" y="327.5" ></text>
+</g>
+<g >
+<title>vector::operator[] (88 samples, 0.09%)</title><rect x="129.5" y="237" width="1.3" height="15.0" fill="rgb(209,21,5)" rx="2" ry="2" />
+<text  x="132.49" y="247.5" ></text>
+</g>
+<g >
+<title>_Hashtable::_M_remove_bucket_begin (1,818 samples, 1.93%)</title><rect x="1193.7" y="221" width="26.6" height="15.0" fill="rgb(246,192,46)" rx="2" ry="2" />
+<text  x="1196.67" y="231.5" >_..</text>
+</g>
+<g >
+<title>BookBuilder::on_skipped (7 samples, 0.01%)</title><rect x="753.8" y="333" width="0.1" height="15.0" fill="rgb(220,70,16)" rx="2" ry="2" />
+<text  x="756.83" y="343.5" ></text>
+</g>
+<g >
+<title>construct_at (32 samples, 0.03%)</title><rect x="13.4" y="301" width="0.4" height="15.0" fill="rgb(233,130,31)" rx="2" ry="2" />
+<text  x="16.36" y="311.5" ></text>
+</g>
+<g >
+<title>vector::operator[] (50 samples, 0.05%)</title><rect x="656.0" y="253" width="0.7" height="15.0" fill="rgb(209,21,5)" rx="2" ry="2" />
+<text  x="659.01" y="263.5" ></text>
+</g>
+<g >
+<title>_Hashtable::_M_bucket_index (2,966 samples, 3.15%)</title><rect x="1271.0" y="269" width="43.5" height="15.0" fill="rgb(212,34,8)" rx="2" ry="2" />
+<text  x="1274.04" y="279.5" >_Has..</text>
+</g>
+<g >
+<title>DayCounter::remove (10,856 samples, 11.53%)</title><rect x="1107.7" y="301" width="159.1" height="15.0" fill="rgb(237,149,35)" rx="2" ry="2" />
+<text  x="1110.74" y="311.5" >DayCounter::remove</text>
+</g>
+<g >
+<title>_Hashtable_base::_M_equals (3,741 samples, 3.97%)</title><rect x="1324.0" y="237" width="54.8" height="15.0" fill="rgb(236,142,34)" rx="2" ry="2" />
+<text  x="1326.95" y="247.5" >_Hash..</text>
+</g>
+<g >
+<title>OrderPool::full (9 samples, 0.01%)</title><rect x="628.2" y="285" width="0.2" height="15.0" fill="rgb(223,87,20)" rx="2" ry="2" />
+<text  x="631.22" y="295.5" ></text>
+</g>
+<g >
+<title>read_be (637 samples, 0.68%)</title><rect x="768.0" y="317" width="9.4" height="15.0" fill="rgb(252,220,52)" rx="2" ry="2" />
+<text  x="771.05" y="327.5" ></text>
+</g>
+<g >
+<title>DayCounter::grow (175 samples, 0.19%)</title><rect x="826.9" y="285" width="2.6" height="15.0" fill="rgb(224,90,21)" rx="2" ry="2" />
+<text  x="829.93" y="295.5" ></text>
+</g>
+<g >
+<title>vector::operator[] (195 samples, 0.21%)</title><rect x="617.2" y="269" width="2.9" height="15.0" fill="rgb(209,21,5)" rx="2" ry="2" />
+<text  x="620.25" y="279.5" ></text>
+</g>
+<g >
+<title>_Hash_code_base::_M_bucket_index (219 samples, 0.23%)</title><rect x="1040.7" y="237" width="3.2" height="15.0" fill="rgb(234,134,32)" rx="2" ry="2" />
+<text  x="1043.68" y="247.5" ></text>
+</g>
+<g >
+<title>__apply_impl (15 samples, 0.02%)</title><rect x="161.8" y="141" width="0.2" height="15.0" fill="rgb(215,50,12)" rx="2" ry="2" />
+<text  x="164.81" y="151.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (291 samples, 0.31%)</title><rect x="258.0" y="141" width="4.3" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="261.02" y="151.5" ></text>
+</g>
+<g >
+<title>_Prime_rehash_policy::_M_state (254 samples, 0.27%)</title><rect x="1002.6" y="221" width="3.7" height="15.0" fill="rgb(249,206,49)" rx="2" ry="2" />
+<text  x="1005.58" y="231.5" ></text>
+</g>
+<g >
+<title>vector::emplace_back (32 samples, 0.03%)</title><rect x="13.4" y="333" width="0.4" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="16.36" y="343.5" ></text>
+</g>
+<g >
+<title>SortedLevels::erase (16 samples, 0.02%)</title><rect x="16.9" y="333" width="0.2" height="15.0" fill="rgb(217,56,13)" rx="2" ry="2" />
+<text  x="19.90" y="343.5" ></text>
+</g>
+<g >
+<title>replay_in_windows (92 samples, 0.10%)</title><rect x="1386.3" y="301" width="1.4" height="15.0" fill="rgb(246,191,45)" rx="2" ry="2" />
+<text  x="1389.32" y="311.5" ></text>
+</g>
+<g >
+<title>[libstdc++.so.6.0.35] (1,525 samples, 1.62%)</title><rect x="1008.2" y="173" width="22.3" height="15.0" fill="rgb(253,222,53)" rx="2" ry="2" />
+<text  x="1011.16" y="183.5" >[..</text>
+</g>
+<g >
+<title>vector::_M_erase (398 samples, 0.42%)</title><rect x="706.9" y="237" width="5.9" height="15.0" fill="rgb(221,76,18)" rx="2" ry="2" />
+<text  x="709.92" y="247.5" ></text>
+</g>
+<g >
+<title>__copy_move_a2 (339 samples, 0.36%)</title><rect x="257.7" y="173" width="4.9" height="15.0" fill="rgb(211,30,7)" rx="2" ry="2" />
+<text  x="260.66" y="183.5" ></text>
+</g>
+<g >
+<title>__normal_iterator::operator+ (67 samples, 0.07%)</title><rect x="256.1" y="253" width="1.0" height="15.0" fill="rgb(248,198,47)" rx="2" ry="2" />
+<text  x="259.12" y="263.5" ></text>
+</g>
+<g >
+<title>[kernel] (225 samples, 0.24%)</title><rect x="10.1" y="381" width="3.3" height="15.0" fill="rgb(234,134,32)" rx="2" ry="2" />
+<text  x="13.06" y="391.5" ></text>
+</g>
+<g >
+<title>_ZSt8byteswapITkSt8integraltET_S0_ (18 samples, 0.02%)</title><rect x="796.2" y="333" width="0.2" height="15.0" fill="rgb(212,33,7)" rx="2" ry="2" />
+<text  x="799.17" y="343.5" ></text>
+</g>
+<g >
+<title>[kernel] (12 samples, 0.01%)</title><rect x="799.1" y="205" width="0.2" height="15.0" fill="rgb(234,134,32)" rx="2" ry="2" />
+<text  x="802.11" y="215.5" ></text>
+</g>
+<g >
+<title>latency::stop (18 samples, 0.02%)</title><rect x="801.5" y="349" width="0.3" height="15.0" fill="rgb(223,85,20)" rx="2" ry="2" />
+<text  x="804.51" y="359.5" ></text>
+</g>
+<g >
+<title>SortedLevels::find (111 samples, 0.12%)</title><rect x="751.6" y="253" width="1.6" height="15.0" fill="rgb(234,134,32)" rx="2" ry="2" />
+<text  x="754.62" y="263.5" ></text>
+</g>
+<g >
+<title>vector::operator[] (13 samples, 0.01%)</title><rect x="751.2" y="237" width="0.2" height="15.0" fill="rgb(209,21,5)" rx="2" ry="2" />
+<text  x="754.21" y="247.5" ></text>
+</g>
+<g >
+<title>_Hash_code_base::_M_bucket_index (22 samples, 0.02%)</title><rect x="959.4" y="205" width="0.4" height="15.0" fill="rgb(234,134,32)" rx="2" ry="2" />
+<text  x="962.44" y="215.5" ></text>
+</g>
+<g >
+<title>vector::_M_insert_rval (333 samples, 0.35%)</title><rect x="160.2" y="237" width="4.9" height="15.0" fill="rgb(225,95,22)" rx="2" ry="2" />
+<text  x="163.20" y="247.5" ></text>
+</g>
+<g >
+<title>__invoke (8 samples, 0.01%)</title><rect x="645.6" y="109" width="0.2" height="15.0" fill="rgb(224,88,21)" rx="2" ry="2" />
+<text  x="648.64" y="119.5" ></text>
+</g>
+<g >
+<title>uninitialized_construct_using_allocator (11 samples, 0.01%)</title><rect x="161.5" y="189" width="0.2" height="15.0" fill="rgb(220,72,17)" rx="2" ry="2" />
+<text  x="164.55" y="199.5" ></text>
+</g>
+<g >
+<title>[unknown] (76 samples, 0.08%)</title><rect x="1005.2" y="205" width="1.1" height="15.0" fill="rgb(210,24,5)" rx="2" ry="2" />
+<text  x="1008.18" y="215.5" ></text>
+</g>
+<g >
+<title>BasicFastBook::remove_and_tidy (242 samples, 0.26%)</title><rect x="14.0" y="349" width="3.6" height="15.0" fill="rgb(237,148,35)" rx="2" ry="2" />
+<text  x="17.01" y="359.5" ></text>
+</g>
+<g >
+<title>unordered_map::erase (363 samples, 0.39%)</title><rect x="1034.8" y="269" width="5.3" height="15.0" fill="rgb(232,125,30)" rx="2" ry="2" />
+<text  x="1037.79" y="279.5" ></text>
+</g>
+<g >
+<title>_Hash_code_base::_M_bucket_index (756 samples, 0.80%)</title><rect x="1107.9" y="221" width="11.0" height="15.0" fill="rgb(234,134,32)" rx="2" ry="2" />
+<text  x="1110.86" y="231.5" ></text>
+</g>
+<g >
+<title>unordered_map::find (7,640 samples, 8.11%)</title><rect x="1266.8" y="301" width="112.0" height="15.0" fill="rgb(249,203,48)" rx="2" ry="2" />
+<text  x="1269.83" y="311.5" >unordered_map..</text>
+</g>
+<g >
+<title>unordered_map::try_emplace (13,745 samples, 14.59%)</title><rect x="832.7" y="285" width="201.4" height="15.0" fill="rgb(215,48,11)" rx="2" ry="2" />
+<text  x="835.74" y="295.5" >unordered_map::try_emplace</text>
+</g>
+<g >
+<title>_Mod_range_hashing::operator() (126 samples, 0.13%)</title><rect x="832.7" y="221" width="1.9" height="15.0" fill="rgb(221,76,18)" rx="2" ry="2" />
+<text  x="835.74" y="231.5" ></text>
+</g>
+<g >
+<title>parse (39,888 samples, 42.35%)</title><rect x="805.6" y="349" width="584.4" height="15.0" fill="rgb(231,122,29)" rx="2" ry="2" />
+<text  x="808.60" y="359.5" >parse</text>
+</g>
+<g >
+<title>OrderPool::operator[] (197 samples, 0.21%)</title><rect x="221.7" y="221" width="2.9" height="15.0" fill="rgb(236,145,34)" rx="2" ry="2" />
+<text  x="224.69" y="231.5" ></text>
+</g>
+<g >
+<title>vector::operator[] (6,802 samples, 7.22%)</title><rect x="629.0" y="301" width="99.7" height="15.0" fill="rgb(209,21,5)" rx="2" ry="2" />
+<text  x="632.04" y="311.5" >vector::oper..</text>
+</g>
+<g >
+<title>read_be48 (1,062 samples, 1.13%)</title><rect x="761.8" y="333" width="15.6" height="15.0" fill="rgb(205,0,0)" rx="2" ry="2" />
+<text  x="764.82" y="343.5" ></text>
+</g>
+<g >
+<title>IntrusiveQueue::unlink (109 samples, 0.12%)</title><rect x="698.2" y="269" width="1.6" height="15.0" fill="rgb(220,72,17)" rx="2" ry="2" />
+<text  x="701.23" y="279.5" ></text>
+</g>
+<g >
+<title>__copy_move_a2 (388 samples, 0.41%)</title><rect x="707.1" y="173" width="5.7" height="15.0" fill="rgb(211,30,7)" rx="2" ry="2" />
+<text  x="710.07" y="183.5" ></text>
+</g>
+<g >
+<title>id_of::{lambda#1}::operator() (297 samples, 0.32%)</title><rect x="220.2" y="237" width="4.4" height="15.0" fill="rgb(240,161,38)" rx="2" ry="2" />
+<text  x="223.22" y="247.5" ></text>
+</g>
+<g >
+<title>vector::operator[] (88 samples, 0.09%)</title><rect x="649.5" y="237" width="1.3" height="15.0" fill="rgb(209,21,5)" rx="2" ry="2" />
+<text  x="652.51" y="247.5" ></text>
+</g>
+<g >
+<title>__new_allocator::deallocate (72 samples, 0.08%)</title><rect x="1038.5" y="141" width="1.1" height="15.0" fill="rgb(228,106,25)" rx="2" ry="2" />
+<text  x="1041.54" y="151.5" ></text>
+</g>
+<g >
+<title>__copy_move::__copy_m (339 samples, 0.36%)</title><rect x="257.7" y="157" width="4.9" height="15.0" fill="rgb(218,62,14)" rx="2" ry="2" />
+<text  x="260.66" y="167.5" ></text>
+</g>
+<g >
+<title>_Hashtable::erase (363 samples, 0.39%)</title><rect x="1034.8" y="237" width="5.3" height="15.0" fill="rgb(224,87,21)" rx="2" ry="2" />
+<text  x="1037.79" y="247.5" ></text>
+</g>
+<g >
+<title>_Hashtable::_M_find_node (4,387 samples, 4.66%)</title><rect x="1314.5" y="269" width="64.3" height="15.0" fill="rgb(226,99,23)" rx="2" ry="2" />
+<text  x="1317.49" y="279.5" >_Hashta..</text>
+</g>
+<g >
+<title>_Hashtable_alloc::_M_deallocate_node_ptr (72 samples, 0.08%)</title><rect x="1038.5" y="189" width="1.1" height="15.0" fill="rgb(249,206,49)" rx="2" ry="2" />
+<text  x="1041.54" y="199.5" ></text>
+</g>
+<g >
+<title>max (141 samples, 0.15%)</title><rect x="829.5" y="285" width="2.1" height="15.0" fill="rgb(207,12,2)" rx="2" ry="2" />
+<text  x="832.49" y="295.5" ></text>
+</g>
+<g >
+<title>OrderPool::operator[] (10 samples, 0.01%)</title><rect x="699.7" y="253" width="0.1" height="15.0" fill="rgb(236,145,34)" rx="2" ry="2" />
+<text  x="702.69" y="263.5" ></text>
+</g>
+<g >
+<title>SortedLevels::erase (1,093 samples, 1.16%)</title><rect x="246.6" y="269" width="16.0" height="15.0" fill="rgb(217,56,13)" rx="2" ry="2" />
+<text  x="249.61" y="279.5" ></text>
+</g>
+<g >
+<title>OrderPool::operator[] (8 samples, 0.01%)</title><rect x="634.7" y="237" width="0.1" height="15.0" fill="rgb(236,145,34)" rx="2" ry="2" />
+<text  x="637.69" y="247.5" ></text>
+</g>
+<g >
+<title>id_of::{lambda#1}::operator() (244 samples, 0.26%)</title><rect x="594.7" y="269" width="3.6" height="15.0" fill="rgb(240,161,38)" rx="2" ry="2" />
+<text  x="597.70" y="279.5" ></text>
+</g>
+<g >
+<title>vector::erase (377 samples, 0.40%)</title><rect x="257.1" y="253" width="5.5" height="15.0" fill="rgb(246,190,45)" rx="2" ry="2" />
+<text  x="260.10" y="263.5" ></text>
+</g>
+<g >
+<title>__introsort_loop (9 samples, 0.01%)</title><rect x="801.0" y="253" width="0.1" height="15.0" fill="rgb(229,114,27)" rx="2" ry="2" />
+<text  x="803.98" y="263.5" ></text>
+</g>
+<g >
+<title>load_pages (468 samples, 0.50%)</title><rect x="17.6" y="365" width="6.8" height="15.0" fill="rgb(251,214,51)" rx="2" ry="2" />
+<text  x="20.56" y="375.5" ></text>
+</g>
+<g >
+<title>SortedLevels::find (1,061 samples, 1.13%)</title><rect x="712.8" y="269" width="15.5" height="15.0" fill="rgb(234,134,32)" rx="2" ry="2" />
+<text  x="715.75" y="279.5" ></text>
+</g>
+<g >
+<title>_Hash_code_base::_M_bucket_index (126 samples, 0.13%)</title><rect x="832.7" y="237" width="1.9" height="15.0" fill="rgb(234,134,32)" rx="2" ry="2" />
+<text  x="835.74" y="247.5" ></text>
+</g>
+<g >
+<title>_Hashtable::erase (10,754 samples, 11.42%)</title><rect x="1107.9" y="269" width="157.5" height="15.0" fill="rgb(224,87,21)" rx="2" ry="2" />
+<text  x="1110.86" y="279.5" >_Hashtable::erase</text>
+</g>
+<g >
+<title>read_be (158 samples, 0.17%)</title><rect x="1387.7" y="333" width="2.3" height="15.0" fill="rgb(252,220,52)" rx="2" ry="2" />
+<text  x="1390.67" y="343.5" ></text>
+</g>
+<g >
+<title>SortedLevels::get_or_create (2,683 samples, 2.85%)</title><rect x="131.4" y="269" width="39.3" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="134.41" y="279.5" >Sor..</text>
+</g>
+<g >
+<title>IdTable::home_of_tag (37 samples, 0.04%)</title><rect x="654.7" y="253" width="0.5" height="15.0" fill="rgb(254,225,54)" rx="2" ry="2" />
+<text  x="657.66" y="263.5" ></text>
+</g>
+<g >
+<title>vector::operator[] (9 samples, 0.01%)</title><rect x="753.3" y="269" width="0.1" height="15.0" fill="rgb(209,21,5)" rx="2" ry="2" />
+<text  x="756.26" y="279.5" ></text>
+</g>
+<g >
+<title>_Hashtable_base::_M_equals (2,485 samples, 2.64%)</title><rect x="959.8" y="221" width="36.4" height="15.0" fill="rgb(236,142,34)" rx="2" ry="2" />
+<text  x="962.77" y="231.5" >_Ha..</text>
+</g>
+<g >
+<title>BookBuilder::count (534 samples, 0.57%)</title><rect x="731.9" y="317" width="7.9" height="15.0" fill="rgb(247,194,46)" rx="2" ry="2" />
+<text  x="734.95" y="327.5" ></text>
+</g>
+<g >
+<title>IdTable::tag (193 samples, 0.20%)</title><rect x="217.4" y="237" width="2.8" height="15.0" fill="rgb(252,220,52)" rx="2" ry="2" />
+<text  x="220.40" y="247.5" ></text>
+</g>
+<g >
+<title>SortedLevels::lower_bound (8 samples, 0.01%)</title><rect x="16.9" y="317" width="0.1" height="15.0" fill="rgb(229,113,27)" rx="2" ry="2" />
+<text  x="19.93" y="327.5" ></text>
+</g>
+<g >
+<title>to_integer (7 samples, 0.01%)</title><rect x="805.5" y="333" width="0.1" height="15.0" fill="rgb(238,154,36)" rx="2" ry="2" />
+<text  x="808.49" y="343.5" ></text>
+</g>
+<g >
+<title>_RehashStateGuard::_RehashStateGuard (254 samples, 0.27%)</title><rect x="1002.6" y="237" width="3.7" height="15.0" fill="rgb(221,75,18)" rx="2" ry="2" />
+<text  x="1005.58" y="247.5" ></text>
+</g>
+<g >
+<title>__apply_impl (8 samples, 0.01%)</title><rect x="645.6" y="125" width="0.2" height="15.0" fill="rgb(215,50,12)" rx="2" ry="2" />
+<text  x="648.64" y="135.5" ></text>
+</g>
+<g >
+<title>__sort_fn::operator() (20 samples, 0.02%)</title><rect x="801.0" y="333" width="0.3" height="15.0" fill="rgb(225,95,22)" rx="2" ry="2" />
+<text  x="803.97" y="343.5" ></text>
+</g>
+<g >
+<title>IdTable::in_cyclic_range (66 samples, 0.07%)</title><rect x="216.4" y="237" width="1.0" height="15.0" fill="rgb(210,24,5)" rx="2" ry="2" />
+<text  x="219.43" y="247.5" ></text>
+</g>
+<g >
+<title>main (40,332 samples, 42.82%)</title><rect x="799.1" y="397" width="590.9" height="15.0" fill="rgb(243,179,42)" rx="2" ry="2" />
+<text  x="802.11" y="407.5" >main</text>
+</g>
+<g >
+<title>_Hashtable::_M_erase (8,658 samples, 9.19%)</title><rect x="1118.9" y="237" width="126.9" height="15.0" fill="rgb(249,203,48)" rx="2" ry="2" />
+<text  x="1121.93" y="247.5" >_Hashtable::_M_..</text>
+</g>
+<g >
+<title>IdTable::tag (9 samples, 0.01%)</title><rect x="655.4" y="253" width="0.1" height="15.0" fill="rgb(252,220,52)" rx="2" ry="2" />
+<text  x="658.38" y="263.5" ></text>
+</g>
+<g >
+<title>Qty::operator-= (38 samples, 0.04%)</title><rect x="699.9" y="269" width="0.5" height="15.0" fill="rgb(216,52,12)" rx="2" ry="2" />
+<text  x="702.86" y="279.5" ></text>
+</g>
+<g >
+<title>__copy_move_backward_a2 (208 samples, 0.22%)</title><rect x="162.0" y="157" width="3.1" height="15.0" fill="rgb(229,113,27)" rx="2" ry="2" />
+<text  x="165.03" y="167.5" ></text>
+</g>
+<g >
+<title>vector::size (9 samples, 0.01%)</title><rect x="753.4" y="269" width="0.1" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="756.39" y="279.5" ></text>
+</g>
+<g >
+<title>dispatch (39,284 samples, 41.71%)</title><rect x="812.1" y="333" width="575.6" height="15.0" fill="rgb(235,140,33)" rx="2" ry="2" />
+<text  x="815.13" y="343.5" >dispatch</text>
+</g>
+<g >
+<title>uninitialized_construct_using_allocator (15 samples, 0.02%)</title><rect x="161.8" y="173" width="0.2" height="15.0" fill="rgb(220,72,17)" rx="2" ry="2" />
+<text  x="164.81" y="183.5" ></text>
+</g>
+<g >
+<title>BookBuilder::reduce (939 samples, 1.00%)</title><rect x="739.8" y="301" width="13.7" height="15.0" fill="rgb(236,146,35)" rx="2" ry="2" />
+<text  x="742.77" y="311.5" ></text>
+</g>
+<g >
+<title>_Hashtable::_M_erase (305 samples, 0.32%)</title><rect x="1035.1" y="221" width="4.5" height="15.0" fill="rgb(249,203,48)" rx="2" ry="2" />
+<text  x="1038.13" y="231.5" ></text>
+</g>
+<g >
+<title>dispatch (50,450 samples, 53.56%)</title><rect x="57.0" y="349" width="739.2" height="15.0" fill="rgb(235,140,33)" rx="2" ry="2" />
+<text  x="60.04" y="359.5" >dispatch</text>
+</g>
+<g >
+<title>IntrusiveQueue::unlink (924 samples, 0.98%)</title><rect x="230.8" y="253" width="13.5" height="15.0" fill="rgb(220,72,17)" rx="2" ry="2" />
+<text  x="233.79" y="263.5" ></text>
+</g>
+<g >
+<title>id_of::{lambda#1}::operator() (31 samples, 0.03%)</title><rect x="684.9" y="253" width="0.4" height="15.0" fill="rgb(240,161,38)" rx="2" ry="2" />
+<text  x="687.86" y="263.5" ></text>
+</g>
+<g >
+<title>DayCounter::DayCounter (12 samples, 0.01%)</title><rect x="799.1" y="365" width="0.2" height="15.0" fill="rgb(210,23,5)" rx="2" ry="2" />
+<text  x="802.11" y="375.5" ></text>
+</g>
+<g >
+<title>vector::operator[] (51 samples, 0.05%)</title><rect x="697.5" y="253" width="0.7" height="15.0" fill="rgb(209,21,5)" rx="2" ry="2" />
+<text  x="700.49" y="263.5" ></text>
+</g>
+<g >
+<title>SortedLevels::find (29 samples, 0.03%)</title><rect x="17.1" y="333" width="0.5" height="15.0" fill="rgb(234,134,32)" rx="2" ry="2" />
+<text  x="20.13" y="343.5" ></text>
+</g>
+<g >
+<title>__apply_impl (11 samples, 0.01%)</title><rect x="161.5" y="157" width="0.2" height="15.0" fill="rgb(215,50,12)" rx="2" ry="2" />
+<text  x="164.55" y="167.5" ></text>
+</g>
+<g >
+<title>OrderPool::operator[] (68 samples, 0.07%)</title><rect x="597.3" y="253" width="1.0" height="15.0" fill="rgb(236,145,34)" rx="2" ry="2" />
+<text  x="600.28" y="263.5" ></text>
+</g>
+<g >
+<title>SortedLevels::lower_bound (1,466 samples, 1.56%)</title><rect x="138.4" y="253" width="21.4" height="15.0" fill="rgb(229,113,27)" rx="2" ry="2" />
+<text  x="141.36" y="263.5" >S..</text>
+</g>
+<g >
+<title>polymorphic_allocator::construct (15 samples, 0.02%)</title><rect x="161.8" y="189" width="0.2" height="15.0" fill="rgb(211,29,7)" rx="2" ry="2" />
+<text  x="164.81" y="199.5" ></text>
+</g>
+<g >
+<title>id_of::{lambda#1}::operator() (8 samples, 0.01%)</title><rect x="16.0" y="301" width="0.1" height="15.0" fill="rgb(240,161,38)" rx="2" ry="2" />
+<text  x="19.01" y="311.5" ></text>
+</g>
+<g >
+<title>unordered_map::find (4,614 samples, 4.90%)</title><rect x="1040.1" y="285" width="67.6" height="15.0" fill="rgb(249,203,48)" rx="2" ry="2" />
+<text  x="1043.14" y="295.5" >unorder..</text>
+</g>
+<g >
+<title>SortedLevels::find (4,161 samples, 4.42%)</title><rect x="262.6" y="269" width="61.0" height="15.0" fill="rgb(234,134,32)" rx="2" ry="2" />
+<text  x="265.62" y="279.5" >Sorted..</text>
+</g>
+<g >
+<title>vector::vector (24 samples, 0.03%)</title><rect x="13.5" y="253" width="0.3" height="15.0" fill="rgb(250,207,49)" rx="2" ry="2" />
+<text  x="16.47" y="263.5" ></text>
+</g>
+<g >
+<title>vector::size (27 samples, 0.03%)</title><rect x="316.6" y="237" width="0.3" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="319.55" y="247.5" ></text>
+</g>
+<g >
+<title>__copy_move::__copy_m (388 samples, 0.41%)</title><rect x="707.1" y="157" width="5.7" height="15.0" fill="rgb(218,62,14)" rx="2" ry="2" />
+<text  x="710.07" y="167.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (40,336 samples, 42.82%)</title><rect x="799.0" y="477" width="591.0" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="802.05" y="487.5" >[libc.so.6]</text>
+</g>
+<g >
+<title>__copy_move_backward_a1 (256 samples, 0.27%)</title><rect x="645.8" y="157" width="3.7" height="15.0" fill="rgb(236,143,34)" rx="2" ry="2" />
+<text  x="648.76" y="167.5" ></text>
+</g>
+<g >
+<title>ParseOnly::on (528 samples, 0.56%)</title><rect x="753.9" y="333" width="7.8" height="15.0" fill="rgb(211,28,6)" rx="2" ry="2" />
+<text  x="756.94" y="343.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (40,336 samples, 42.82%)</title><rect x="799.0" y="445" width="591.0" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="802.05" y="455.5" >[libc.so.6]</text>
+</g>
+<g >
+<title>all (94,193 samples, 100%)</title><rect x="10.0" y="509" width="1380.0" height="15.0" fill="rgb(213,39,9)" rx="2" ry="2" />
+<text  x="13.00" y="519.5" ></text>
+</g>
+<g >
+<title>vector::insert (301 samples, 0.32%)</title><rect x="645.1" y="237" width="4.4" height="15.0" fill="rgb(237,147,35)" rx="2" ry="2" />
+<text  x="648.10" y="247.5" ></text>
+</g>
+<g >
+<title>vector::erase (398 samples, 0.42%)</title><rect x="706.9" y="253" width="5.9" height="15.0" fill="rgb(246,190,45)" rx="2" ry="2" />
+<text  x="709.92" y="263.5" ></text>
+</g>
+<g >
+<title>_Hashtable::_M_remove_bucket_begin (736 samples, 0.78%)</title><rect x="1209.5" y="205" width="10.8" height="15.0" fill="rgb(246,192,46)" rx="2" ry="2" />
+<text  x="1212.52" y="215.5" ></text>
+</g>
+<g >
+<title>main (53,856 samples, 57.18%)</title><rect x="10.0" y="413" width="789.0" height="15.0" fill="rgb(243,179,42)" rx="2" ry="2" />
+<text  x="13.01" y="423.5" >main</text>
+</g>
+<g >
+<title>[taskset] (53,856 samples, 57.18%)</title><rect x="10.0" y="477" width="789.0" height="15.0" fill="rgb(220,69,16)" rx="2" ry="2" />
+<text  x="13.01" y="487.5" >[taskset]</text>
+</g>
+<g >
+<title>OrderPool::release (67 samples, 0.07%)</title><rect x="244.3" y="253" width="1.0" height="15.0" fill="rgb(223,83,19)" rx="2" ry="2" />
+<text  x="247.32" y="263.5" ></text>
+</g>
+<g >
+<title>vector::operator[] (15 samples, 0.02%)</title><rect x="685.1" y="221" width="0.2" height="15.0" fill="rgb(209,21,5)" rx="2" ry="2" />
+<text  x="688.09" y="231.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (53,856 samples, 57.18%)</title><rect x="10.0" y="461" width="789.0" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="13.01" y="471.5" >[libc.so.6]</text>
+</g>
+<g >
+<title>[libc.so.6] (40,332 samples, 42.82%)</title><rect x="799.1" y="413" width="590.9" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="802.11" y="423.5" >[libc.so.6]</text>
+</g>
+<g >
+<title>vector::operator[] (393 samples, 0.42%)</title><rect x="225.0" y="237" width="5.8" height="15.0" fill="rgb(209,21,5)" rx="2" ry="2" />
+<text  x="228.03" y="247.5" ></text>
+</g>
+<g >
+<title>_Hashtable::find (7,640 samples, 8.11%)</title><rect x="1266.8" y="285" width="112.0" height="15.0" fill="rgb(241,166,39)" rx="2" ry="2" />
+<text  x="1269.83" y="295.5" >_Hashtable::f..</text>
+</g>
+<g >
+<title>vector::insert (333 samples, 0.35%)</title><rect x="160.2" y="253" width="4.9" height="15.0" fill="rgb(237,147,35)" rx="2" ry="2" />
+<text  x="163.20" y="263.5" ></text>
+</g>
+<g >
+<title>allocator::deallocate (1,739 samples, 1.85%)</title><rect x="1220.3" y="173" width="25.5" height="15.0" fill="rgb(250,211,50)" rx="2" ry="2" />
+<text  x="1223.30" y="183.5" >a..</text>
+</g>
+<g >
+<title>[unknown] (11 samples, 0.01%)</title><rect x="164.9" y="125" width="0.2" height="15.0" fill="rgb(210,24,5)" rx="2" ry="2" />
+<text  x="167.92" y="135.5" ></text>
+</g>
+<g >
+<title>sort (20 samples, 0.02%)</title><rect x="801.0" y="317" width="0.3" height="15.0" fill="rgb(217,59,14)" rx="2" ry="2" />
+<text  x="803.97" y="327.5" ></text>
+</g>
+<g >
+<title>replay_in_windows (158 samples, 0.17%)</title><rect x="1387.7" y="317" width="2.3" height="15.0" fill="rgb(246,191,45)" rx="2" ry="2" />
+<text  x="1390.67" y="327.5" ></text>
+</g>
+<g >
+<title>allocator::deallocate (72 samples, 0.08%)</title><rect x="1038.5" y="157" width="1.1" height="15.0" fill="rgb(250,211,50)" rx="2" ry="2" />
+<text  x="1041.54" y="167.5" ></text>
+</g>
+<g >
+<title>IdTable::home (15 samples, 0.02%)</title><rect x="697.0" y="253" width="0.3" height="15.0" fill="rgb(248,201,48)" rx="2" ry="2" />
+<text  x="700.05" y="263.5" ></text>
+</g>
+<g >
+<title>parse (52,873 samples, 56.13%)</title><rect x="24.4" y="365" width="774.6" height="15.0" fill="rgb(231,122,29)" rx="2" ry="2" />
+<text  x="27.42" y="375.5" >parse</text>
+</g>
+<g >
+<title>OrderPool::operator[] (83 samples, 0.09%)</title><rect x="245.4" y="269" width="1.2" height="15.0" fill="rgb(236,145,34)" rx="2" ry="2" />
+<text  x="248.39" y="279.5" ></text>
+</g>
+<g >
+<title>BasicFastBook::BasicFastBook (31 samples, 0.03%)</title><rect x="13.4" y="285" width="0.4" height="15.0" fill="rgb(241,167,40)" rx="2" ry="2" />
+<text  x="16.37" y="295.5" ></text>
+</g>
+<g >
+<title>_Scoped_node::_Scoped_node (1,899 samples, 2.02%)</title><rect x="1006.3" y="253" width="27.8" height="15.0" fill="rgb(227,105,25)" rx="2" ry="2" />
+<text  x="1009.30" y="263.5" >_..</text>
+</g>
+<g >
+<title>allocator::allocate (12 samples, 0.01%)</title><rect x="799.1" y="237" width="0.2" height="15.0" fill="rgb(249,203,48)" rx="2" ry="2" />
+<text  x="802.11" y="247.5" ></text>
+</g>
+<g >
+<title>__introsort_loop (8 samples, 0.01%)</title><rect x="801.0" y="237" width="0.1" height="15.0" fill="rgb(229,114,27)" rx="2" ry="2" />
+<text  x="803.98" y="247.5" ></text>
+</g>
+<g >
+<title>run_timing (53,856 samples, 57.18%)</title><rect x="10.0" y="397" width="789.0" height="15.0" fill="rgb(211,27,6)" rx="2" ry="2" />
+<text  x="13.01" y="407.5" >run_timing</text>
+</g>
+<g >
+<title>[libstdc++.so.6.0.35] (288 samples, 0.31%)</title><rect x="1240.5" y="141" width="4.2" height="15.0" fill="rgb(253,222,53)" rx="2" ry="2" />
+<text  x="1243.46" y="151.5" ></text>
+</g>
+<g >
+<title>[libstdc++.so.6.0.35] (14 samples, 0.01%)</title><rect x="1039.3" y="125" width="0.3" height="15.0" fill="rgb(253,222,53)" rx="2" ry="2" />
+<text  x="1042.35" y="135.5" ></text>
+</g>
+<g >
+<title>vector::operator[] (434 samples, 0.46%)</title><rect x="317.2" y="253" width="6.4" height="15.0" fill="rgb(209,21,5)" rx="2" ry="2" />
+<text  x="320.23" y="263.5" ></text>
+</g>
+<g >
+<title>_start (40,332 samples, 42.82%)</title><rect x="799.1" y="429" width="590.9" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="802.11" y="439.5" >_start</text>
+</g>
+<g >
+<title>__invoke_impl (15 samples, 0.02%)</title><rect x="161.8" y="109" width="0.2" height="15.0" fill="rgb(207,9,2)" rx="2" ry="2" />
+<text  x="164.81" y="119.5" ></text>
+</g>
+<g >
+<title>_Hashtable_alloc::_M_allocate_buckets (12 samples, 0.01%)</title><rect x="799.1" y="269" width="0.2" height="15.0" fill="rgb(233,128,30)" rx="2" ry="2" />
+<text  x="802.11" y="279.5" ></text>
+</g>
+<g >
+<title>allocator_traits::construct (8 samples, 0.01%)</title><rect x="645.6" y="189" width="0.2" height="15.0" fill="rgb(219,65,15)" rx="2" ry="2" />
+<text  x="648.64" y="199.5" ></text>
+</g>
+<g >
+<title>_Hashtable::_M_find_node (11,029 samples, 11.71%)</title><rect x="834.6" y="253" width="161.6" height="15.0" fill="rgb(226,99,23)" rx="2" ry="2" />
+<text  x="837.59" y="263.5" >_Hashtable::_M_find_..</text>
+</g>
+<g >
+<title>nanobook::operator== (31 samples, 0.03%)</title><rect x="224.6" y="237" width="0.4" height="15.0" fill="rgb(244,179,42)" rx="2" ry="2" />
+<text  x="227.58" y="247.5" ></text>
+</g>
+<g >
+<title>IdTable::erase (403 samples, 0.43%)</title><rect x="650.8" y="269" width="5.9" height="15.0" fill="rgb(233,130,31)" rx="2" ry="2" />
+<text  x="653.84" y="279.5" ></text>
+</g>
+<g >
+<title>allocator_traits::deallocate (72 samples, 0.08%)</title><rect x="1038.5" y="173" width="1.1" height="15.0" fill="rgb(254,226,54)" rx="2" ry="2" />
+<text  x="1041.54" y="183.5" ></text>
+</g>
+<g >
+<title>__memcmp (44 samples, 0.05%)</title><rect x="628.4" y="253" width="0.6" height="15.0" fill="rgb(208,15,3)" rx="2" ry="2" />
+<text  x="631.39" y="263.5" ></text>
+</g>
+<g >
+<title>IdTable::insert (174 samples, 0.18%)</title><rect x="695.7" y="269" width="2.5" height="15.0" fill="rgb(224,88,21)" rx="2" ry="2" />
+<text  x="698.69" y="279.5" ></text>
+</g>
+<g >
+<title>nanobook::operator== (19 samples, 0.02%)</title><rect x="316.9" y="253" width="0.3" height="15.0" fill="rgb(244,179,42)" rx="2" ry="2" />
+<text  x="319.95" y="263.5" ></text>
+</g>
+<g >
+<title>to_integer (14 samples, 0.01%)</title><rect x="24.2" y="349" width="0.2" height="15.0" fill="rgb(238,154,36)" rx="2" ry="2" />
+<text  x="27.21" y="359.5" ></text>
+</g>
+<g >
+<title>_ZSt8byteswapITkSt8integralmET_S0_ (401 samples, 0.43%)</title><rect x="1380.4" y="301" width="5.9" height="15.0" fill="rgb(207,11,2)" rx="2" ry="2" />
+<text  x="1383.43" y="311.5" ></text>
+</g>
+<g >
+<title>nanobook::operator== (42 samples, 0.04%)</title><rect x="598.3" y="269" width="0.6" height="15.0" fill="rgb(244,179,42)" rx="2" ry="2" />
+<text  x="601.27" y="279.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (53,856 samples, 57.18%)</title><rect x="10.0" y="493" width="789.0" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="13.01" y="503.5" >[libc.so.6]</text>
+</g>
+<g >
+<title>uninitialized_construct_using_allocator::{lambda#1}::operator() (8 samples, 0.01%)</title><rect x="645.6" y="77" width="0.2" height="15.0" fill="rgb(211,28,6)" rx="2" ry="2" />
+<text  x="648.64" y="87.5" ></text>
+</g>
+<g >
+<title>allocator_traits::construct (32 samples, 0.03%)</title><rect x="13.4" y="317" width="0.4" height="15.0" fill="rgb(219,65,15)" rx="2" ry="2" />
+<text  x="16.36" y="327.5" ></text>
+</g>
+<g >
+<title>vector::operator[] (30 samples, 0.03%)</title><rect x="1034.1" y="285" width="0.5" height="15.0" fill="rgb(209,21,5)" rx="2" ry="2" />
+<text  x="1037.12" y="295.5" ></text>
+</g>
+<g >
+<title>_Hashtable::_M_get_previous_node (1,340 samples, 1.42%)</title><rect x="1245.8" y="237" width="19.6" height="15.0" fill="rgb(220,72,17)" rx="2" ry="2" />
+<text  x="1248.78" y="247.5" ></text>
+</g>
+<g >
+<title>_Hashtable::_M_bucket_index (170 samples, 0.18%)</title><rect x="1035.3" y="205" width="2.5" height="15.0" fill="rgb(212,34,8)" rx="2" ry="2" />
+<text  x="1038.35" y="215.5" ></text>
+</g>
+<g >
+<title>_Hash_code_base::_M_hash_code (26 samples, 0.03%)</title><rect x="1107.9" y="205" width="0.3" height="15.0" fill="rgb(250,207,49)" rx="2" ry="2" />
+<text  x="1110.86" y="215.5" ></text>
+</g>
+<g >
+<title>_Hashtable::erase (10,754 samples, 11.42%)</title><rect x="1107.9" y="253" width="157.5" height="15.0" fill="rgb(224,87,21)" rx="2" ry="2" />
+<text  x="1110.86" y="263.5" >_Hashtable::erase</text>
+</g>
+<g >
+<title>__normal_iterator::operator+ (45 samples, 0.05%)</title><rect x="706.3" y="253" width="0.6" height="15.0" fill="rgb(248,198,47)" rx="2" ry="2" />
+<text  x="709.26" y="263.5" ></text>
+</g>
+<g >
+<title>SortedLevels::get_or_create (1,087 samples, 1.15%)</title><rect x="634.9" y="253" width="15.9" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="637.87" y="263.5" ></text>
+</g>
+<g >
+<title>__new_allocator::allocate (12 samples, 0.01%)</title><rect x="799.1" y="221" width="0.2" height="15.0" fill="rgb(226,98,23)" rx="2" ry="2" />
+<text  x="802.11" y="231.5" ></text>
+</g>
+<g >
+<title>__uninitialized_default_n_a (24 samples, 0.03%)</title><rect x="13.5" y="221" width="0.3" height="15.0" fill="rgb(220,72,17)" rx="2" ry="2" />
+<text  x="16.47" y="231.5" ></text>
+</g>
+<g >
+<title>__copy_move_backward_a (208 samples, 0.22%)</title><rect x="162.0" y="189" width="3.1" height="15.0" fill="rgb(252,219,52)" rx="2" ry="2" />
+<text  x="165.03" y="199.5" ></text>
+</g>
+<g >
+<title>_start (53,856 samples, 57.18%)</title><rect x="10.0" y="445" width="789.0" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="13.01" y="455.5" >_start</text>
+</g>
+<g >
+<title>[unknown] (93 samples, 0.10%)</title><rect x="1030.5" y="173" width="1.4" height="15.0" fill="rgb(210,24,5)" rx="2" ry="2" />
+<text  x="1033.50" y="183.5" ></text>
+</g>
+<g >
+<title>[taskset] (40,336 samples, 42.82%)</title><rect x="799.0" y="461" width="591.0" height="15.0" fill="rgb(220,69,16)" rx="2" ry="2" />
+<text  x="802.05" y="471.5" >[taskset]</text>
+</g>
+<g >
+<title>vector::operator[] (8 samples, 0.01%)</title><rect x="628.1" y="269" width="0.1" height="15.0" fill="rgb(209,21,5)" rx="2" ry="2" />
+<text  x="631.10" y="279.5" ></text>
+</g>
+<g >
+<title>vector::_M_insert_rval (301 samples, 0.32%)</title><rect x="645.1" y="221" width="4.4" height="15.0" fill="rgb(225,95,22)" rx="2" ry="2" />
+<text  x="648.10" y="231.5" ></text>
+</g>
+<g >
+<title>replay_in_windows (53,594 samples, 56.90%)</title><rect x="13.9" y="381" width="785.1" height="15.0" fill="rgb(246,191,45)" rx="2" ry="2" />
+<text  x="16.85" y="391.5" >replay_in_windows</text>
+</g>
+<g >
+<title>latency::start (17 samples, 0.02%)</title><rect x="801.3" y="349" width="0.2" height="15.0" fill="rgb(251,215,51)" rx="2" ry="2" />
+<text  x="804.26" y="359.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (183 samples, 0.19%)</title><rect x="162.2" y="125" width="2.7" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="165.24" y="135.5" ></text>
+</g>
+<g >
+<title>BookBuilder::apply (928 samples, 0.99%)</title><rect x="739.9" y="285" width="13.6" height="15.0" fill="rgb(216,53,12)" rx="2" ry="2" />
+<text  x="742.93" y="295.5" ></text>
+</g>
+<g >
+<title>BasicFastBook::apply (896 samples, 0.95%)</title><rect x="740.1" y="269" width="13.2" height="15.0" fill="rgb(224,91,21)" rx="2" ry="2" />
+<text  x="743.14" y="279.5" ></text>
+</g>
+<g >
+<title>_Hash_code_base::_M_bucket_index (170 samples, 0.18%)</title><rect x="1035.3" y="189" width="2.5" height="15.0" fill="rgb(234,134,32)" rx="2" ry="2" />
+<text  x="1038.35" y="199.5" ></text>
+</g>
+<g >
+<title>__invoke (11 samples, 0.01%)</title><rect x="161.5" y="141" width="0.2" height="15.0" fill="rgb(224,88,21)" rx="2" ry="2" />
+<text  x="164.55" y="151.5" ></text>
+</g>
+<g >
+<title>Qty::operator+= (41 samples, 0.04%)</title><rect x="130.8" y="269" width="0.6" height="15.0" fill="rgb(229,111,26)" rx="2" ry="2" />
+<text  x="133.81" y="279.5" ></text>
+</g>
+<g >
+<title>vector::_M_erase (377 samples, 0.40%)</title><rect x="257.1" y="237" width="5.5" height="15.0" fill="rgb(221,76,18)" rx="2" ry="2" />
+<text  x="260.10" y="247.5" ></text>
+</g>
+<g >
+<title>construct_at (154 samples, 0.16%)</title><rect x="1031.9" y="205" width="2.2" height="15.0" fill="rgb(233,130,31)" rx="2" ry="2" />
+<text  x="1034.86" y="215.5" ></text>
+</g>
+<g >
+<title>nanobook::operator== (27 samples, 0.03%)</title><rect x="728.3" y="269" width="0.4" height="15.0" fill="rgb(244,179,42)" rx="2" ry="2" />
+<text  x="731.30" y="279.5" ></text>
+</g>
+<g >
+<title>_Hashtable::_M_bucket_index (756 samples, 0.80%)</title><rect x="1107.9" y="237" width="11.0" height="15.0" fill="rgb(212,34,8)" rx="2" ry="2" />
+<text  x="1110.86" y="247.5" ></text>
+</g>
+<g >
+<title>BookBuilder::count (7 samples, 0.01%)</title><rect x="753.8" y="317" width="0.1" height="15.0" fill="rgb(247,194,46)" rx="2" ry="2" />
+<text  x="756.83" y="327.5" ></text>
+</g>
+<g >
+<title>BasicFastBook::apply (35,713 samples, 37.91%)</title><rect x="105.2" y="301" width="523.2" height="15.0" fill="rgb(224,91,21)" rx="2" ry="2" />
+<text  x="108.17" y="311.5" >BasicFastBook::apply</text>
+</g>
+<g >
+<title>allocator_traits::allocate (12 samples, 0.01%)</title><rect x="799.1" y="253" width="0.2" height="15.0" fill="rgb(252,219,52)" rx="2" ry="2" />
+<text  x="802.11" y="263.5" ></text>
+</g>
+<g >
+<title>nanobook::operator== (25 samples, 0.03%)</title><rect x="159.8" y="253" width="0.4" height="15.0" fill="rgb(244,179,42)" rx="2" ry="2" />
+<text  x="162.83" y="263.5" ></text>
+</g>
+<g >
+<title>_Mod_range_hashing::operator() (21 samples, 0.02%)</title><rect x="1034.8" y="189" width="0.3" height="15.0" fill="rgb(221,76,18)" rx="2" ry="2" />
+<text  x="1037.82" y="199.5" ></text>
+</g>
+<g >
+<title>_ZSt8byteswapITkSt8integralmET_S0_ (342 samples, 0.36%)</title><rect x="779.3" y="317" width="5.0" height="15.0" fill="rgb(207,11,2)" rx="2" ry="2" />
+<text  x="782.33" y="327.5" ></text>
+</g>
+<g >
+<title>move (388 samples, 0.41%)</title><rect x="707.1" y="221" width="5.7" height="15.0" fill="rgb(227,104,24)" rx="2" ry="2" />
+<text  x="710.07" y="231.5" ></text>
+</g>
+<g >
+<title>DayCounter::reduce (4,995 samples, 5.30%)</title><rect x="1034.6" y="301" width="73.1" height="15.0" fill="rgb(229,112,27)" rx="2" ry="2" />
+<text  x="1037.56" y="311.5" >DayCount..</text>
+</g>
+<g >
+<title>SortedLevels::erase (842 samples, 0.89%)</title><rect x="700.4" y="269" width="12.4" height="15.0" fill="rgb(217,56,13)" rx="2" ry="2" />
+<text  x="703.42" y="279.5" ></text>
+</g>
+<g >
+<title>__invoke_impl (11 samples, 0.01%)</title><rect x="161.5" y="125" width="0.2" height="15.0" fill="rgb(207,9,2)" rx="2" ry="2" />
+<text  x="164.55" y="135.5" ></text>
+</g>
+<g >
+<title>IdTable::erase (3,340 samples, 3.55%)</title><rect x="181.9" y="253" width="48.9" height="15.0" fill="rgb(233,130,31)" rx="2" ry="2" />
+<text  x="184.85" y="263.5" >IdTa..</text>
+</g>
+<g >
+<title>nanobook::operator== (13 samples, 0.01%)</title><rect x="655.8" y="253" width="0.2" height="15.0" fill="rgb(244,179,42)" rx="2" ry="2" />
+<text  x="658.82" y="263.5" ></text>
+</g>
+<g >
+<title>uninitialized_construct_using_allocator (8 samples, 0.01%)</title><rect x="645.6" y="157" width="0.2" height="15.0" fill="rgb(220,72,17)" rx="2" ry="2" />
+<text  x="648.64" y="167.5" ></text>
+</g>
+<g >
+<title>vector::_M_default_initialize (24 samples, 0.03%)</title><rect x="13.5" y="237" width="0.3" height="15.0" fill="rgb(243,179,42)" rx="2" ry="2" />
+<text  x="16.47" y="247.5" ></text>
+</g>
+<g >
+<title>std::operator== (44 samples, 0.05%)</title><rect x="628.4" y="301" width="0.6" height="15.0" fill="rgb(229,110,26)" rx="2" ry="2" />
+<text  x="631.39" y="311.5" ></text>
+</g>
+<g >
+<title>replay_in_windows (176 samples, 0.19%)</title><rect x="796.5" y="333" width="2.5" height="15.0" fill="rgb(246,191,45)" rx="2" ry="2" />
+<text  x="799.47" y="343.5" ></text>
+</g>
+<g >
+<title>BasicFastBook::apply (6,669 samples, 7.08%)</title><rect x="631.0" y="285" width="97.7" height="15.0" fill="rgb(224,91,21)" rx="2" ry="2" />
+<text  x="633.99" y="295.5" >BasicFastBo..</text>
+</g>
+<g >
+<title>_Hashtable::rehash (12 samples, 0.01%)</title><rect x="799.1" y="317" width="0.2" height="15.0" fill="rgb(232,128,30)" rx="2" ry="2" />
+<text  x="802.11" y="327.5" ></text>
+</g>
+<g >
+<title>_Hashtable_base::_M_key_equals (4,033 samples, 4.28%)</title><rect x="1048.7" y="205" width="59.0" height="15.0" fill="rgb(247,193,46)" rx="2" ry="2" />
+<text  x="1051.65" y="215.5" >_Hasht..</text>
+</g>
+<g >
+<title>vector::operator[] (39 samples, 0.04%)</title><rect x="750.6" y="237" width="0.6" height="15.0" fill="rgb(209,21,5)" rx="2" ry="2" />
+<text  x="753.64" y="247.5" ></text>
+</g>
+<g >
+<title>_Hashtable::_M_bucket_index (23 samples, 0.02%)</title><rect x="1034.8" y="221" width="0.3" height="15.0" fill="rgb(212,34,8)" rx="2" ry="2" />
+<text  x="1037.79" y="231.5" ></text>
+</g>
+<g >
+<title>IdTable::find (19,508 samples, 20.71%)</title><rect x="325.3" y="285" width="285.8" height="15.0" fill="rgb(250,209,49)" rx="2" ry="2" />
+<text  x="328.27" y="295.5" >IdTable::find</text>
+</g>
+<g >
+<title>__equal::equal (44 samples, 0.05%)</title><rect x="628.4" y="269" width="0.6" height="15.0" fill="rgb(211,31,7)" rx="2" ry="2" />
+<text  x="631.39" y="279.5" ></text>
+</g>
+<g >
+<title>_ZSt8byteswapITkSt8integraljET_S0_ (112 samples, 0.12%)</title><rect x="1378.8" y="301" width="1.6" height="15.0" fill="rgb(226,100,23)" rx="2" ry="2" />
+<text  x="1381.79" y="311.5" ></text>
+</g>
+<g >
+<title>vector::_M_insert_aux (230 samples, 0.24%)</title><rect x="161.7" y="221" width="3.4" height="15.0" fill="rgb(241,165,39)" rx="2" ry="2" />
+<text  x="164.71" y="231.5" ></text>
+</g>
+<g >
+<title>BookBuilder::apply (43,533 samples, 46.22%)</title><rect x="94.2" y="317" width="637.7" height="15.0" fill="rgb(216,53,12)" rx="2" ry="2" />
+<text  x="97.15" y="327.5" >BookBuilder::apply</text>
+</g>
+<g >
+<title>read_be (196 samples, 0.21%)</title><rect x="796.2" y="349" width="2.8" height="15.0" fill="rgb(252,220,52)" rx="2" ry="2" />
+<text  x="799.17" y="359.5" ></text>
+</g>
+<g >
+<title>_Hashtable::_M_find_before_node (4,311 samples, 4.58%)</title><rect x="1315.6" y="253" width="63.2" height="15.0" fill="rgb(212,34,8)" rx="2" ry="2" />
+<text  x="1318.60" y="263.5" >_Hasht..</text>
+</g>
+<g >
+<title>__memcmp (21 samples, 0.02%)</title><rect x="753.5" y="269" width="0.3" height="15.0" fill="rgb(208,15,3)" rx="2" ry="2" />
+<text  x="756.53" y="279.5" ></text>
+</g>
+<g >
+<title>vector::size (25 samples, 0.03%)</title><rect x="255.8" y="237" width="0.3" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="258.75" y="247.5" ></text>
+</g>
+<g >
+<title>vector::operator[] (35 samples, 0.04%)</title><rect x="727.8" y="253" width="0.5" height="15.0" fill="rgb(209,21,5)" rx="2" ry="2" />
+<text  x="730.79" y="263.5" ></text>
+</g>
+<g >
+<title>run_timing (40,332 samples, 42.82%)</title><rect x="799.1" y="381" width="590.9" height="15.0" fill="rgb(211,27,6)" rx="2" ry="2" />
+<text  x="802.11" y="391.5" >run_timing</text>
+</g>
+<g >
+<title>_Hashtable::_M_find_node (4,358 samples, 4.63%)</title><rect x="1043.9" y="253" width="63.8" height="15.0" fill="rgb(226,99,23)" rx="2" ry="2" />
+<text  x="1046.89" y="263.5" >_Hashta..</text>
+</g>
+<g >
+<title>DefaultResourceScope::DefaultResourceScope (33 samples, 0.04%)</title><rect x="13.4" y="365" width="0.4" height="15.0" fill="rgb(214,41,9)" rx="2" ry="2" />
+<text  x="16.36" y="375.5" ></text>
+</g>
+<g >
+<title>__equal_aux1 (21 samples, 0.02%)</title><rect x="753.5" y="301" width="0.3" height="15.0" fill="rgb(235,141,33)" rx="2" ry="2" />
+<text  x="756.53" y="311.5" ></text>
+</g>
+<g >
+<title>vector::operator[] (83 samples, 0.09%)</title><rect x="245.4" y="253" width="1.2" height="15.0" fill="rgb(209,21,5)" rx="2" ry="2" />
+<text  x="248.39" y="263.5" ></text>
+</g>
+<g >
+<title>IdTable::in_cyclic_range (12 samples, 0.01%)</title><rect x="655.2" y="253" width="0.2" height="15.0" fill="rgb(210,24,5)" rx="2" ry="2" />
+<text  x="658.21" y="263.5" ></text>
+</g>
+<g >
+<title>read_be (1,283 samples, 1.36%)</title><rect x="777.4" y="333" width="18.8" height="15.0" fill="rgb(252,220,52)" rx="2" ry="2" />
+<text  x="780.38" y="343.5" ></text>
+</g>
+<g >
+<title>_Hashtable_alloc::_M_allocate_node (1,899 samples, 2.02%)</title><rect x="1006.3" y="237" width="27.8" height="15.0" fill="rgb(221,74,17)" rx="2" ry="2" />
+<text  x="1009.30" y="247.5" >_..</text>
+</g>
+<g >
+<title>_Hashtable::_M_allocate_buckets (12 samples, 0.01%)</title><rect x="799.1" y="285" width="0.2" height="15.0" fill="rgb(225,93,22)" rx="2" ry="2" />
+<text  x="802.11" y="295.5" ></text>
+</g>
+<g >
+<title>BasicFastBook::remove_resting (168 samples, 0.18%)</title><rect x="14.4" y="333" width="2.5" height="15.0" fill="rgb(254,225,53)" rx="2" ry="2" />
+<text  x="17.40" y="343.5" ></text>
+</g>
+<g >
+<title>unordered_map::reserve (12 samples, 0.01%)</title><rect x="799.1" y="349" width="0.2" height="15.0" fill="rgb(207,12,3)" rx="2" ry="2" />
+<text  x="802.11" y="359.5" ></text>
+</g>
+<g >
+<title>BasicFastBook::link_into_level (3,331 samples, 3.54%)</title><rect x="121.9" y="285" width="48.8" height="15.0" fill="rgb(254,229,54)" rx="2" ry="2" />
+<text  x="124.92" y="295.5" >Basi..</text>
+</g>
+<g >
+<title>[unknown] (9 samples, 0.01%)</title><rect x="712.6" y="141" width="0.1" height="15.0" fill="rgb(210,24,5)" rx="2" ry="2" />
+<text  x="715.58" y="151.5" ></text>
+</g>
+<g >
+<title>OrderPool::operator[] (7 samples, 0.01%)</title><rect x="16.0" y="285" width="0.1" height="15.0" fill="rgb(236,145,34)" rx="2" ry="2" />
+<text  x="19.02" y="295.5" ></text>
+</g>
+<g >
+<title>IdTable::erase (137 samples, 0.15%)</title><rect x="14.4" y="317" width="2.0" height="15.0" fill="rgb(233,130,31)" rx="2" ry="2" />
+<text  x="17.40" y="327.5" ></text>
+</g>
+<g >
+<title>__copy_move_a (388 samples, 0.41%)</title><rect x="707.1" y="205" width="5.7" height="15.0" fill="rgb(234,135,32)" rx="2" ry="2" />
+<text  x="710.07" y="215.5" ></text>
+</g>
+<g >
+<title>IdTable::find (2,658 samples, 2.82%)</title><rect x="656.7" y="269" width="39.0" height="15.0" fill="rgb(250,209,49)" rx="2" ry="2" />
+<text  x="659.74" y="279.5" >IdT..</text>
+</g>
+<g >
+<title>__introsort_loop (19 samples, 0.02%)</title><rect x="801.0" y="285" width="0.3" height="15.0" fill="rgb(229,114,27)" rx="2" ry="2" />
+<text  x="803.98" y="295.5" ></text>
+</g>
+<g >
+<title>_Hashtable_alloc::_M_deallocate_node (1,739 samples, 1.85%)</title><rect x="1220.3" y="221" width="25.5" height="15.0" fill="rgb(222,81,19)" rx="2" ry="2" />
+<text  x="1223.30" y="231.5" >_..</text>
+</g>
+<g >
+<title>read_be (606 samples, 0.64%)</title><rect x="1378.8" y="317" width="8.9" height="15.0" fill="rgb(252,220,52)" rx="2" ry="2" />
+<text  x="1381.79" y="327.5" ></text>
+</g>
+<g >
+<title>load_pages (259 samples, 0.27%)</title><rect x="801.8" y="349" width="3.8" height="15.0" fill="rgb(251,214,51)" rx="2" ry="2" />
+<text  x="804.80" y="359.5" ></text>
+</g>
+<g >
+<title>_Hashtable::_M_remove_bucket_begin (32 samples, 0.03%)</title><rect x="1038.1" y="189" width="0.4" height="15.0" fill="rgb(246,192,46)" rx="2" ry="2" />
+<text  x="1041.07" y="199.5" ></text>
+</g>
+<g >
+<title>_Hash_code_base::_M_bucket_index (21 samples, 0.02%)</title><rect x="1034.8" y="205" width="0.3" height="15.0" fill="rgb(234,134,32)" rx="2" ry="2" />
+<text  x="1037.82" y="215.5" ></text>
+</g>
+<g >
+<title>__copy_move_backward_a2 (256 samples, 0.27%)</title><rect x="645.8" y="141" width="3.7" height="15.0" fill="rgb(229,113,27)" rx="2" ry="2" />
+<text  x="648.76" y="151.5" ></text>
+</g>
+<g >
+<title>SortedLevels::lower_bound (378 samples, 0.40%)</title><rect x="700.7" y="253" width="5.6" height="15.0" fill="rgb(229,113,27)" rx="2" ry="2" />
+<text  x="703.73" y="263.5" ></text>
+</g>
+<g >
+<title>[libstdc++.so.6.0.35] (176 samples, 0.19%)</title><rect x="1002.6" y="205" width="2.6" height="15.0" fill="rgb(253,222,53)" rx="2" ry="2" />
+<text  x="1005.60" y="215.5" ></text>
+</g>
+<g >
+<title>_Insert_base::try_emplace (13,745 samples, 14.59%)</title><rect x="832.7" y="269" width="201.4" height="15.0" fill="rgb(241,166,39)" rx="2" ry="2" />
+<text  x="835.74" y="279.5" >_Insert_base::try_emplace</text>
+</g>
+<g >
+<title>pair::pair (154 samples, 0.16%)</title><rect x="1031.9" y="173" width="2.2" height="15.0" fill="rgb(234,135,32)" rx="2" ry="2" />
+<text  x="1034.86" y="183.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (1,146 samples, 1.22%)</title><rect x="1223.7" y="141" width="16.8" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1226.67" y="151.5" ></text>
+</g>
+<g >
+<title>uninitialized_construct_using_allocator::{lambda#1}::operator() (11 samples, 0.01%)</title><rect x="161.5" y="109" width="0.2" height="15.0" fill="rgb(211,28,6)" rx="2" ry="2" />
+<text  x="164.55" y="119.5" ></text>
+</g>
+<g >
+<title>DayCounter::add (14,596 samples, 15.50%)</title><rect x="820.7" y="301" width="213.9" height="15.0" fill="rgb(243,177,42)" rx="2" ry="2" />
+<text  x="823.72" y="311.5" >DayCounter::add</text>
+</g>
+<g >
+<title>__invoke (15 samples, 0.02%)</title><rect x="161.8" y="125" width="0.2" height="15.0" fill="rgb(224,88,21)" rx="2" ry="2" />
+<text  x="164.81" y="135.5" ></text>
+</g>
+<g >
+<title>_Hashtable::_M_bucket_index (126 samples, 0.13%)</title><rect x="832.7" y="253" width="1.9" height="15.0" fill="rgb(212,34,8)" rx="2" ry="2" />
+<text  x="835.74" y="263.5" ></text>
+</g>
+<g >
+<title>move_backward (208 samples, 0.22%)</title><rect x="162.0" y="205" width="3.1" height="15.0" fill="rgb(245,187,44)" rx="2" ry="2" />
+<text  x="165.03" y="215.5" ></text>
+</g>
+<g >
+<title>BasicFastBook::remove_and_tidy (10,434 samples, 11.08%)</title><rect x="170.7" y="285" width="152.9" height="15.0" fill="rgb(237,148,35)" rx="2" ry="2" />
+<text  x="173.72" y="295.5" >BasicFastBook::remo..</text>
+</g>
+<g >
+<title>[kernel] (102 samples, 0.11%)</title><rect x="799.3" y="365" width="1.5" height="15.0" fill="rgb(234,134,32)" rx="2" ry="2" />
+<text  x="802.30" y="375.5" ></text>
+</g>
+<g >
+<title>IntrusiveQueue::unlink (28 samples, 0.03%)</title><rect x="16.4" y="317" width="0.4" height="15.0" fill="rgb(220,72,17)" rx="2" ry="2" />
+<text  x="19.40" y="327.5" ></text>
+</g>
+<g >
+<title>SortedLevels::lower_bound (919 samples, 0.98%)</title><rect x="714.3" y="253" width="13.5" height="15.0" fill="rgb(229,113,27)" rx="2" ry="2" />
+<text  x="717.32" y="263.5" ></text>
+</g>
+<g >
+<title>[taskset] (40,336 samples, 42.82%)</title><rect x="799.0" y="493" width="591.0" height="15.0" fill="rgb(220,69,16)" rx="2" ry="2" />
+<text  x="802.05" y="503.5" >[taskset]</text>
+</g>
+<g >
+<title>DayCounter::on (38,399 samples, 40.77%)</title><rect x="816.2" y="317" width="562.6" height="15.0" fill="rgb(234,135,32)" rx="2" ry="2" />
+<text  x="819.19" y="327.5" >DayCounter::on</text>
+</g>
+<g >
+<title>id_of::{lambda#1}::operator() (22 samples, 0.02%)</title><rect x="750.3" y="237" width="0.3" height="15.0" fill="rgb(240,161,38)" rx="2" ry="2" />
+<text  x="753.26" y="247.5" ></text>
+</g>
+<g >
+<title>OrderPool::acquire (554 samples, 0.59%)</title><rect x="620.1" y="285" width="8.1" height="15.0" fill="rgb(214,45,10)" rx="2" ry="2" />
+<text  x="623.10" y="295.5" ></text>
+</g>
+<g >
+<title>IdTable::tag (467 samples, 0.50%)</title><rect x="587.9" y="269" width="6.8" height="15.0" fill="rgb(252,220,52)" rx="2" ry="2" />
+<text  x="590.86" y="279.5" ></text>
+</g>
+<g >
+<title>_ZSt5applyIZSt39uninitialized_construct_using_allocatorIN8nanobook4fast5LevelENSt3pmr21polymorphic_allocatorIS3_EEJS3_EEPT_S8_RKT0_DpOT1_EUlDpOT_E_TkSt12__tuple_likeSt5tupleIJOS3_EEEDcOS7_OS9_ (15 samples, 0.02%)</title><rect x="161.8" y="157" width="0.2" height="15.0" fill="rgb(218,60,14)" rx="2" ry="2" />
+<text  x="164.81" y="167.5" ></text>
+</g>
+<g >
+<title>allocator_traits::allocate (1,745 samples, 1.85%)</title><rect x="1006.3" y="221" width="25.6" height="15.0" fill="rgb(252,219,52)" rx="2" ry="2" />
+<text  x="1009.30" y="231.5" >a..</text>
+</g>
+<g >
+<title>_Hashtable::erase (363 samples, 0.39%)</title><rect x="1034.8" y="253" width="5.3" height="15.0" fill="rgb(224,87,21)" rx="2" ry="2" />
+<text  x="1037.79" y="263.5" ></text>
+</g>
+<g >
+<title>_Hashtable_alloc::_M_deallocate_node_ptr (1,739 samples, 1.85%)</title><rect x="1220.3" y="205" width="25.5" height="15.0" fill="rgb(249,206,49)" rx="2" ry="2" />
+<text  x="1223.30" y="215.5" >_..</text>
+</g>
+<g >
+<title>_ZSt8byteswapITkSt8integraljET_S0_ (604 samples, 0.64%)</title><rect x="768.0" y="301" width="8.9" height="15.0" fill="rgb(226,100,23)" rx="2" ry="2" />
+<text  x="771.05" y="311.5" ></text>
+</g>
+<g >
+<title>IntrusiveQueue::push_back (253 samples, 0.27%)</title><rect x="127.1" y="269" width="3.7" height="15.0" fill="rgb(216,53,12)" rx="2" ry="2" />
+<text  x="130.07" y="279.5" ></text>
+</g>
+<g >
+<title>_Mod_range_hashing::operator() (2,881 samples, 3.06%)</title><rect x="1272.3" y="237" width="42.2" height="15.0" fill="rgb(221,76,18)" rx="2" ry="2" />
+<text  x="1275.28" y="247.5" >_Mo..</text>
+</g>
+<g >
+<title>OrderPool::operator[] (13 samples, 0.01%)</title><rect x="751.2" y="253" width="0.2" height="15.0" fill="rgb(236,145,34)" rx="2" ry="2" />
+<text  x="754.21" y="263.5" ></text>
+</g>
+<g >
+<title>_ZSt8byteswapITkSt8integraltET_S0_ (33 samples, 0.04%)</title><rect x="776.9" y="301" width="0.5" height="15.0" fill="rgb(212,33,7)" rx="2" ry="2" />
+<text  x="779.89" y="311.5" ></text>
+</g>
+<g >
+<title>__rdtscp (11 samples, 0.01%)</title><rect x="801.3" y="317" width="0.2" height="15.0" fill="rgb(248,200,47)" rx="2" ry="2" />
+<text  x="804.35" y="327.5" ></text>
+</g>
+<g >
+<title>SortedLevels::lower_bound (19 samples, 0.02%)</title><rect x="17.3" y="317" width="0.3" height="15.0" fill="rgb(229,113,27)" rx="2" ry="2" />
+<text  x="20.28" y="327.5" ></text>
+</g>
+<g >
+<title>polymorphic_allocator::construct (11 samples, 0.01%)</title><rect x="161.5" y="205" width="0.2" height="15.0" fill="rgb(211,29,7)" rx="2" ry="2" />
+<text  x="164.55" y="215.5" ></text>
+</g>
+<g >
+<title>move (339 samples, 0.36%)</title><rect x="257.7" y="221" width="4.9" height="15.0" fill="rgb(227,104,24)" rx="2" ry="2" />
+<text  x="260.66" y="231.5" ></text>
+</g>
+<g >
+<title>_Hashtable::_M_get_previous_node (35 samples, 0.04%)</title><rect x="1039.6" y="221" width="0.5" height="15.0" fill="rgb(220,72,17)" rx="2" ry="2" />
+<text  x="1042.60" y="231.5" ></text>
+</g>
+<g >
+<title>construct_at (15 samples, 0.02%)</title><rect x="161.8" y="77" width="0.2" height="15.0" fill="rgb(233,130,31)" rx="2" ry="2" />
+<text  x="164.81" y="87.5" ></text>
+</g>
+<g >
+<title>Qty::operator-= (15 samples, 0.02%)</title><rect x="751.4" y="253" width="0.2" height="15.0" fill="rgb(216,52,12)" rx="2" ry="2" />
+<text  x="754.40" y="263.5" ></text>
+</g>
+<g >
+<title>IdTable::home (78 samples, 0.08%)</title><rect x="615.0" y="269" width="1.1" height="15.0" fill="rgb(248,201,48)" rx="2" ry="2" />
+<text  x="618.00" y="279.5" ></text>
+</g>
+<g >
+<title>latency::measure_overhead (69 samples, 0.07%)</title><rect x="800.8" y="365" width="1.0" height="15.0" fill="rgb(206,8,2)" rx="2" ry="2" />
+<text  x="803.79" y="375.5" ></text>
+</g>
+<g >
+<title>min (81 samples, 0.09%)</title><rect x="831.6" y="285" width="1.1" height="15.0" fill="rgb(220,71,17)" rx="2" ry="2" />
+<text  x="834.56" y="295.5" ></text>
+</g>
+<g >
+<title>__sort (20 samples, 0.02%)</title><rect x="801.0" y="301" width="0.3" height="15.0" fill="rgb(240,163,39)" rx="2" ry="2" />
+<text  x="803.97" y="311.5" ></text>
+</g>
+<g >
+<title>id_of::{lambda#1}::operator() (21 samples, 0.02%)</title><rect x="655.5" y="253" width="0.3" height="15.0" fill="rgb(240,161,38)" rx="2" ry="2" />
+<text  x="658.51" y="263.5" ></text>
+</g>
+<g >
+<title>[libc.so.6] (368 samples, 0.39%)</title><rect x="707.2" y="141" width="5.4" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="710.19" y="151.5" ></text>
+</g>
+<g >
+<title>_Hash_code_base::_M_bucket_index (2,881 samples, 3.06%)</title><rect x="1272.3" y="253" width="42.2" height="15.0" fill="rgb(234,134,32)" rx="2" ry="2" />
+<text  x="1275.28" y="263.5" >_Ha..</text>
+</g>
+<g >
+<title>[libc.so.6] (46 samples, 0.05%)</title><rect x="1038.7" y="125" width="0.6" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="1041.67" y="135.5" ></text>
+</g>
+<g >
+<title>IdTable::tag (14 samples, 0.01%)</title><rect x="750.1" y="237" width="0.2" height="15.0" fill="rgb(252,220,52)" rx="2" ry="2" />
+<text  x="753.05" y="247.5" ></text>
+</g>
+<g >
+<title>_Rehash_base::reserve (12 samples, 0.01%)</title><rect x="799.1" y="333" width="0.2" height="15.0" fill="rgb(251,212,50)" rx="2" ry="2" />
+<text  x="802.11" y="343.5" ></text>
+</g>
+<g >
+<title>construct_at (11 samples, 0.01%)</title><rect x="161.5" y="93" width="0.2" height="15.0" fill="rgb(233,130,31)" rx="2" ry="2" />
+<text  x="164.55" y="103.5" ></text>
+</g>
+<g >
+<title>vector::operator[] (17 samples, 0.02%)</title><rect x="16.2" y="301" width="0.2" height="15.0" fill="rgb(209,21,5)" rx="2" ry="2" />
+<text  x="19.15" y="311.5" ></text>
+</g>
+<g >
+<title>__copy_move_backward::__copy_move_b (208 samples, 0.22%)</title><rect x="162.0" y="141" width="3.1" height="15.0" fill="rgb(208,14,3)" rx="2" ry="2" />
+<text  x="165.03" y="151.5" ></text>
+</g>
+<g >
+<title>allocator_traits::deallocate (1,739 samples, 1.85%)</title><rect x="1220.3" y="189" width="25.5" height="15.0" fill="rgb(254,226,54)" rx="2" ry="2" />
+<text  x="1223.30" y="199.5" >a..</text>
+</g>
+<g >
+<title>_ZSt8byteswapITkSt8integraljET_S0_ (133 samples, 0.14%)</title><rect x="777.4" y="317" width="1.9" height="15.0" fill="rgb(226,100,23)" rx="2" ry="2" />
+<text  x="780.38" y="327.5" ></text>
+</g>
+<g >
+<title>BookBuilder::reduce (939 samples, 1.00%)</title><rect x="739.8" y="317" width="13.7" height="15.0" fill="rgb(236,146,35)" rx="2" ry="2" />
+<text  x="742.77" y="327.5" ></text>
+</g>
+<g >
+<title>pair::pair (154 samples, 0.16%)</title><rect x="1031.9" y="189" width="2.2" height="15.0" fill="rgb(234,135,32)" rx="2" ry="2" />
+<text  x="1034.86" y="199.5" ></text>
+</g>
+<g >
+<title>BookBuilder::BookBuilder (33 samples, 0.04%)</title><rect x="13.4" y="349" width="0.4" height="15.0" fill="rgb(224,91,21)" rx="2" ry="2" />
+<text  x="16.36" y="359.5" ></text>
+</g>
+<g >
+<title>OrderPool::OrderPool (26 samples, 0.03%)</title><rect x="13.4" y="269" width="0.4" height="15.0" fill="rgb(253,224,53)" rx="2" ry="2" />
+<text  x="16.44" y="279.5" ></text>
+</g>
+<g >
+<title>[unknown] (17 samples, 0.02%)</title><rect x="262.3" y="141" width="0.2" height="15.0" fill="rgb(210,24,5)" rx="2" ry="2" />
+<text  x="265.29" y="151.5" ></text>
+</g>
+<g >
+<title>IdTable::find (713 samples, 0.76%)</title><rect x="740.8" y="253" width="10.4" height="15.0" fill="rgb(250,209,49)" rx="2" ry="2" />
+<text  x="743.77" y="263.5" ></text>
+</g>
+<g >
+<title>__copy_move_backward_a (256 samples, 0.27%)</title><rect x="645.8" y="173" width="3.7" height="15.0" fill="rgb(252,219,52)" rx="2" ry="2" />
+<text  x="648.76" y="183.5" ></text>
+</g>
+<g >
+<title>vector::size (175 samples, 0.19%)</title><rect x="826.9" y="269" width="2.6" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="829.93" y="279.5" ></text>
+</g>
+</g>
+</svg>
