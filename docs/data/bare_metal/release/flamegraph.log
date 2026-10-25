@@ -1,0 +1,11 @@
+[10:58:21] building gcc-release and build/gcc-release-g (-g)
+[10:58:33] instructions: 0 of 50118 lines differ from gcc-release's
+[10:58:33] cloning FlameGraph at 41fee1f99f9276008b7cd112fca19dc3ea84ac32
+[10:58:35] recording: perf record -e cycles:u -F 1999 --call-graph lbr, core 8
+[ perf record: Captured and wrote 29.219 MB /home/ubuntu/NanoBook/build/flamegraph/perf.data (94193 samples) ]
+    parse only:        1.47 s, 4.0 ns per message, 250.7 M messages/s
+    parse + FastBook:  25.05 s, 68.0 ns per message, 14.7 M messages/s
+    the books' share:  64.0 ns per message (94% of the time)
+[10:59:24] folding
+94,193 samples, 95.1% in nanobook_replay, 1,144 distinct addresses, 310 stacks -> /home/ubuntu/NanoBook/docs/data/bare_metal/release/flamegraph/folded.txt
+[10:59:25] done: /home/ubuntu/NanoBook/docs/data/bare_metal/release/flamegraph/flamegraph.svg

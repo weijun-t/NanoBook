@@ -1,0 +1,52 @@
+[10:44:33] building gcc-release
+[10:44:33] start: commit f895be621b01, core 8, 1000000 samples per run
+[10:44:33] latency round 1
+[10:44:47]   exit 0
+[10:44:47] throughput mode
+[10:44:58]   exit 0
+[10:44:59] google benchmark ^BM_AddResting<ReferenceBook>$
+[10:45:01]   exit 0
+[10:45:01] google benchmark ^BM_AddResting<FastBook>$
+[10:45:06]   exit 0
+[10:45:06] google benchmark ^BM_AddResting<TickFastBook>$
+[10:45:14]   exit 0
+[10:45:14] google benchmark ^BM_Cancel<ReferenceBook>$
+[10:45:17]   exit 0
+[10:45:17] google benchmark ^BM_Cancel<FastBook>$
+[10:45:21]   exit 0
+[10:45:21] google benchmark ^BM_Cancel<TickFastBook>$
+[10:45:30]   exit 0
+[10:45:30] google benchmark ^BM_MatchOne<ReferenceBook>$
+[10:45:37]   exit 0
+[10:45:37] google benchmark ^BM_MatchOne<FastBook>$
+[10:45:43]   exit 0
+[10:45:43] google benchmark ^BM_MatchOne<TickFastBook>$
+[10:45:51]   exit 0
+[10:45:51] google benchmark ^BM_Sweep<ReferenceBook>/10/
+[10:45:52]   exit 0
+[10:45:52] google benchmark ^BM_Sweep<FastBook>/10/
+[10:45:52]   exit 0
+[10:45:52] google benchmark ^BM_Sweep<TickFastBook>/10/
+[10:45:53]   exit 0
+[10:45:53] google benchmark ^BM_LargeCancel<ReferenceBook>/
+[10:45:55]   exit 0
+[10:45:55] google benchmark ^BM_LargeCancel<FastBook>/
+[10:45:56]   exit 0
+[10:45:56] google benchmark ^BM_LargeCancel<TickFastBook>/
+[10:45:57]   exit 0
+[10:45:57] google benchmark ^BM_LargeAdd<ReferenceBook>/
+[10:45:59]   exit 0
+[10:45:59] google benchmark ^BM_LargeAdd<FastBook>/
+[10:46:00]   exit 0
+[10:46:00] google benchmark ^BM_LargeAdd<TickFastBook>/
+[10:46:00]   exit 0
+[10:46:00] google benchmark ^BM_Aged<ReferenceBook>/
+[10:46:00]   exit 0
+[10:46:00] google benchmark ^BM_Aged<FastBook>/
+[10:46:01]   exit 0
+[10:46:01] google benchmark ^BM_Aged<TickFastBook>/
+[10:46:01]   exit 0
+[10:46:01] latency round 2
+[10:46:14]   exit 0
+wrote latency_percentiles.png and latency_histograms.png in /home/ubuntu/NanoBook/docs/data/bare_metal/release/phase3
+[10:46:16] done: /home/ubuntu/NanoBook/docs/data/bare_metal/release/phase3

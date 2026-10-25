@@ -1,0 +1,23 @@
+cpu              Intel(R) Core(TM) i7-14650HX
+logical cores    24
+os               Ubuntu 26.04.1 LTS
+kernel           Linux 7.0.0-30-generic x86_64
+virtual machine  no
+isolated cores   8-13
+nohz_full cores  8-13
+governor         performance
+turbo            on
+compiler         GCC 14.3.0
+build type       Release
+flags            -std=c++23 -O3 -DNDEBUG
+commit           f895be621b01
+cores            8 (producer, A), 10 (consumer, B)
+ring             65536 slots of 8 bytes
+
+Throughput: 100000000 records in 7.680 s = 76.8 ns per record, 13.0 M records/s
+  producer found the ring full 0 times; consumer found it empty 22261 times
+
+Round trip A -> B -> A (1000000 samples; ns, timer overhead subtracted; one way is about half)
+         min       p50       p90       p99     p99.9    p99.99       max
+     167.4     212.5     214.9     231.9     269.5      2659      2750
+  dropped (moved core) 0

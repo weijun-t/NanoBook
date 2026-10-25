@@ -1,0 +1,23 @@
+cpu              Intel(R) Core(TM) i7-14650HX
+logical cores    24
+os               Ubuntu 26.04.1 LTS
+kernel           Linux 7.0.0-30-generic x86_64
+virtual machine  no
+isolated cores   8-13
+nohz_full cores  8-13
+governor         performance
+turbo            on
+compiler         GCC 14.3.0
+build type       Release
+flags            -std=c++23 -O3 -DNDEBUG
+commit           f895be621b01
+cores            8 (feed), 10 (engine), 12 (publisher), spinning only
+counter          2.4192 ticks per ns
+
+Latency, three threads: 500 K records/s paced from 10:00:00 to 10:05:00 (5641949 records paced, 5641949 updates timed; ns, from each record's intended send time to the publisher)
+       min       p50       p90       p99     p99.9    p99.99       max      mean
+     271.2     391.5     494.0     653.9     813.9     969.7     14180     406.0
+  clamped (over 1.7 s) 0, refused (full) 0; ring 1 full 1924613 tries, ring 2 full 0 tries
+  page faults during the run (start-up and warm-up included): 14 minor, 0 major
+  books: 328 MB arena, 328 MB of it on 2 MiB pages
+wrote /home/ubuntu/NanoBook/docs/data/bare_metal/release/phase5/latency_500000_round2.csv

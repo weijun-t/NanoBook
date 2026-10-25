@@ -1,0 +1,75 @@
+nanobook_bench: per-operation latency (docs/latency-harness-design.md)
+cpu              Intel(R) Core(TM) i7-14650HX
+logical cores    24
+os               Ubuntu 26.04.1 LTS
+kernel           Linux 7.0.0-30-generic x86_64
+virtual machine  no
+isolated cores   8-13
+nohz_full cores  8-13
+governor         performance
+turbo            on
+compiler         GCC 14.3.0
+build type       Release
+flags            -std=c++23 -O3 -DNDEBUG
+commit           f895be621b01
+pinned to core   8
+counter          2.4192 ticks per ns (spread 0.185 parts per million)
+timer overhead   min 22 ticks = 9.1 ns (subtracted from every sample), median 9.9 ns
+mode             throughput, 1000000 operations per run, seed 42
+
+== add  ReferenceBook  throughput: 1000000 operations, mean 58.9 ns, 16.99 M ops/s, 2010000 allocations while timing
+
+== add  FastBook  throughput: 1000000 operations, mean 12.0 ns, 83.51 M ops/s, 0 allocations while timing
+
+== add  TickFastBook  throughput: 1000000 operations, mean 10.2 ns, 98.18 M ops/s, 0 allocations while timing
+
+== cancel  ReferenceBook  throughput: 1000000 operations, mean 133.7 ns, 7.48 M ops/s, 0 allocations while timing
+
+== cancel  FastBook  throughput: 1000000 operations, mean 41.3 ns, 24.20 M ops/s, 0 allocations while timing
+
+== cancel  TickFastBook  throughput: 1000000 operations, mean 9.4 ns, 106.05 M ops/s, 0 allocations while timing
+
+== modify  ReferenceBook  throughput: 1000000 operations, mean 147.4 ns, 6.79 M ops/s, 1000000 allocations while timing
+
+== modify  FastBook  throughput: 1000000 operations, mean 47.6 ns, 21.00 M ops/s, 0 allocations while timing
+
+== modify  TickFastBook  throughput: 1000000 operations, mean 10.7 ns, 93.12 M ops/s, 0 allocations while timing
+
+== match  ReferenceBook  throughput: 1000000 operations, mean 34.6 ns, 28.91 M ops/s, 0 allocations while timing
+
+== match  FastBook  throughput: 1000000 operations, mean 9.4 ns, 106.61 M ops/s, 0 allocations while timing
+
+== match  TickFastBook  throughput: 1000000 operations, mean 11.9 ns, 83.98 M ops/s, 0 allocations while timing
+
+== sweep10  ReferenceBook  throughput: 1000000 operations, mean 496.7 ns, 2.01 M ops/s, 0 allocations while timing
+
+== sweep10  FastBook  throughput: 1000000 operations, mean 72.2 ns, 13.85 M ops/s, 0 allocations while timing
+
+== sweep10  TickFastBook  throughput: 1000000 operations, mean 112.6 ns, 8.88 M ops/s, 0 allocations while timing
+
+== large_cancel  ReferenceBook  throughput: 1000000 operations, mean 300.7 ns, 3.33 M ops/s, 0 allocations while timing
+
+== large_cancel  FastBook  throughput: 1000000 operations, mean 94.4 ns, 10.59 M ops/s, 0 allocations while timing
+
+== large_cancel  TickFastBook  throughput: 1000000 operations, mean 18.0 ns, 55.63 M ops/s, 0 allocations while timing
+
+== large_add  ReferenceBook  throughput: 1000000 operations, mean 185.2 ns, 5.40 M ops/s, 2000000 allocations while timing
+
+== large_add  FastBook  throughput: 1000000 operations, mean 66.6 ns, 15.01 M ops/s, 0 allocations while timing
+
+== large_add  TickFastBook  throughput: 1000000 operations, mean 13.0 ns, 76.90 M ops/s, 0 allocations while timing
+
+== deep_insert  ReferenceBook  throughput: 1000000 operations, mean 135.2 ns, 7.40 M ops/s, 3000000 allocations while timing
+
+== deep_insert  FastBook  throughput: 1000000 operations, mean 1427.5 ns, 0.70 M ops/s, 0 allocations while timing
+
+== deep_insert  TickFastBook  throughput: 1000000 operations, mean 11.2 ns, 89.13 M ops/s, 0 allocations while timing
+
+== mixed  ReferenceBook  throughput: 1000000 operations, mean 74.1 ns, 13.49 M ops/s, 882805 allocations while timing
+
+== mixed  FastBook  throughput: 1000000 operations, mean 26.4 ns, 37.93 M ops/s, 0 allocations while timing
+
+== mixed  TickFastBook  throughput: 1000000 operations, mean 22.9 ns, 43.63 M ops/s, 0 allocations while timing
+
+counter at the end: 2.4192 ticks per ns (drift 0.065 parts per million)
+wrote /home/ubuntu/NanoBook/docs/data/bare_metal/release/phase3/throughput.csv and /home/ubuntu/NanoBook/docs/data/bare_metal/release/phase3/throughput_histogram.csv

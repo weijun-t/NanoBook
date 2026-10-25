@@ -1,0 +1,3 @@
+sorted seed 1: PASS, 10000000 ops in 3.89277 s (2.56886 M ops/s)
+sorted seed 2: PASS, 10000000 ops in 3.84514 s (2.60069 M ops/s)
+sorted seed 3: PASS, 10000000 ops in 3.84179 s (2.60295 M ops/s)

@@ -1,0 +1,22 @@
+[10:43:38] tools: cmake 4.2.3, g++-14 (Ubuntu 14.3.0-14ubuntu1) 14.3.0, commit f895be621b01
+[10:43:38] 1/3 build and test (cmake --workflow --preset gcc-release)
+[10:44:16]     100% tests passed, 0 tests failed out of 790
+[10:44:16] 2/3 fuzz: 3 seeds x 10,000,000 operations, fast book against reference book
+    sorted seed 1: PASS, 10000000 ops in 3.89277 s (2.56886 M ops/s)
+    sorted seed 2: PASS, 10000000 ops in 3.84514 s (2.60069 M ops/s)
+    sorted seed 3: PASS, 10000000 ops in 3.84179 s (2.60295 M ops/s)
+[10:44:28] 3/3 latency: fast book, 1,000,000 samples per scenario, core 8
+
+Fast book, ns per operation. Yours: this machine. Published: docs/data/bare_metal/phase3/round1.csv
+    cpu: Intel(R) Core(TM) i7-14650HX
+    kernel: Linux 7.0.0-30-generic x86_64
+    isolated cores: 8-13
+    commit: 943fe708a59e
+           |    yours                   | published                  
+  op       |      p50      p99   p99.99 |      p50      p99   p99.99
+  add      |     20.3     30.6     43.8 |     19.4     32.2    318.3
+  cancel   |     44.6     61.6    112.4 |     44.6     63.2    460.5
+  modify   |     50.4     76.5     97.1 |     51.7     78.1    453.9
+  match    |     16.9     19.4     30.6 |     14.9     23.1    174.4
+
+[10:44:33] done in 55 s; everything is in /home/ubuntu/NanoBook/docs/data/bare_metal/release/stranger

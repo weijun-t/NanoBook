@@ -1,0 +1,50 @@
+# cpu: Intel(R) Core(TM) i7-14650HX
+# logical cores: 24
+# os: Ubuntu 26.04.1 LTS
+# kernel: Linux 7.0.0-30-generic x86_64
+# virtual machine: no
+# isolated cores: 8-13
+# nohz_full cores: 8-13
+# governor: performance
+# turbo: on
+# compiler: GCC 14.3.0
+# build type: Release
+# flags: -std=c++23 -O3 -DNDEBUG
+# commit: f895be621b01
+# pinned to core: 8
+# counter ticks per ns: 2.419200
+# counter spread (parts per million): 0.184944
+# counter drift during the run (parts per million): -0.065189
+# timer overhead min (ticks, subtracted): 22
+# timer overhead median (ticks): 24
+# mode: throughput
+# per run: 1000000
+# seed: 42
+mode,scenario,book,tag,count,min_ns,p50_ns,p90_ns,p99_ns,p999_ns,p9999_ns,max_ns,mean_ns,dropped,clamped,timed_allocations
+throughput,add,ReferenceBook,all,1000000,,,,,,,,58.9,0,0,2010000
+throughput,add,FastBook,all,1000000,,,,,,,,12.0,0,0,0
+throughput,add,TickFastBook,all,1000000,,,,,,,,10.2,0,0,0
+throughput,cancel,ReferenceBook,all,1000000,,,,,,,,133.7,0,0,0
+throughput,cancel,FastBook,all,1000000,,,,,,,,41.3,0,0,0
+throughput,cancel,TickFastBook,all,1000000,,,,,,,,9.4,0,0,0
+throughput,modify,ReferenceBook,all,1000000,,,,,,,,147.4,0,0,1000000
+throughput,modify,FastBook,all,1000000,,,,,,,,47.6,0,0,0
+throughput,modify,TickFastBook,all,1000000,,,,,,,,10.7,0,0,0
+throughput,match,ReferenceBook,all,1000000,,,,,,,,34.6,0,0,0
+throughput,match,FastBook,all,1000000,,,,,,,,9.4,0,0,0
+throughput,match,TickFastBook,all,1000000,,,,,,,,11.9,0,0,0
+throughput,sweep10,ReferenceBook,all,1000000,,,,,,,,496.7,0,0,0
+throughput,sweep10,FastBook,all,1000000,,,,,,,,72.2,0,0,0
+throughput,sweep10,TickFastBook,all,1000000,,,,,,,,112.6,0,0,0
+throughput,large_cancel,ReferenceBook,all,1000000,,,,,,,,300.7,0,0,0
+throughput,large_cancel,FastBook,all,1000000,,,,,,,,94.4,0,0,0
+throughput,large_cancel,TickFastBook,all,1000000,,,,,,,,18.0,0,0,0
+throughput,large_add,ReferenceBook,all,1000000,,,,,,,,185.2,0,0,2000000
+throughput,large_add,FastBook,all,1000000,,,,,,,,66.6,0,0,0
+throughput,large_add,TickFastBook,all,1000000,,,,,,,,13.0,0,0,0
+throughput,deep_insert,ReferenceBook,all,1000000,,,,,,,,135.2,0,0,3000000
+throughput,deep_insert,FastBook,all,1000000,,,,,,,,1427.5,0,0,0
+throughput,deep_insert,TickFastBook,all,1000000,,,,,,,,11.2,0,0,0
+throughput,mixed,ReferenceBook,all,1000000,,,,,,,,74.1,0,0,882805
+throughput,mixed,FastBook,all,1000000,,,,,,,,26.4,0,0,0
+throughput,mixed,TickFastBook,all,1000000,,,,,,,,22.9,0,0,0

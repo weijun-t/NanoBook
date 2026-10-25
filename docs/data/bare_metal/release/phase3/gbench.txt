@@ -1,0 +1,336 @@
+2026-10-25T10:44:59+00:00
+Running build/gcc-release/nanobook_microbench
+Run on (24 X 800.328 MHz CPU s)
+CPU Caches:
+  L1 Data 48 KiB (x12)
+  L1 Instruction 32 KiB (x12)
+  L2 Unified 2048 KiB (x12)
+  L3 Unified 30720 KiB (x1)
+Load Average: 2.25, 1.75, 0.89
+----------------------------------------------------------------------------------------------
+Benchmark                                    Time             CPU   Iterations UserCounters...
+----------------------------------------------------------------------------------------------
+BM_AddResting<ReferenceBook>_mean          531 us          531 us            3 allocs_per_op=2.01 items_per_second=18.824M/s time_per_op=53.1271ns
+BM_AddResting<ReferenceBook>_median        528 us          528 us            3 allocs_per_op=2.01 items_per_second=18.9284M/s time_per_op=52.8306ns
+BM_AddResting<ReferenceBook>_stddev       5.28 us         5.28 us            3 allocs_per_op=0 items_per_second=186.14k/s time_per_op=528.356ps
+BM_AddResting<ReferenceBook>_cv           0.99 %          0.99 %             3 allocs_per_op=0.00% items_per_second=0.99% time_per_op=0.99%
+2026-10-25T10:45:01+00:00
+Running build/gcc-release/nanobook_microbench
+Run on (24 X 800.29 MHz CPU s)
+CPU Caches:
+  L1 Data 48 KiB (x12)
+  L1 Instruction 32 KiB (x12)
+  L2 Unified 2048 KiB (x12)
+  L3 Unified 30720 KiB (x1)
+Load Average: 2.15, 1.74, 0.89
+-----------------------------------------------------------------------------------------
+Benchmark                               Time             CPU   Iterations UserCounters...
+-----------------------------------------------------------------------------------------
+BM_AddResting<FastBook>_mean          114 us          114 us            3 allocs_per_op=0 items_per_second=88.0566M/s time_per_op=11.3623ns
+BM_AddResting<FastBook>_median        112 us          112 us            3 allocs_per_op=0 items_per_second=89.3442M/s time_per_op=11.1927ns
+BM_AddResting<FastBook>_stddev       3.22 us         3.23 us            3 allocs_per_op=0 items_per_second=2.46289M/s time_per_op=322.948ps
+BM_AddResting<FastBook>_cv           2.84 %          2.84 %             3 allocs_per_op=0.00% items_per_second=2.80% time_per_op=2.84%
+2026-10-25T10:45:06+00:00
+Running build/gcc-release/nanobook_microbench
+Run on (24 X 800.636 MHz CPU s)
+CPU Caches:
+  L1 Data 48 KiB (x12)
+  L1 Instruction 32 KiB (x12)
+  L2 Unified 2048 KiB (x12)
+  L3 Unified 30720 KiB (x1)
+Load Average: 2.05, 1.72, 0.89
+---------------------------------------------------------------------------------------------
+Benchmark                                   Time             CPU   Iterations UserCounters...
+---------------------------------------------------------------------------------------------
+BM_AddResting<TickFastBook>_mean         84.1 us         84.1 us            3 allocs_per_op=0 items_per_second=119.061M/s time_per_op=8.41155ns
+BM_AddResting<TickFastBook>_median       81.9 us         81.9 us            3 allocs_per_op=0 items_per_second=122.169M/s time_per_op=8.18537ns
+BM_AddResting<TickFastBook>_stddev       4.03 us         4.02 us            3 allocs_per_op=0 items_per_second=5.54145M/s time_per_op=402.297ps
+BM_AddResting<TickFastBook>_cv           4.79 %          4.78 %             3 allocs_per_op=0.00% items_per_second=4.65% time_per_op=4.78%
+2026-10-25T10:45:14+00:00
+Running build/gcc-release/nanobook_microbench
+Run on (24 X 800.721 MHz CPU s)
+CPU Caches:
+  L1 Data 48 KiB (x12)
+  L1 Instruction 32 KiB (x12)
+  L2 Unified 2048 KiB (x12)
+  L3 Unified 30720 KiB (x1)
+Load Average: 1.97, 1.71, 0.89
+------------------------------------------------------------------------------------------
+Benchmark                                Time             CPU   Iterations UserCounters...
+------------------------------------------------------------------------------------------
+BM_Cancel<ReferenceBook>_mean         1326 us         1326 us            3 allocs_per_op=0 items_per_second=7.54079M/s time_per_op=132.612ns
+BM_Cancel<ReferenceBook>_median       1327 us         1327 us            3 allocs_per_op=0 items_per_second=7.53431M/s time_per_op=132.726ns
+BM_Cancel<ReferenceBook>_stddev       2.27 us         2.27 us            3 allocs_per_op=0 items_per_second=12.9159k/s time_per_op=226.92ps
+BM_Cancel<ReferenceBook>_cv           0.17 %          0.17 %             3 allocs_per_op=0.00% items_per_second=0.17% time_per_op=0.17%
+2026-10-25T10:45:17+00:00
+Running build/gcc-release/nanobook_microbench
+Run on (24 X 800.28 MHz CPU s)
+CPU Caches:
+  L1 Data 48 KiB (x12)
+  L1 Instruction 32 KiB (x12)
+  L2 Unified 2048 KiB (x12)
+  L3 Unified 30720 KiB (x1)
+Load Average: 1.89, 1.70, 0.89
+-------------------------------------------------------------------------------------
+Benchmark                           Time             CPU   Iterations UserCounters...
+-------------------------------------------------------------------------------------
+BM_Cancel<FastBook>_mean          366 us          366 us            3 allocs_per_op=0 items_per_second=27.3564M/s time_per_op=36.5545ns
+BM_Cancel<FastBook>_median        366 us          366 us            3 allocs_per_op=0 items_per_second=27.3482M/s time_per_op=36.5655ns
+BM_Cancel<FastBook>_stddev      0.231 us        0.226 us            3 allocs_per_op=0 items_per_second=16.8912k/s time_per_op=22.5628ps
+BM_Cancel<FastBook>_cv           0.06 %          0.06 %             3 allocs_per_op=0.00% items_per_second=0.06% time_per_op=0.06%
+2026-10-25T10:45:21+00:00
+Running build/gcc-release/nanobook_microbench
+Run on (24 X 800.299 MHz CPU s)
+CPU Caches:
+  L1 Data 48 KiB (x12)
+  L1 Instruction 32 KiB (x12)
+  L2 Unified 2048 KiB (x12)
+  L3 Unified 30720 KiB (x1)
+Load Average: 1.90, 1.70, 0.90
+-----------------------------------------------------------------------------------------
+Benchmark                               Time             CPU   Iterations UserCounters...
+-----------------------------------------------------------------------------------------
+BM_Cancel<TickFastBook>_mean          105 us          105 us            3 allocs_per_op=0 items_per_second=95.1242M/s time_per_op=10.52ns
+BM_Cancel<TickFastBook>_median        107 us          107 us            3 allocs_per_op=0 items_per_second=93.6824M/s time_per_op=10.6744ns
+BM_Cancel<TickFastBook>_stddev       3.40 us         3.39 us            3 allocs_per_op=0 items_per_second=3.12265M/s time_per_op=339.292ps
+BM_Cancel<TickFastBook>_cv           3.23 %          3.23 %             3 allocs_per_op=0.00% items_per_second=3.28% time_per_op=3.23%
+2026-10-25T10:45:30+00:00
+Running build/gcc-release/nanobook_microbench
+Run on (24 X 800 MHz CPU s)
+CPU Caches:
+  L1 Data 48 KiB (x12)
+  L1 Instruction 32 KiB (x12)
+  L2 Unified 2048 KiB (x12)
+  L3 Unified 30720 KiB (x1)
+Load Average: 1.76, 1.68, 0.90
+--------------------------------------------------------------------------------------------
+Benchmark                                  Time             CPU   Iterations UserCounters...
+--------------------------------------------------------------------------------------------
+BM_MatchOne<ReferenceBook>_mean          382 us          382 us            3 allocs_per_op=0 items_per_second=26.1656M/s time_per_op=38.2182ns
+BM_MatchOne<ReferenceBook>_median        382 us          382 us            3 allocs_per_op=0 items_per_second=26.1762M/s time_per_op=38.2027ns
+BM_MatchOne<ReferenceBook>_stddev      0.439 us        0.438 us            3 allocs_per_op=0 items_per_second=29.9882k/s time_per_op=43.8251ps
+BM_MatchOne<ReferenceBook>_cv           0.11 %          0.11 %             3 allocs_per_op=0.00% items_per_second=0.11% time_per_op=0.11%
+2026-10-25T10:45:37+00:00
+Running build/gcc-release/nanobook_microbench
+Run on (24 X 800.551 MHz CPU s)
+CPU Caches:
+  L1 Data 48 KiB (x12)
+  L1 Instruction 32 KiB (x12)
+  L2 Unified 2048 KiB (x12)
+  L3 Unified 30720 KiB (x1)
+Load Average: 1.70, 1.67, 0.90
+---------------------------------------------------------------------------------------
+Benchmark                             Time             CPU   Iterations UserCounters...
+---------------------------------------------------------------------------------------
+BM_MatchOne<FastBook>_mean         95.9 us         95.9 us            3 allocs_per_op=0 items_per_second=104.283M/s time_per_op=9.58949ns
+BM_MatchOne<FastBook>_median       95.7 us         95.7 us            3 allocs_per_op=0 items_per_second=104.515M/s time_per_op=9.56803ns
+BM_MatchOne<FastBook>_stddev      0.529 us        0.526 us            3 allocs_per_op=0 items_per_second=570.216k/s time_per_op=52.5816ps
+BM_MatchOne<FastBook>_cv           0.55 %          0.55 %             3 allocs_per_op=0.00% items_per_second=0.55% time_per_op=0.55%
+2026-10-25T10:45:43+00:00
+Running build/gcc-release/nanobook_microbench
+Run on (24 X 800 MHz CPU s)
+CPU Caches:
+  L1 Data 48 KiB (x12)
+  L1 Instruction 32 KiB (x12)
+  L2 Unified 2048 KiB (x12)
+  L3 Unified 30720 KiB (x1)
+Load Average: 1.64, 1.66, 0.90
+-------------------------------------------------------------------------------------------
+Benchmark                                 Time             CPU   Iterations UserCounters...
+-------------------------------------------------------------------------------------------
+BM_MatchOne<TickFastBook>_mean          114 us          114 us            3 allocs_per_op=0 items_per_second=87.9415M/s time_per_op=11.3716ns
+BM_MatchOne<TickFastBook>_median        113 us          113 us            3 allocs_per_op=0 items_per_second=88.2938M/s time_per_op=11.3258ns
+BM_MatchOne<TickFastBook>_stddev      0.879 us        0.877 us            3 allocs_per_op=0 items_per_second=675.396k/s time_per_op=87.7187ps
+BM_MatchOne<TickFastBook>_cv           0.77 %          0.77 %             3 allocs_per_op=0.00% items_per_second=0.77% time_per_op=0.77%
+2026-10-25T10:45:51+00:00
+Running build/gcc-release/nanobook_microbench
+Run on (24 X 800.289 MHz CPU s)
+CPU Caches:
+  L1 Data 48 KiB (x12)
+  L1 Instruction 32 KiB (x12)
+  L2 Unified 2048 KiB (x12)
+  L3 Unified 30720 KiB (x1)
+Load Average: 1.47, 1.62, 0.90
+------------------------------------------------------------------------------------------------------------
+Benchmark                                                  Time             CPU   Iterations UserCounters...
+------------------------------------------------------------------------------------------------------------
+BM_Sweep<ReferenceBook>/10/iterations:1000_mean         45.6 us         45.6 us            3 allocs_per_op=0 items_per_second=2.19229M/s time_per_op=456.15ns
+BM_Sweep<ReferenceBook>/10/iterations:1000_median       45.5 us         45.5 us            3 allocs_per_op=0 items_per_second=2.19689M/s time_per_op=455.189ns
+BM_Sweep<ReferenceBook>/10/iterations:1000_stddev      0.184 us        0.185 us            3 allocs_per_op=0 items_per_second=8.87433k/s time_per_op=1.85075ns
+BM_Sweep<ReferenceBook>/10/iterations:1000_cv           0.40 %          0.41 %             3 allocs_per_op=0.00% items_per_second=0.40% time_per_op=0.41%
+2026-10-25T10:45:52+00:00
+Running build/gcc-release/nanobook_microbench
+Run on (24 X 800.241 MHz CPU s)
+CPU Caches:
+  L1 Data 48 KiB (x12)
+  L1 Instruction 32 KiB (x12)
+  L2 Unified 2048 KiB (x12)
+  L3 Unified 30720 KiB (x1)
+Load Average: 1.47, 1.62, 0.90
+-------------------------------------------------------------------------------------------------------
+Benchmark                                             Time             CPU   Iterations UserCounters...
+-------------------------------------------------------------------------------------------------------
+BM_Sweep<FastBook>/10/iterations:1000_mean         8.12 us         8.10 us            3 allocs_per_op=0 items_per_second=12.3461M/s time_per_op=81.0167ns
+BM_Sweep<FastBook>/10/iterations:1000_median       8.21 us         8.19 us            3 allocs_per_op=0 items_per_second=12.2108M/s time_per_op=81.8948ns
+BM_Sweep<FastBook>/10/iterations:1000_stddev      0.154 us        0.153 us            3 allocs_per_op=0 items_per_second=236.455k/s time_per_op=1.53468ns
+BM_Sweep<FastBook>/10/iterations:1000_cv           1.90 %          1.89 %             3 allocs_per_op=0.00% items_per_second=1.92% time_per_op=1.89%
+2026-10-25T10:45:52+00:00
+Running build/gcc-release/nanobook_microbench
+Run on (24 X 801.141 MHz CPU s)
+CPU Caches:
+  L1 Data 48 KiB (x12)
+  L1 Instruction 32 KiB (x12)
+  L2 Unified 2048 KiB (x12)
+  L3 Unified 30720 KiB (x1)
+Load Average: 1.47, 1.62, 0.90
+-----------------------------------------------------------------------------------------------------------
+Benchmark                                                 Time             CPU   Iterations UserCounters...
+-----------------------------------------------------------------------------------------------------------
+BM_Sweep<TickFastBook>/10/iterations:1000_mean         12.2 us         12.2 us            3 allocs_per_op=0 items_per_second=8.20367M/s time_per_op=121.966ns
+BM_Sweep<TickFastBook>/10/iterations:1000_median       12.1 us         12.1 us            3 allocs_per_op=0 items_per_second=8.27218M/s time_per_op=120.887ns
+BM_Sweep<TickFastBook>/10/iterations:1000_stddev      0.357 us        0.358 us            3 allocs_per_op=0 items_per_second=237.739k/s time_per_op=3.57639ns
+BM_Sweep<TickFastBook>/10/iterations:1000_cv           2.91 %          2.93 %             3 allocs_per_op=0.00% items_per_second=2.90% time_per_op=2.93%
+2026-10-25T10:45:53+00:00
+Running build/gcc-release/nanobook_microbench
+Run on (24 X 799.696 MHz CPU s)
+CPU Caches:
+  L1 Data 48 KiB (x12)
+  L1 Instruction 32 KiB (x12)
+  L2 Unified 2048 KiB (x12)
+  L3 Unified 30720 KiB (x1)
+Load Average: 1.47, 1.62, 0.90
+-------------------------------------------------------------------------------------------------------------
+Benchmark                                                   Time             CPU   Iterations UserCounters...
+-------------------------------------------------------------------------------------------------------------
+BM_LargeCancel<ReferenceBook>/iterations:50_mean         2961 us         2961 us            3 allocs_per_op=0 items_per_second=3.37767M/s time_per_op=296.063ns
+BM_LargeCancel<ReferenceBook>/iterations:50_median       2961 us         2961 us            3 allocs_per_op=0 items_per_second=3.37687M/s time_per_op=296.132ns
+BM_LargeCancel<ReferenceBook>/iterations:50_stddev       1.84 us         1.69 us            3 allocs_per_op=0 items_per_second=1.93406k/s time_per_op=169.477ps
+BM_LargeCancel<ReferenceBook>/iterations:50_cv           0.06 %          0.06 %             3 allocs_per_op=0.00% items_per_second=0.06% time_per_op=0.06%
+2026-10-25T10:45:55+00:00
+Running build/gcc-release/nanobook_microbench
+Run on (24 X 800.484 MHz CPU s)
+CPU Caches:
+  L1 Data 48 KiB (x12)
+  L1 Instruction 32 KiB (x12)
+  L2 Unified 2048 KiB (x12)
+  L3 Unified 30720 KiB (x1)
+Load Average: 1.43, 1.61, 0.90
+--------------------------------------------------------------------------------------------------------
+Benchmark                                              Time             CPU   Iterations UserCounters...
+--------------------------------------------------------------------------------------------------------
+BM_LargeCancel<FastBook>/iterations:50_mean          838 us          838 us            3 allocs_per_op=0 items_per_second=11.9363M/s time_per_op=83.7784ns
+BM_LargeCancel<FastBook>/iterations:50_median        838 us          838 us            3 allocs_per_op=0 items_per_second=11.9351M/s time_per_op=83.7862ns
+BM_LargeCancel<FastBook>/iterations:50_stddev       1.36 us         1.36 us            3 allocs_per_op=0 items_per_second=19.3649k/s time_per_op=135.899ps
+BM_LargeCancel<FastBook>/iterations:50_cv           0.16 %          0.16 %             3 allocs_per_op=0.00% items_per_second=0.16% time_per_op=0.16%
+2026-10-25T10:45:56+00:00
+Running build/gcc-release/nanobook_microbench
+Run on (24 X 800.194 MHz CPU s)
+CPU Caches:
+  L1 Data 48 KiB (x12)
+  L1 Instruction 32 KiB (x12)
+  L2 Unified 2048 KiB (x12)
+  L3 Unified 30720 KiB (x1)
+Load Average: 1.43, 1.61, 0.90
+------------------------------------------------------------------------------------------------------------
+Benchmark                                                  Time             CPU   Iterations UserCounters...
+------------------------------------------------------------------------------------------------------------
+BM_LargeCancel<TickFastBook>/iterations:50_mean          193 us          192 us            3 allocs_per_op=0 items_per_second=51.9992M/s time_per_op=19.2395ns
+BM_LargeCancel<TickFastBook>/iterations:50_median        191 us          191 us            3 allocs_per_op=0 items_per_second=52.4425M/s time_per_op=19.0685ns
+BM_LargeCancel<TickFastBook>/iterations:50_stddev       4.99 us         4.98 us            3 allocs_per_op=0 items_per_second=1.32998M/s time_per_op=497.811ps
+BM_LargeCancel<TickFastBook>/iterations:50_cv           2.59 %          2.59 %             3 allocs_per_op=0.00% items_per_second=2.56% time_per_op=2.59%
+2026-10-25T10:45:57+00:00
+Running build/gcc-release/nanobook_microbench
+Run on (24 X 800.556 MHz CPU s)
+CPU Caches:
+  L1 Data 48 KiB (x12)
+  L1 Instruction 32 KiB (x12)
+  L2 Unified 2048 KiB (x12)
+  L3 Unified 30720 KiB (x1)
+Load Average: 1.43, 1.61, 0.90
+----------------------------------------------------------------------------------------------------------
+Benchmark                                                Time             CPU   Iterations UserCounters...
+----------------------------------------------------------------------------------------------------------
+BM_LargeAdd<ReferenceBook>/iterations:50_mean         1829 us         1829 us            3 allocs_per_op=2 items_per_second=5.46981M/s time_per_op=182.91ns
+BM_LargeAdd<ReferenceBook>/iterations:50_median       1806 us         1806 us            3 allocs_per_op=2 items_per_second=5.53675M/s time_per_op=180.611ns
+BM_LargeAdd<ReferenceBook>/iterations:50_stddev       49.5 us         49.6 us            3 allocs_per_op=0 items_per_second=146.115k/s time_per_op=4.95819ns
+BM_LargeAdd<ReferenceBook>/iterations:50_cv           2.71 %          2.71 %             3 allocs_per_op=0.00% items_per_second=2.67% time_per_op=2.71%
+2026-10-25T10:45:59+00:00
+Running build/gcc-release/nanobook_microbench
+Run on (24 X 801.128 MHz CPU s)
+CPU Caches:
+  L1 Data 48 KiB (x12)
+  L1 Instruction 32 KiB (x12)
+  L2 Unified 2048 KiB (x12)
+  L3 Unified 30720 KiB (x1)
+Load Average: 1.40, 1.60, 0.90
+-----------------------------------------------------------------------------------------------------
+Benchmark                                           Time             CPU   Iterations UserCounters...
+-----------------------------------------------------------------------------------------------------
+BM_LargeAdd<FastBook>/iterations:50_mean          651 us          651 us            3 allocs_per_op=0 items_per_second=15.3651M/s time_per_op=65.0828ns
+BM_LargeAdd<FastBook>/iterations:50_median        651 us          650 us            3 allocs_per_op=0 items_per_second=15.3742M/s time_per_op=65.0438ns
+BM_LargeAdd<FastBook>/iterations:50_stddev       1.16 us         1.16 us            3 allocs_per_op=0 items_per_second=27.2502k/s time_per_op=115.517ps
+BM_LargeAdd<FastBook>/iterations:50_cv           0.18 %          0.18 %             3 allocs_per_op=0.00% items_per_second=0.18% time_per_op=0.18%
+2026-10-25T10:46:00+00:00
+Running build/gcc-release/nanobook_microbench
+Run on (24 X 800.704 MHz CPU s)
+CPU Caches:
+  L1 Data 48 KiB (x12)
+  L1 Instruction 32 KiB (x12)
+  L2 Unified 2048 KiB (x12)
+  L3 Unified 30720 KiB (x1)
+Load Average: 1.40, 1.60, 0.90
+---------------------------------------------------------------------------------------------------------
+Benchmark                                               Time             CPU   Iterations UserCounters...
+---------------------------------------------------------------------------------------------------------
+BM_LargeAdd<TickFastBook>/iterations:50_mean          137 us          137 us            3 allocs_per_op=0 items_per_second=72.9689M/s time_per_op=13.7054ns
+BM_LargeAdd<TickFastBook>/iterations:50_median        137 us          137 us            3 allocs_per_op=0 items_per_second=73.0681M/s time_per_op=13.6859ns
+BM_LargeAdd<TickFastBook>/iterations:50_stddev       1.33 us         1.36 us            3 allocs_per_op=0 items_per_second=721.926k/s time_per_op=135.873ps
+BM_LargeAdd<TickFastBook>/iterations:50_cv           0.97 %          0.99 %             3 allocs_per_op=0.00% items_per_second=0.99% time_per_op=0.99%
+2026-10-25T10:46:00+00:00
+Running build/gcc-release/nanobook_microbench
+Run on (24 X 800.261 MHz CPU s)
+CPU Caches:
+  L1 Data 48 KiB (x12)
+  L1 Instruction 32 KiB (x12)
+  L2 Unified 2048 KiB (x12)
+  L3 Unified 30720 KiB (x1)
+Load Average: 1.40, 1.60, 0.90
+------------------------------------------------------------------------------------------------------
+Benchmark                                            Time             CPU   Iterations UserCounters...
+------------------------------------------------------------------------------------------------------
+BM_Aged<ReferenceBook>/iterations:50_mean          772 us          772 us            3 allocs_per_op=0.899676 items_per_second=12.9611M/s time_per_op=77.1544ns
+BM_Aged<ReferenceBook>/iterations:50_median        771 us          771 us            3 allocs_per_op=0.899676 items_per_second=12.9663M/s time_per_op=77.1231ns
+BM_Aged<ReferenceBook>/iterations:50_stddev       1.96 us         1.95 us            3 allocs_per_op=0 items_per_second=32.7728k/s time_per_op=195.205ps
+BM_Aged<ReferenceBook>/iterations:50_cv           0.25 %          0.25 %             3 allocs_per_op=0.00% items_per_second=0.25% time_per_op=0.25%
+2026-10-25T10:46:00+00:00
+Running build/gcc-release/nanobook_microbench
+Run on (24 X 800 MHz CPU s)
+CPU Caches:
+  L1 Data 48 KiB (x12)
+  L1 Instruction 32 KiB (x12)
+  L2 Unified 2048 KiB (x12)
+  L3 Unified 30720 KiB (x1)
+Load Average: 1.40, 1.60, 0.90
+-------------------------------------------------------------------------------------------------
+Benchmark                                       Time             CPU   Iterations UserCounters...
+-------------------------------------------------------------------------------------------------
+BM_Aged<FastBook>/iterations:50_mean          263 us          263 us            3 allocs_per_op=0 items_per_second=38.0202M/s time_per_op=26.3026ns
+BM_Aged<FastBook>/iterations:50_median        263 us          263 us            3 allocs_per_op=0 items_per_second=37.967M/s time_per_op=26.3386ns
+BM_Aged<FastBook>/iterations:50_stddev       1.76 us         1.77 us            3 allocs_per_op=0 items_per_second=255.908k/s time_per_op=176.688ps
+BM_Aged<FastBook>/iterations:50_cv           0.67 %          0.67 %             3 allocs_per_op=0.00% items_per_second=0.67% time_per_op=0.67%
+2026-10-25T10:46:01+00:00
+Running build/gcc-release/nanobook_microbench
+Run on (24 X 800.59 MHz CPU s)
+CPU Caches:
+  L1 Data 48 KiB (x12)
+  L1 Instruction 32 KiB (x12)
+  L2 Unified 2048 KiB (x12)
+  L3 Unified 30720 KiB (x1)
+Load Average: 1.40, 1.60, 0.90
+-----------------------------------------------------------------------------------------------------
+Benchmark                                           Time             CPU   Iterations UserCounters...
+-----------------------------------------------------------------------------------------------------
+BM_Aged<TickFastBook>/iterations:50_mean          255 us          255 us            3 allocs_per_op=0 items_per_second=39.2427M/s time_per_op=25.4849ns
+BM_Aged<TickFastBook>/iterations:50_median        255 us          255 us            3 allocs_per_op=0 items_per_second=39.1705M/s time_per_op=25.5294ns
+BM_Aged<TickFastBook>/iterations:50_stddev       3.03 us         3.03 us            3 allocs_per_op=0 items_per_second=467.079k/s time_per_op=302.533ps
+BM_Aged<TickFastBook>/iterations:50_cv           1.19 %          1.19 %             3 allocs_per_op=0.00% items_per_second=1.19% time_per_op=1.19%

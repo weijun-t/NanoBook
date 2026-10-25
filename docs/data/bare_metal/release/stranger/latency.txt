@@ -1,0 +1,63 @@
+nanobook_bench: per-operation latency (docs/latency-harness-design.md)
+cpu              Intel(R) Core(TM) i7-14650HX
+logical cores    24
+os               Ubuntu 26.04.1 LTS
+kernel           Linux 7.0.0-30-generic x86_64
+virtual machine  no
+isolated cores   8-13
+nohz_full cores  8-13
+governor         performance
+turbo            on
+compiler         GCC 14.3.0
+build type       Release
+flags            -std=c++23 -O3 -DNDEBUG
+commit           f895be621b01
+pinned to core   8
+counter          2.4192 ticks per ns (spread 0.185 parts per million)
+timer overhead   min 22 ticks = 9.1 ns (subtracted from every sample), median 9.9 ns
+mode             latency, 1000000 samples per run, seed 42
+
+== add  FastBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+add        1000000      12.8      20.3      23.6      30.6      36.4      43.8      4462      20.8
+
+== cancel  FastBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+cancel     1000000      16.1      44.6      54.6      61.6      75.6     112.4      4630      44.7
+
+== modify  FastBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+modify     1000000      18.6      50.4      65.7      76.5      87.6      97.1      4408      50.7
+
+== match  FastBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+match      1000000      12.0      16.9      18.2      19.4      26.5      30.6      4377      17.0
+
+== sweep10  FastBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+match      1000000      64.5      80.2      92.6     110.4     129.8     140.5     849.5      82.1
+
+== large_cancel  FastBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+cancel     1000000      29.3      98.4     117.0     132.3     144.7     181.9      4544      99.1
+
+== large_add  FastBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+add        1000000      22.7      82.3      98.8     112.4     122.8     173.2      4528      82.6
+
+== deep_insert  FastBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+add        1000000      24.0      1357      2676      3455      3748      6116      7641      1434
+
+== mixed  FastBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+add         312803      14.5      33.9      47.1      62.8      82.7         -     434.4      35.6
+match       167981       8.7      37.2      74.8     174.0     439.4         -      4420      45.8
+cancel       69725      19.8      47.1      69.0     103.3     126.9         -      3490      50.8
+modify       35921      22.3      67.4     103.3     147.2     174.0         -     295.6      71.3
+reject      322395       3.7      12.8      21.1      27.7      47.1         -     359.6      13.8
+other        91175       5.4      18.6      21.9      46.3      80.6         -     281.9      18.5
+all        1000000       3.7      27.3      54.2     103.8     289.4     473.3      4420      31.0
+
+counter at the end: 2.4192 ticks per ns (drift 0.000 parts per million)
+wrote /home/ubuntu/NanoBook/docs/data/bare_metal/release/stranger/latency.csv and /home/ubuntu/NanoBook/docs/data/bare_metal/release/stranger/latency_histogram.csv

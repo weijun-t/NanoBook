@@ -1,0 +1,68 @@
+# cpu: Intel(R) Core(TM) i7-14650HX
+# logical cores: 24
+# os: Ubuntu 26.04.1 LTS
+# kernel: Linux 7.0.0-30-generic x86_64
+# virtual machine: no
+# isolated cores: 8-13
+# nohz_full cores: 8-13
+# governor: performance
+# turbo: on
+# compiler: GCC 14.3.0
+# build type: Release
+# flags: -std=c++23 -O3 -DNDEBUG
+# commit: f895be621b01
+# pinned to core: 8
+# counter ticks per ns: 2.419200
+# counter spread (parts per million): 0.112434
+# counter drift during the run (parts per million): -0.059181
+# timer overhead min (ticks, subtracted): 22
+# timer overhead median (ticks): 25
+# mode: latency
+# per run: 1000000
+# seed: 42
+mode,scenario,book,tag,count,min_ns,p50_ns,p90_ns,p99_ns,p999_ns,p9999_ns,max_ns,mean_ns,dropped,clamped,timed_allocations
+latency,add,ReferenceBook,add,1000000,32.2,64.1,85.6,109.1,126.9,152.9,4480.8,66.8,0,0,2010000
+latency,add,FastBook,add,1000000,13.2,19.8,25.6,30.6,37.2,43.0,4468.4,20.9,0,0,0
+latency,add,TickFastBook,add,1000000,14.1,17.8,18.6,26.5,28.5,38.0,4381.2,17.6,0,0,0
+latency,cancel,ReferenceBook,cancel,1000000,58.3,138.5,162.0,186.8,214.1,272.4,4610.2,139.3,0,0,0
+latency,cancel,FastBook,cancel,1000000,14.5,44.6,54.6,61.6,74.4,99.2,1272.7,44.7,0,0,0
+latency,cancel,TickFastBook,cancel,1000000,13.6,21.9,24.4,28.5,35.1,47.9,4454.4,22.1,0,0,0
+latency,modify,ReferenceBook,modify,1000000,32.7,137.2,234.4,267.0,300.1,1427.3,4706.1,151.5,0,0,1000000
+latency,modify,FastBook,modify,1000000,16.9,50.4,66.6,77.3,89.3,98.4,510.1,51.0,0,0,0
+latency,modify,TickFastBook,modify,1000000,11.2,21.9,26.9,35.1,42.2,48.8,384.0,22.1,0,0,0
+latency,match,ReferenceBook,match,1000000,23.6,35.5,55.4,75.6,100.9,121.1,2008.1,42.2,0,0,0
+latency,match,FastBook,match,1000000,12.0,16.9,17.8,19.4,25.6,28.1,4426.3,17.0,0,0,0
+latency,match,TickFastBook,match,1000000,17.8,23.6,25.2,30.2,33.9,38.4,101.3,23.9,0,0,0
+latency,sweep10,ReferenceBook,match,1000000,373.3,489.8,556.4,627.9,756.0,834.6,2989.0,500.4,0,0,0
+latency,sweep10,FastBook,match,1000000,66.6,77.3,92.6,111.2,127.7,141.0,4098.0,80.5,0,0,0
+latency,sweep10,TickFastBook,match,1000000,98.8,120.3,137.2,201.7,230.2,239.7,2342.9,124.7,0,0,0
+latency,large_cancel,ReferenceBook,cancel,1000000,122.8,305.1,358.0,431.5,595.7,4668.1,4927.7,306.8,0,0,0
+latency,large_cancel,FastBook,cancel,1000000,27.7,97.6,116.2,131.4,143.8,186.0,4524.6,97.9,0,0,0
+latency,large_cancel,TickFastBook,cancel,1000000,17.8,42.2,52.5,62.4,112.8,279.8,4471.7,42.8,0,0,0
+latency,large_add,ReferenceBook,add,1000000,117.4,209.2,230.2,253.0,287.7,342.3,2592.6,209.6,0,0,2000000
+latency,large_add,FastBook,add,1000000,22.3,81.4,98.4,111.6,121.9,165.8,4554.8,82.1,0,0,0
+latency,large_add,TickFastBook,add,1000000,16.1,26.5,29.3,36.4,44.6,120.3,7679.4,27.2,0,0,0
+latency,deep_insert,ReferenceBook,add,1000000,71.5,140.5,161.6,186.8,212.1,4498.6,4664.8,142.6,0,0,3000000
+latency,deep_insert,FastBook,add,1000000,26.9,1356.6,2676.5,3456.1,3762.4,6224.0,12592.6,1433.9,0,0,0
+latency,deep_insert,TickFastBook,add,1000000,14.5,17.8,19.4,27.7,32.7,39.7,2185.4,18.3,0,0,0
+latency,mixed,ReferenceBook,add,312803,33.5,78.1,120.3,180.6,279.0,,3979.4,84.9,0,0,882805
+latency,mixed,ReferenceBook,match,167981,8.7,100.0,291.0,850.3,2717.8,,4757.4,147.2,0,0,882805
+latency,mixed,ReferenceBook,cancel,69725,41.7,100.0,132.7,185.2,275.7,,412.1,104.8,0,0,882805
+latency,mixed,ReferenceBook,modify,35921,26.0,183.5,234.4,291.8,384.8,,489.0,166.7,0,0,882805
+latency,mixed,ReferenceBook,reject,322395,4.5,39.7,52.9,121.1,212.5,,410.1,41.6,0,0,882805
+latency,mixed,ReferenceBook,other,91175,5.4,21.1,27.3,107.9,207.5,,385.7,24.3,0,0,882805
+latency,mixed,ReferenceBook,all,1000000,4.5,61.6,150.9,358.4,1798.5,2901.0,4757.4,80.2,0,0,882805
+latency,mixed,FastBook,add,312803,14.1,35.5,50.4,107.9,187.7,,4236.5,38.4,0,0,0
+latency,mixed,FastBook,match,167981,8.7,38.9,80.6,200.9,449.7,,733.3,48.5,0,0,0
+latency,mixed,FastBook,cancel,69725,22.7,50.4,74.8,133.5,220.3,,373.7,54.9,0,0,0
+latency,mixed,FastBook,modify,35921,23.6,72.3,112.8,169.1,262.5,,402.6,77.2,0,0,0
+latency,mixed,FastBook,reject,322395,4.1,15.3,24.0,95.9,205.0,,3583.0,18.1,0,0,0
+latency,mixed,FastBook,other,91175,6.6,20.3,25.2,95.1,160.8,,371.2,21.7,0,0,0
+latency,mixed,FastBook,all,1000000,4.1,28.5,59.9,122.8,311.7,481.6,4236.5,34.6,0,0,0
+latency,mixed,TickFastBook,add,312803,14.1,25.6,34.7,59.9,88.0,,290.6,27.4,0,0,0
+latency,mixed,TickFastBook,match,167981,16.1,49.6,96.7,211.2,530.8,,858.1,59.4,0,0,0
+latency,mixed,TickFastBook,cancel,69725,12.0,29.3,35.5,43.8,77.3,,262.1,29.6,0,0,0
+latency,mixed,TickFastBook,modify,35921,11.2,43.0,54.2,63.7,102.5,,243.9,42.0,0,0,0
+latency,mixed,TickFastBook,reject,322395,3.7,12.8,20.3,28.1,68.2,,401.0,13.7,0,0,0
+latency,mixed,TickFastBook,other,91175,11.2,24.4,28.9,59.1,98.8,,296.0,24.8,0,0,0
+latency,mixed,TickFastBook,all,1000000,3.7,24.4,50.0,112.8,330.3,559.7,858.1,28.8,0,0,0

@@ -1,0 +1,147 @@
+nanobook_bench: per-operation latency (docs/latency-harness-design.md)
+cpu              Intel(R) Core(TM) i7-14650HX
+logical cores    24
+os               Ubuntu 26.04.1 LTS
+kernel           Linux 7.0.0-30-generic x86_64
+virtual machine  no
+isolated cores   8-13
+nohz_full cores  8-13
+governor         performance
+turbo            on
+compiler         GCC 14.3.0
+build type       Release
+flags            -std=c++23 -O3 -DNDEBUG
+commit           f895be621b01
+pinned to core   8
+counter          2.4192 ticks per ns (spread 0.202 parts per million)
+timer overhead   min 21 ticks = 8.7 ns (subtracted from every sample), median 10.3 ns
+mode             latency, 1000000 samples per run, seed 42
+
+== add  ReferenceBook  1000000 samples  2010000 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+add        1000000      31.8      64.1      83.5     105.8     124.8     145.1      4455      66.0
+
+== add  FastBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+add        1000000      14.5      21.9      29.3      33.9      39.3      44.2      4413      23.2
+
+== add  TickFastBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+add        1000000      14.5      18.2      19.0      26.9      29.3      31.4      4455      18.3
+
+== cancel  ReferenceBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+cancel     1000000      58.7     139.3     163.7     189.7     217.4     362.9      4612     140.4
+
+== cancel  FastBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+cancel     1000000      16.5      45.1      54.6      62.0      76.1      92.2      2124      44.9
+
+== cancel  TickFastBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+cancel     1000000      12.4      20.7      23.1      29.3      33.1      45.1      4460      21.0
+
+== modify  ReferenceBook  1000000 samples  1000000 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+modify     1000000      33.5     143.4     235.6     269.5     303.8      2240      4679     152.6
+
+== modify  FastBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+modify     1000000      17.4      50.8      66.1      76.9      88.0      98.0      4413      50.9
+
+== modify  TickFastBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+modify     1000000      12.0      22.3      27.3      32.2      40.9      44.2      64.5      22.5
+
+== match  ReferenceBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+match      1000000      24.0      38.9      55.8      74.4     102.1     124.4      2018      42.8
+
+== match  FastBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+match      1000000      12.4      17.4      18.2      19.8      27.3      32.2      51.7      17.3
+
+== match  TickFastBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+match      1000000      18.2      24.0      25.2      31.4      35.1      36.8      4415      24.0
+
+== sweep10  ReferenceBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+match      1000000     364.2     491.5     556.8     620.0     732.5     800.3      4776     501.1
+
+== sweep10  FastBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+match      1000000      66.1      78.1      90.5     107.5     129.4     140.1      1997      80.6
+
+== sweep10  TickFastBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+match      1000000     100.4     119.9     138.1     193.0     224.9     233.1      2205     124.7
+
+== large_cancel  ReferenceBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+cancel     1000000     122.4     306.3     362.5     465.9     679.6      4667     12732     309.8
+
+== large_cancel  FastBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+cancel     1000000      28.9      98.0     116.6     132.3     145.1     216.2      4578      98.4
+
+== large_cancel  TickFastBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+cancel     1000000      17.4      42.6      52.5      58.3      67.0     482.0      7828      42.8
+
+== large_add  ReferenceBook  1000000 samples  2000000 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+add        1000000     117.8     208.7     230.7     254.2     290.2     339.8      2485     209.5
+
+== large_add  FastBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+add        1000000      28.5      82.3      98.8     112.4     124.0     284.4      4536      83.0
+
+== large_add  TickFastBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+add        1000000      15.7      26.5      28.5      35.1      42.6      71.9      4476      27.2
+
+== deep_insert  ReferenceBook  1000000 samples  3000000 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+add        1000000      66.1     140.1     160.0     184.8     212.9      4499      4618     141.7
+
+== deep_insert  FastBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+add        1000000      24.8      1358      2679      3461      3789      6469     11740      1436
+
+== deep_insert  TickFastBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+add        1000000      16.5      20.7      22.3      28.1      31.8      36.8      2044      21.0
+
+== mixed  ReferenceBook  1000000 samples  882805 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+add         312803      36.0      77.7     114.9     172.8     251.7         -     679.2      83.6
+match       167981       8.7      98.4     287.7     843.3      2717         -      4759     145.2
+cancel       69725      49.2      99.6     129.0     167.4     203.0         -     368.7     102.6
+modify       35921      26.5     181.1     227.8     277.8     318.7         -     425.8     163.2
+reject      322395       4.1      38.4      50.4      93.8     148.4         -     346.8      38.9
+other        91175       5.8      20.3      26.5     100.4     181.1         -     405.5      22.2
+all        1000000       4.1      60.4     145.9     353.4      1796      2895      4759      78.1
+
+== mixed  FastBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+add         312803      14.1      35.1      48.4      66.1     131.9         -      4478      37.2
+match       167981       9.1      37.6      75.2     181.1     443.1         -      4680      46.4
+cancel       69725      22.3      48.4      70.3     106.2     172.8         -      4437      52.0
+modify       35921      22.3      68.6     104.6     150.9     219.5         -      4456      73.1
+reject      322395       4.1      13.2      21.5      31.4     143.8         -      4399      14.9
+other        91175       5.8      19.0      23.6      49.2     136.8         -      4432      19.8
+all        1000000       4.1      28.1      55.0     107.9     303.0     574.2      4680      32.3
+
+== mixed  TickFastBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+add         312803      14.5      25.6      34.3      59.1      88.0         -      4399      27.1
+match       167981      16.5      49.2      95.5     208.3     525.0         -      4383      58.9
+cancel       69725      11.6      31.4      37.2      45.1      64.9         -     319.5      31.3
+modify       35921      15.7      42.6      52.9      62.0     100.4         -     312.9      41.6
+reject      322395       4.1      13.2      20.7      28.1      41.7         -      4371      14.0
+other        91175      11.6      23.1      27.7      59.5      98.8         -      4336      24.5
+all        1000000       4.1      24.4      49.2     110.8     323.7     559.3      4399      28.8
+
+counter at the end: 2.4192 ticks per ns (drift 0.014 parts per million)
+wrote /home/ubuntu/NanoBook/docs/data/bare_metal/release/phase3/round2.csv and /home/ubuntu/NanoBook/docs/data/bare_metal/release/phase3/round2_histogram.csv

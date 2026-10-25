@@ -1,0 +1,38 @@
+# cpu: Intel(R) Core(TM) i7-14650HX
+# logical cores: 24
+# os: Ubuntu 26.04.1 LTS
+# kernel: Linux 7.0.0-30-generic x86_64
+# virtual machine: no
+# isolated cores: 8-13
+# nohz_full cores: 8-13
+# governor: performance
+# turbo: on
+# compiler: GCC 14.3.0
+# build type: Release
+# flags: -std=c++23 -O3 -DNDEBUG
+# commit: f895be621b01
+# pinned to core: 8
+# counter ticks per ns: 2.419200
+# counter spread (parts per million): 0.185211
+# counter drift during the run (parts per million): -0.000214
+# timer overhead min (ticks, subtracted): 22
+# timer overhead median (ticks): 24
+# mode: latency
+# per run: 1000000
+# seed: 42
+mode,scenario,book,tag,count,min_ns,p50_ns,p90_ns,p99_ns,p999_ns,p9999_ns,max_ns,mean_ns,dropped,clamped,timed_allocations
+latency,add,FastBook,add,1000000,12.8,20.3,23.6,30.6,36.4,43.8,4461.8,20.8,0,0,0
+latency,cancel,FastBook,cancel,1000000,16.1,44.6,54.6,61.6,75.6,112.4,4630.5,44.7,0,0,0
+latency,modify,FastBook,modify,1000000,18.6,50.4,65.7,76.5,87.6,97.1,4408.1,50.7,0,0,0
+latency,match,FastBook,match,1000000,12.0,16.9,18.2,19.4,26.5,30.6,4377.5,17.0,0,0,0
+latency,sweep10,FastBook,match,1000000,64.5,80.2,92.6,110.4,129.8,140.5,849.5,82.1,0,0,0
+latency,large_cancel,FastBook,cancel,1000000,29.3,98.4,117.0,132.3,144.7,181.9,4544.1,99.1,0,0,0
+latency,large_add,FastBook,add,1000000,22.7,82.3,98.8,112.4,122.8,173.2,4527.9,82.6,0,0,0
+latency,deep_insert,FastBook,add,1000000,24.0,1357.1,2675.7,3455.3,3748.3,6116.5,7641.0,1434.2,0,0,0
+latency,mixed,FastBook,add,312803,14.5,33.9,47.1,62.8,82.7,,434.4,35.6,0,0,0
+latency,mixed,FastBook,match,167981,8.7,37.2,74.8,174.0,439.4,,4419.6,45.8,0,0,0
+latency,mixed,FastBook,cancel,69725,19.8,47.1,69.0,103.3,126.9,,3489.6,50.8,0,0,0
+latency,mixed,FastBook,modify,35921,22.3,67.4,103.3,147.2,174.0,,295.6,71.3,0,0,0
+latency,mixed,FastBook,reject,322395,3.7,12.8,21.1,27.7,47.1,,359.6,13.8,0,0,0
+latency,mixed,FastBook,other,91175,5.4,18.6,21.9,46.3,80.6,,281.9,18.5,0,0,0
+latency,mixed,FastBook,all,1000000,3.7,27.3,54.2,103.8,289.4,473.3,4419.6,31.0,0,0,0

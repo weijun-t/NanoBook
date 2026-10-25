@@ -1,0 +1,36 @@
+File: /home/ubuntu/NanoBook/data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50 (11245883092 bytes)
+cpu              Intel(R) Core(TM) i7-14650HX
+logical cores    24
+os               Ubuntu 26.04.1 LTS
+kernel           Linux 7.0.0-30-generic x86_64
+virtual machine  no
+isolated cores   8-13
+nohz_full cores  8-13
+governor         performance
+turbo            on
+compiler         GCC 14.3.0
+build type       Release
+flags            -std=c++23 -O3 -DNDEBUG
+commit           7d557fa93fb0
+pinned to core   8
+counter          2.4192 ticks per ns
+timer overhead   min 22 ticks (subtracted from every latency sample)
+windows          1024 MiB, loaded before the clock starts
+
+Throughput (checks off; 368366634 messages, 11 windows; checksum 13154425643777011431)
+  parse only:        1.44 s, 3.9 ns per message, 255.9 M messages/s
+  parse + FastBook:  31.82 s, 86.4 ns per message, 11.6 M messages/s
+  the books' share:  82.5 ns per message (95% of the time)
+
+Latency of every 8th order message, FastBook (45389776 samples; ns, timer overhead subtracted)
+tag      ITCH       count       min       p50       p90       p99     p99.9    p99.99       max      mean
+add      A, F    20584856      10.3      89.3     146.3     265.8     353.8     550.2     29070      89.8
+match    E, C     1030612       9.1      87.2     209.6     364.6     514.2     694.9      4732     107.9
+cancel   D       19786668       9.5      87.2     207.5     366.7     520.8     711.8     14267     108.0
+modify   X         584111       7.4      44.6     121.9     262.9     415.0         -      4524      60.0
+replace  U        3403529      12.8     152.1     286.0     449.3     606.8     796.5     13008     168.5
+all              45389776       7.4      90.1     193.5     346.0     501.8     705.2     29070     103.6
+  dropped (moved core) 0, clamped (too long) 0, refused (full) 0
+
+counter drift during the run: 0.035 parts per million
+wrote /home/ubuntu/NanoBook/docs/data/bare_metal/release/phase6_total/before_round2.csv and /home/ubuntu/NanoBook/docs/data/bare_metal/release/phase6_total/before_round2_histogram.csv
