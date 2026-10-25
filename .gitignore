@@ -1,10 +1,13 @@
 # .gitignore: files git never tracks.
 #
-# What it does: Build output, the Python environment, editor indexes, profiler output and market
+# What it does: Build output, reproduce.sh's results, the Python environment, editor indexes, profiler output and market
 #   data files (too big for git, and not ours to republish).
 
 # Build output
 build/
+
+# scripts/reproduce.sh output (a stranger's own results)
+/repro/
 compile_commands.json
 
 # Personal presets (e.g. -march=native)
