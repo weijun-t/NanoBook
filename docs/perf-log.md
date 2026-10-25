@@ -1627,3 +1627,91 @@ Only the touching loop in `HugePageArena`'s constructor removed (`support/huge_p
 - **Decision (the user's): keep the loop, overriding the rule.** The rule's reason to remove it,
   "simpler, faster start-up", is worth almost nothing; the loop makes "no page fault while
   trading" a guarantee at no measured cost. The arena's description now says why.
+
+---
+
+## 2026-10-25: FastBook `match` slower since E9b: published as measured
+
+The release session (bare metal, commit `f895be6`, `docs/data/bare_metal/release/`) found the
+phase 3 synthetic `match` scenario (one incoming order fully fills one resting order) slower than
+at `943fe70`, the commit of the earlier bare-metal phase 3 numbers. The one hot-path change
+between them is E9b (8-byte ID-table entries, "E9b re-added on bare metal" above). This entry
+checks the gap on WSL2 and counts the work. **WSL2: not for publishing,** except the first table.
+Data: `docs/data/phase7_wsl/match_ab/`.
+
+### What bare metal measured (publishable; core 8, as in the release session)
+
+| (rounds 1 / 2) | `943fe70` | `f895be6` | Change |
+|---|---|---|---|
+| Latency harness p50 | 14.9 / 15.3 ns | 16.9 / 17.4 ns | 10–17% slower |
+| Latency harness p99 | 23.1 / 19.4 ns | 19.4 / 19.8 ns | about the same |
+| Throughput mode, mean per op | 8.4 ns | 9.4 ns | 12% slower |
+| Google Benchmark `BM_MatchOne<FastBook>` | 8.86 ns | 9.59 ns | 8% slower |
+| The real Nasdaq day, all messages | 74.7 / 75.4 ns/msg | 68.0 / 67.7 ns/msg | 9–10% faster |
+| The real day, `match` p50 | 54.2 / 49.2 ns | 43.0 / 43.0 ns | 13–21% faster |
+
+Synthetic: `docs/data/bare_metal/phase3/` (old), `docs/data/bare_metal/release/phase3/` (new);
+the real day: `phase4/` and `release/phase4/`.
+
+### Method (WSL2)
+- **Machine:** i7-14650HX, Ubuntu 24.04 on WSL2, GCC 14.2.0, `gcc-release` (`-O3`), pinned to
+  CPU 8, idle laptop. 2026-10-25, 19:17–19:20. Before = `943fe70`, after = `7b44769` (the core
+  code is the same as `f895be6`).
+- **Machine code:** both builds' `nanobook_bench`, `objdump -d -C`: `match`, the old
+  `IdTable::erase`, the new `remove_resting` (`asm/`).
+- **Instruction counts:** Valgrind 3.22 cachegrind (`--cache-sim=no --branch-sim=yes`) on
+  `nanobook_bench --scenario match --book sorted --throughput --ops N`, N = 200,000 and 400,000;
+  the difference between the two runs is the cost of 200,000 matches, with start-up and setup
+  cancelled out (`cachegrind/`, `cg_annotate --show=Ir,Bc,Bcm` on the `.cgdiff` files).
+  Valgrind's branch predictor is a simple model, not the real CPU's.
+- **Timing:** `scripts/run_ab_session.sh 943fe70 OUT --rounds 4 -- nanobook_bench --scenario
+  match --book sorted --core 8 --ops 1000000` with `--throughput`, and again without it
+  (latency mode), ABBA order. Google Benchmark: `taskset -c 8 nanobook_microbench
+  --benchmark_filter='^BM_MatchOne<FastBook>$' --benchmark_repetitions=3`, the two builds
+  alternated by hand in the same ABBA order, 4 rounds.
+
+### Results
+
+Machine code: old `match` inlines `remove_resting` and calls `IdTable::erase`; new `match` calls
+`remove_resting`, which inlines the erase. One call per fill either way. The erase's search now
+compares the 4-byte tag, then reads the entry's slot and loads `pool_[slot].id` to confirm:
+a second load that can't start until the entry's load has finished.
+
+Cachegrind, per match (book code: `handle`, `match`, `erase` / `remove_resting`,
+`link_into_level`, `lower_bound`):
+
+| | `943fe70` | `7b44769` |
+|---|---|---|
+| Instructions | 459 | 469 (+10, +2%) |
+| Branches | 50 | 51 |
+| Simulated branch misses | ~0 | ~0 |
+
+Timing on WSL2 (ns, 4 rounds each):
+
+| | `943fe70` | `7b44769` |
+|---|---|---|
+| Latency mode p50 | 16.1, 15.7, 15.3, 15.3 | 16.9, 16.9, 18.6, 16.9 |
+| Latency mode p99 | 26.9, 27.3, 25.6, 26.9 | 25.6, 24.8, 26.0, 29.8 |
+| `BM_MatchOne<FastBook>` time per op | 12.69, 12.90, 12.73, 12.80 | 13.07, 13.22, 13.21, 13.34 |
+| Throughput mode, mean per op | 9.6, 8.8, 9.4, 8.8 | 9.5, 8.7, 9.0, 8.8 |
+
+### What these numbers say
+- **The gap is real on WSL2 too:** latency-mode p50 about 11% slower and Google Benchmark about
+  3% slower, in all 4 rounds, with no overlap. Throughput mode ties: both sides jump between
+  about 8.8 and 9.5 ns, a noise larger than the gap.
+- **It isn't extra work or mispredicted branches:** 10 more instructions per match (+2%), which
+  is half a nanosecond at most, and no extra branch misses in Valgrind's model.
+- **Hypothesis (untested): the confirmation read lengthens the chain of dependent loads.** The
+  gap is largest where each operation is timed alone (latency mode), so nothing can overlap the
+  wait. Back-to-back operations let the CPU start the next one during it. In a tiny synthetic
+  book everything is in L1, so E9b's gain (twice as many entries per cache line) can't show,
+  and only this cost remains. On the real day the table is big, and E9b wins. Not explained:
+  bare metal's throughput mode is 12% slower too. Testing this needs the cycle counters
+  (`perf stat`, bare metal only: WSL2 has none).
+- **Decision (the user's): published as measured.** No fix. The README says it in one line:
+  `match` is 8–17% slower in the synthetic micro-benchmarks since E9b; the real day is 9–10%
+  faster, and its matches 13–21% faster at p50.
+- **A fix if it's ever wanted (not built):** every caller of `erase` (`remove_resting`,
+  `Modify`, `Replace`) already knows the slot, and a slot is in the table only once. An erase
+  that compares `entry.slot == slot` needs no confirmation read. It would need its own A/B and
+  a new bare-metal phase 3 run.

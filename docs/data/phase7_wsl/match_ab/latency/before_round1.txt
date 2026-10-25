@@ -1,0 +1,27 @@
+nanobook_bench: per-operation latency (docs/latency-harness-design.md)
+*** NOT FOR PUBLISHING: measured in a virtual machine (README rule 20) ***
+cpu              Intel(R) Core(TM) i7-14650HX
+logical cores    24
+os               Ubuntu 24.04.5 LTS
+kernel           Linux 6.18.54.1-microsoft-standard-WSL2 x86_64
+virtual machine  yes: WSL2
+isolated cores   none
+nohz_full cores  unknown
+governor         unknown
+turbo            unknown
+compiler         GCC 14.2.0
+build type       Release
+flags            -std=c++23 -O3 -DNDEBUG
+commit           943fe708a59e
+pinned to core   8
+counter          2.4192 ticks per ns (spread 0.017 parts per million)
+timer overhead   min 28 ticks = 11.6 ns (subtracted from every sample), median 12.8 ns
+mode             latency, 1000000 samples per run, seed 42
+
+== match  FastBook  1000000 samples  0 allocations while timing
+tag          count       min       p50       p90       p99     p99.9    p99.99       max      mean  (ns)
+match      1000000      10.7      16.1      19.4      26.9      33.9      1354     26269      17.2
+
+counter at the end: 2.4192 ticks per ns (drift 0.040 parts per million)
+wrote /home/weijun/.claude/jobs/3ae40463/tmp/match_ab/latency/before_round1.csv and /home/weijun/.claude/jobs/3ae40463/tmp/match_ab/latency/before_round1_histogram.csv
+*** NOT FOR PUBLISHING: measured in a virtual machine (README rule 20) ***

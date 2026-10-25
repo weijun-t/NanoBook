@@ -1,0 +1,21 @@
+[19:18:24] before: 943fe708a59e (943fe70), preset gcc-release; after: 7b4476972932, no uncommitted changes, preset gcc-release
+[19:18:24] building before (worktree at /home/weijun/NanoBook/build/ab-before)
+[19:18:33] building after (this working tree)
+[19:18:33] start: nanobook_bench --scenario match --book sorted --core 8 --ops 1000000 --csv {out}.csv; 4 rounds, order ABBA; the laptop must stay idle
+[19:18:33] round 1: before
+[19:18:35]   exit 0
+[19:18:35] round 1: after
+[19:18:37]   exit 0
+[19:18:37] round 2: after
+[19:18:39]   exit 0
+[19:18:39] round 2: before
+[19:18:41]   exit 0
+[19:18:41] round 3: before
+[19:18:43]   exit 0
+[19:18:43] round 3: after
+[19:18:45]   exit 0
+[19:18:45] round 4: after
+[19:18:50]   exit 0
+[19:18:50] round 4: before
+[19:18:53]   exit 0
+[19:18:53] done: /home/weijun/.claude/jobs/3ae40463/tmp/match_ab/latency

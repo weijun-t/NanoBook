@@ -1,0 +1,11 @@
+==3008== Cachegrind, a high-precision tracing profiler
+==3008== Copyright (C) 2002-2017, and GNU GPL'd, by Nicholas Nethercote et al.
+==3008== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==3008== Command: build-old/nanobook_bench --scenario match --book sorted --ops 200000 --throughput
+==3008== 
+==3008== 
+==3008== I refs:        289,950,344
+==3008== 
+==3008== Branches:       51,216,524  (51,203,446 cond + 13,078 ind)
+==3008== Mispredicts:     1,213,285  ( 1,211,416 cond +  1,869 ind)
+==3008== Mispred rate:          2.4% (       2.4%     +   14.3%   )

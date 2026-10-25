@@ -1,0 +1,3 @@
+[1/3] Recording the git commit
+[2/3] Building CXX object CMakeFiles/nanobook_bench.dir/tools/nanobook_bench.cpp.o
+[3/3] Linking CXX executable nanobook_bench

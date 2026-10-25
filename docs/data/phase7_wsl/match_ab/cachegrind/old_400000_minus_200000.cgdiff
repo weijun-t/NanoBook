@@ -1,0 +1,898 @@
+desc: Files compared:   cg_old_200000.out; cg_old_400000.out
+cmd: build-old/nanobook_bench --scenario match --book sorted --ops 200000 --throughput; build-old/nanobook_bench --scenario match --book sorted --ops 400000 --throughput
+events: Ir Bc Bcm Bi Bim
+fl=???
+fn=(anonymous namespace)::banner(nanobook::latency::Environment const&)
+0 0 0 0 0 0
+fl=???
+fn=(below main)
+0 0 0 0 0 0
+fl=???
+fn=???
+0 32033 4813 173 523 119
+fl=???
+fn=_Exit
+0 0 0 0 0 0
+fl=???
+fn=_IO_default_finish
+0 0 0 0 0 0
+fl=???
+fn=_IO_default_xsputn
+0 0 0 0 0 0
+fl=???
+fn=_IO_do_write
+0 0 0 0 0 0
+fl=???
+fn=_IO_doallocbuf
+0 0 0 0 0 0
+fl=???
+fn=_IO_file_close
+0 0 0 0 0 0
+fl=???
+fn=_IO_file_close_it
+0 0 0 0 0 0
+fl=???
+fn=_IO_file_doallocate
+0 0 0 0 0 0
+fl=???
+fn=_IO_file_finish
+0 0 0 0 0 0
+fl=???
+fn=_IO_file_fopen
+0 0 0 0 0 0
+fl=???
+fn=_IO_file_open
+0 0 0 0 0 0
+fl=???
+fn=_IO_file_overflow
+0 0 0 0 0 0
+fl=???
+fn=_IO_file_setbuf
+0 0 0 0 0 0
+fl=???
+fn=_IO_file_stat
+0 0 0 0 0 0
+fl=???
+fn=_IO_file_sync
+0 0 0 1 0 0
+fl=???
+fn=_IO_file_write
+0 0 0 0 0 0
+fl=???
+fn=_IO_file_xsputn
+0 0 0 0 0 0
+fl=???
+fn=_IO_flush_all
+0 0 0 0 0 0
+fl=???
+fn=_IO_link_in
+0 0 0 0 0 0
+fl=???
+fn=_IO_setb
+0 0 0 0 0 0
+fl=???
+fn=_IO_un_link
+0 0 0 0 0 0
+fl=???
+fn=_IO_unsave_markers
+0 0 0 0 0 0
+fl=???
+fn=__acos_finite
+0 0 0 0 0 0
+fl=???
+fn=__asin_finite
+0 0 0 0 0 0
+fl=???
+fn=__atan2_finite
+0 0 0 0 0 0
+fl=???
+fn=__call_tls_dtors
+0 0 0 0 0 0
+fl=???
+fn=__close_nocancel
+0 0 0 0 0 0
+fl=???
+fn=__cpu_indicator_init
+0 0 0 0 0 0
+fl=???
+fn=__ctype_init
+0 0 0 0 0 0
+fl=???
+fn=__cxa_atexit
+0 0 0 0 0 0
+fl=???
+fn=__cxa_finalize
+0 0 0 0 0 0
+fl=???
+fn=__cxa_get_globals
+0 0 0 0 0 0
+fl=???
+fn=__default_morecore
+0 0 0 0 0 0
+fl=???
+fn=__exp_finite
+0 0 0 0 0 0
+fl=???
+fn=__gnu_cxx::stdio_sync_filebuf<char, std::char_traits<char> >::overflow(int)
+0 0 0 0 0 0
+fl=???
+fn=__gnu_cxx::stdio_sync_filebuf<char, std::char_traits<char> >::sync()
+0 0 0 0 0 0
+fl=???
+fn=__gnu_cxx::stdio_sync_filebuf<char, std::char_traits<char> >::xsputn(char const*, long)
+0 0 0 0 0 0
+fl=???
+fn=__gnu_cxx::stdio_sync_filebuf<wchar_t, std::char_traits<wchar_t> >::sync()
+0 0 0 0 0 0
+fl=???
+fn=__libc_alloca_cutoff
+0 0 0 1 0 0
+fl=???
+fn=__libc_early_init
+0 0 0 0 0 0
+fl=???
+fn=__log_finite
+0 0 0 0 0 0
+fl=???
+fn=__memcpy_chk
+0 0 0 0 0 0
+fl=???
+fn=__memmove_chk
+0 0 0 0 0 0
+fl=???
+fn=__mempcpy_chk
+0 0 0 0 0 0
+fl=???
+fn=__memset_chk
+0 0 0 0 0 0
+fl=???
+fn=__pow_finite
+0 0 0 0 0 0
+fl=???
+fn=__sigsetjmp
+0 0 0 0 0 0
+fl=???
+fn=__tls_get_addr
+0 0 0 0 0 0
+fl=???
+fn=__tunable_get_val
+0 0 0 0 0 0
+fl=???
+fn=_dl_allocate_tls_init
+0 0 0 0 0 0
+fl=???
+fn=_dl_audit_preinit
+0 0 0 0 0 0
+fl=???
+fn=_dl_catch_exception
+0 0 0 0 0 0
+fl=???
+fn=_dl_debug_state
+0 0 0 0 0 0
+fl=???
+fn=_dl_mcount_wrapper_check
+0 0 0 0 0 0
+fl=???
+fn=_pthread_cleanup_pop
+0 0 0 0 0 0
+fl=???
+fn=_pthread_cleanup_push
+0 0 0 0 0 0
+fl=???
+fn=_setjmp
+0 0 0 0 0 0
+fl=???
+fn=bcmp
+0 0 0 0 0 0
+fl=???
+fn=bool (anonymous namespace)::parse<unsigned long>(std::basic_string_view<char, std::char_traits<char> >, unsigned long&)
+0 0 0 0 0 0
+fl=???
+fn=bool std::operator==<char, std::char_traits<char>, std::allocator<char> >(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, char const*)
+0 0 0 0 0 0
+fl=???
+fn=brk
+0 0 0 0 0 0
+fl=???
+fn=btowc
+0 0 0 0 0 0
+fl=???
+fn=clock_gettime
+0 44 8 -1 0 0
+fl=???
+fn=clock_nanosleep
+0 0 0 0 0 0
+fl=???
+fn=cos
+0 0 0 0 0 0
+fl=???
+fn=cosf
+0 0 0 0 0 0
+fl=???
+fn=exit
+0 0 0 0 0 0
+fl=???
+fn=exp2f
+0 0 0 0 0 0
+fl=???
+fn=expf
+0 0 0 0 0 0
+fl=???
+fn=expm1
+0 0 0 0 0 0
+fl=???
+fn=fclose
+0 0 0 0 0 0
+fl=???
+fn=fflush
+0 0 0 0 0 0
+fl=???
+fn=fileno
+0 0 0 0 0 0
+fl=???
+fn=fma
+0 0 0 0 0 0
+fl=???
+fn=fopen
+0 0 0 0 0 0
+fl=???
+fn=free
+0 3100 400 0 0 0
+fl=???
+fn=fstat
+0 0 0 0 0 0
+fl=???
+fn=fwrite
+0 0 0 0 0 0
+fl=???
+fn=getenv
+0 0 0 0 0 0
+fl=???
+fn=getrlimit
+0 0 0 0 0 0
+fl=???
+fn=index
+0 0 0 0 0 0
+fl=???
+fn=isatty
+0 0 0 0 0 0
+fl=???
+fn=log2
+0 0 0 0 0 0
+fl=???
+fn=log2f
+0 0 0 0 0 0
+fl=???
+fn=logf
+0 0 0 0 0 0
+fl=???
+fn=main
+0 0 0 0 0 0
+fl=???
+fn=malloc
+0 4420 780 0 0 0
+fl=???
+fn=memchr
+0 0 0 0 0 0
+fl=???
+fn=memcpy
+0 0 0 0 0 0
+fl=???
+fn=memmove
+0 0 0 0 0 0
+fl=???
+fn=mempcpy
+0 0 0 0 0 0
+fl=???
+fn=memrchr
+0 0 0 0 0 0
+fl=???
+fn=memset
+0 0 0 0 0 0
+fl=???
+fn=mmap
+0 0 0 0 0 0
+fl=???
+fn=munmap
+0 0 0 0 0 0
+fl=???
+fn=nanobook::fast::BasicFastBook<nanobook::fast::SortedLevels>::BasicFastBook(nanobook::BookConfig)
+0 0 0 0 0 0
+fl=???
+fn=nanobook::fast::BasicFastBook<nanobook::fast::SortedLevels>::handle(nanobook::NewOrder const&, nanobook::EventBuffer&)
+0 37600000 5000000 0 0 0
+fl=???
+fn=nanobook::fast::BasicFastBook<nanobook::fast::SortedLevels>::link_into_level(unsigned int)
+0 11800180 600020 0 0 0
+fl=???
+fn=nanobook::fast::BasicFastBook<nanobook::fast::SortedLevels>::match(nanobook::OrderId, nanobook::OwnerId, nanobook::Side, nanobook::Price, nanobook::Qty, nanobook::EventBuffer&)
+0 31000100 3000000 100 0 0
+fl=???
+fn=nanobook::fast::BasicFastBook<nanobook::fast::SortedLevels>::~BasicFastBook()
+0 1200 160 0 80 0
+fl=???
+fn=nanobook::fast::IdTable::erase(nanobook::OrderId)
+0 6000000 400000 0 0 0
+fl=???
+fn=nanobook::fast::SortedLevels::erase(nanobook::Side, nanobook::Price)
+0 800 120 0 0 0
+fl=???
+fn=nanobook::fast::SortedLevels::lower_bound(nanobook::Side, std::vector<nanobook::fast::Level, std::pmr::polymorphic_allocator<nanobook::fast::Level> > const&, nanobook::Price) [clone .isra.0]
+0 5399840 999960 20 0 0
+fl=???
+fn=nanobook::latency::Environment::lines[abi:cxx11]() const
+0 0 0 0 0 0
+fl=???
+fn=nanobook::latency::Environment::publishable() const
+0 0 0 0 0 0
+fl=???
+fn=nanobook::latency::Environment::unpublishable_reason[abi:cxx11]() const
+0 0 0 0 0 0
+fl=???
+fn=nanobook::latency::Environment::~Environment()
+0 0 0 0 0 0
+fl=???
+fn=nanobook::latency::Recorder::~Recorder()
+0 0 0 0 0 0
+fl=???
+fn=nanobook::latency::ScenarioResult nanobook::latency::detail::run_batches<nanobook::fast::BasicFastBook<nanobook::fast::SortedLevels>, nanobook::latency::run_scenario<nanobook::fast::BasicFastBook<nanobook::fast::SortedLevels> >(nanobook::latency::Scenario, nanobook::latency::Recorder&, nanobook::latency::Options const&)::{lambda(nanobook::fast::BasicFastBook<nanobook::fast::SortedLevels>&, nanobook::EventBuffer&)#2}, nanobook::latency::run_scenario<nanobook::fast::BasicFastBook<nanobook::fast::SortedLevels> >(nanobook::latency::Scenario, nanobook::latency::Recorder&, nanobook::latency::Options const&)::{lambda(nanobook::fast::BasicFastBook<nanobook::fast::SortedLevels>&, nanobook::EventBuffer&, unsigned long)#4}>(nanobook::latency::Recorder&, nanobook::latency::Options const&, nanobook::BookConfig const&, unsigned long, nanobook::latency::run_scenario<nanobook::fast::BasicFastBook<nanobook::fast::SortedLevels> >(nanobook::latency::Scenario, nanobook::latency::Recorder&, nanobook::latency::Options const&)::{lambda(nanobook::fast::BasicFastBook<nanobook::fast::SortedLevels>&, nanobook::EventBuffer&)#2}, nanobook::latency::run_scenario<nanobook::fast::BasicFastBook<nanobook::fast::SortedLevels> >(nanobook::latency::Scenario, nanobook::latency::Recorder&, nanobook::latency::Options const&)::{lambda(nanobook::fast::BasicFastBook<nanobook::fast::SortedLevels>&, nanobook::EventBuffer&, unsigned long)#4})
+0 17557720 2510940 120 100 0
+fl=???
+fn=nanobook::latency::ScenarioResult nanobook::latency::run_scenario<nanobook::fast::BasicFastBook<nanobook::fast::SortedLevels> >(nanobook::latency::Scenario, nanobook::latency::Recorder&, nanobook::latency::Options const&)
+0 0 0 0 0 0
+fl=???
+fn=nanobook::latency::calibrate(int, long)
+0 81 6 0 0 0
+fl=???
+fn=nanobook::latency::collect_environment(int)
+0 0 0 0 0 0
+fl=???
+fn=nanobook::latency::count_processors(std::basic_string_view<char, std::char_traits<char> >)
+0 0 0 0 0 0
+fl=???
+fn=nanobook::latency::cpuinfo_value[abi:cxx11](std::basic_string_view<char, std::char_traits<char> >, std::basic_string_view<char, std::char_traits<char> >)
+0 0 0 0 0 0
+fl=???
+fn=nanobook::latency::measure_overhead(unsigned long)
+0 -2929 -464 -316 0 0
+fl=???
+fn=nanobook::latency::missing_tsc_flags(std::basic_string_view<char, std::char_traits<char> >)
+0 0 0 0 0 0
+fl=???
+fn=nanobook::latency::os_pretty_name[abi:cxx11](std::basic_string_view<char, std::char_traits<char> >)
+0 0 0 0 0 0
+fl=???
+fn=nanobook::latency::read_cpu_flags[abi:cxx11]()
+0 0 0 0 0 0
+fl=???
+fn=nanobook::latency::read_file(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)
+0 0 0 0 0 0
+fl=???
+fn=nanobook::latency::scenario_name(nanobook::latency::Scenario)
+0 0 0 0 0 0
+fl=???
+fn=nanobook::latency::trim[abi:cxx11](std::basic_string_view<char, std::char_traits<char> >)
+0 0 0 0 0 0
+fl=???
+fn=nanobook::support::allocations()
+0 120 0 0 0 0
+fl=???
+fn=nanosleep
+0 0 0 0 0 0
+fl=???
+fn=newlocale
+0 0 0 0 0 0
+fl=???
+fn=open
+0 0 0 0 0 0
+fl=???
+fn=operator delete(void*, std::align_val_t)
+0 160 0 0 0 0
+fl=???
+fn=operator delete(void*, unsigned long)
+0 40 0 0 0 0
+fl=???
+fn=operator delete(void*, unsigned long, std::align_val_t)
+0 240 0 0 0 0
+fl=???
+fn=operator delete[](void*)
+0 0 0 0 0 0
+fl=???
+fn=operator new(unsigned long)
+0 220 40 1 0 0
+fl=???
+fn=operator new(unsigned long, std::align_val_t)
+0 3360 320 0 0 0
+fl=???
+fn=operator new[](unsigned long)
+0 0 0 0 0 0
+fl=???
+fn=posix_memalign
+0 2960 240 0 0 0
+fl=???
+fn=powf
+0 0 0 0 0 0
+fl=???
+fn=pthread_mutex_lock
+0 0 0 0 0 0
+fl=???
+fn=pthread_mutex_unlock
+0 0 0 0 0 0
+fl=???
+fn=pthread_once
+0 0 0 0 0 0
+fl=???
+fn=putc
+0 0 0 0 0 0
+fl=???
+fn=read
+0 0 0 0 0 0
+fl=???
+fn=rindex
+0 0 0 0 0 0
+fl=???
+fn=sbrk
+0 0 0 0 0 0
+fl=???
+fn=secure_getenv
+0 0 0 0 0 0
+fl=???
+fn=sin
+0 0 0 0 0 0
+fl=???
+fn=sincos
+0 0 0 0 0 0
+fl=???
+fn=sincosf
+0 0 0 0 0 0
+fl=???
+fn=sinf
+0 0 0 0 0 0
+fl=???
+fn=std::__basic_file<char>::__basic_file(pthread_mutex_t*)
+0 0 0 0 0 0
+fl=???
+fn=std::__basic_file<char>::close()
+0 0 0 0 0 0
+fl=???
+fn=std::__basic_file<char>::fd()
+0 0 0 0 0 0
+fl=???
+fn=std::__basic_file<char>::is_open() const
+0 0 0 0 0 0
+fl=???
+fn=std::__basic_file<char>::open(char const*, std::_Ios_Openmode, int)
+0 0 0 0 0 0
+fl=???
+fn=std::__basic_file<char>::xsgetn(char*, long)
+0 0 0 0 0 0
+fl=???
+fn=std::__basic_file<char>::~__basic_file()
+0 0 0 0 0 0
+fl=???
+fn=std::__cxx11::basic_istringstream<char, std::char_traits<char>, std::allocator<char> >::basic_istringstream(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&&, std::_Ios_Openmode)
+0 0 0 0 0 0
+fl=???
+fn=std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > std::operator+<char, std::char_traits<char>, std::allocator<char> >(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, char const*) [clone .isra.0]
+0 0 0 0 0 0
+fl=???
+fn=std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::_M_append(char const*, unsigned long)
+0 0 0 0 0 0
+fl=???
+fn=std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::_M_dispose()
+0 0 0 0 0 0
+fl=???
+fn=std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::_M_mutate(unsigned long, unsigned long, char const*, unsigned long)
+0 0 0 0 0 0
+fl=???
+fn=std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::_M_replace(unsigned long, unsigned long, char const*, unsigned long)
+0 0 0 1 0 0
+fl=???
+fn=std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::append(char const*)
+0 0 0 0 0 0
+fl=???
+fn=std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::assign(char const*) [clone .isra.0]
+0 0 0 0 0 0
+fl=???
+fn=std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string(char const*, unsigned long, std::allocator<char> const&)
+0 0 0 0 0 0
+fl=???
+fn=std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&&)
+0 0 0 0 0 0
+fl=???
+fn=std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string<std::allocator<char> >(char const*, std::allocator<char> const&) [clone .constprop.0]
+0 0 0 0 0 0
+fl=???
+fn=std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::operator=(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&&) [clone .isra.0]
+0 0 0 0 0 0
+fl=???
+fn=std::__cxx11::basic_stringbuf<char, std::char_traits<char>, std::allocator<char> >::_M_sync(char*, unsigned long, unsigned long)
+0 0 0 0 0 0
+fl=???
+fn=std::__cxx11::basic_stringbuf<char, std::char_traits<char>, std::allocator<char> >::underflow()
+0 0 0 0 0 0
+fl=???
+fn=std::__cxx11::messages<char>::messages(unsigned long)
+0 0 0 0 0 0
+fl=???
+fn=std::__cxx11::messages<wchar_t>::messages(unsigned long)
+0 0 0 0 0 0
+fl=???
+fn=std::__cxx11::moneypunct<char, false>::_M_initialize_moneypunct(__locale_struct*, char const*)
+0 0 0 0 0 0
+fl=???
+fn=std::__cxx11::moneypunct<char, true>::_M_initialize_moneypunct(__locale_struct*, char const*)
+0 0 0 0 0 0
+fl=???
+fn=std::__cxx11::moneypunct<wchar_t, false>::_M_initialize_moneypunct(__locale_struct*, char const*)
+0 0 0 0 0 0
+fl=???
+fn=std::__cxx11::moneypunct<wchar_t, true>::_M_initialize_moneypunct(__locale_struct*, char const*)
+0 0 0 0 0 0
+fl=???
+fn=std::__cxx11::numpunct<char>::_M_initialize_numpunct(__locale_struct*)
+0 0 0 0 0 0
+fl=???
+fn=std::__cxx11::numpunct<wchar_t>::_M_initialize_numpunct(__locale_struct*)
+0 0 0 0 0 0
+fl=???
+fn=std::__cxx11::to_string(int)
+0 0 0 0 0 0
+fl=???
+fn=std::__detail::_MakeUniq<nanobook::fast::BasicFastBook<nanobook::fast::SortedLevels> >::__single_object std::make_unique<nanobook::fast::BasicFastBook<nanobook::fast::SortedLevels>, nanobook::BookConfig const&>(nanobook::BookConfig const&)
+0 0 0 0 0 0
+fl=???
+fn=std::__num_base::_S_format_float(std::ios_base const&, char*, char)
+0 0 0 0 0 0
+fl=???
+fn=std::__timepunct<char>::_M_initialize_timepunct(__locale_struct*)
+0 0 0 0 0 0
+fl=???
+fn=std::__timepunct<char>::__timepunct(std::__timepunct_cache<char>*, unsigned long)
+0 0 0 0 0 0
+fl=???
+fn=std::__timepunct<wchar_t>::_M_initialize_timepunct(__locale_struct*)
+0 0 0 0 0 0
+fl=???
+fn=std::__timepunct<wchar_t>::__timepunct(std::__timepunct_cache<wchar_t>*, unsigned long)
+0 0 0 0 0 0
+fl=???
+fn=std::basic_filebuf<char, std::char_traits<char> >::_M_allocate_internal_buffer()
+0 0 0 0 0 0
+fl=???
+fn=std::basic_filebuf<char, std::char_traits<char> >::_M_destroy_internal_buffer()
+0 0 0 0 0 0
+fl=???
+fn=std::basic_filebuf<char, std::char_traits<char> >::_M_terminate_output()
+0 0 0 0 0 0
+fl=???
+fn=std::basic_filebuf<char, std::char_traits<char> >::basic_filebuf()
+0 0 0 0 0 0
+fl=???
+fn=std::basic_filebuf<char, std::char_traits<char> >::close()
+0 0 0 0 0 0
+fl=???
+fn=std::basic_filebuf<char, std::char_traits<char> >::open(char const*, std::_Ios_Openmode)
+0 0 0 0 0 0
+fl=???
+fn=std::basic_filebuf<char, std::char_traits<char> >::underflow()
+0 0 0 0 0 0
+fl=???
+fn=std::basic_filebuf<char, std::char_traits<char> >::~basic_filebuf()
+0 0 0 0 0 0
+fl=???
+fn=std::basic_ifstream<char, std::char_traits<char> >::basic_ifstream(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::_Ios_Openmode)
+0 0 0 0 0 0
+fl=???
+fn=std::basic_ios<char, std::char_traits<char> >::_M_cache_locale(std::locale const&)
+0 0 0 0 0 0
+fl=???
+fn=std::basic_ios<char, std::char_traits<char> >::clear(std::_Ios_Iostate)
+0 0 0 0 0 0
+fl=???
+fn=std::basic_ios<char, std::char_traits<char> >::init(std::basic_streambuf<char, std::char_traits<char> >*)
+0 0 0 0 0 0
+fl=???
+fn=std::basic_ios<wchar_t, std::char_traits<wchar_t> >::_M_cache_locale(std::locale const&)
+0 0 0 0 0 0
+fl=???
+fn=std::basic_ios<wchar_t, std::char_traits<wchar_t> >::init(std::basic_streambuf<wchar_t, std::char_traits<wchar_t> >*)
+0 0 0 0 0 0
+fl=???
+fn=std::basic_istream<char, std::char_traits<char> >& std::getline<char, std::char_traits<char>, std::allocator<char> >(std::basic_istream<char, std::char_traits<char> >&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&, char)
+0 0 0 0 0 0
+fl=???
+fn=std::basic_ofstream<char, std::char_traits<char> >::basic_ofstream()
+0 0 0 0 0 0
+fl=???
+fn=std::basic_ofstream<char, std::char_traits<char> >::~basic_ofstream()
+0 0 0 0 0 0
+fl=???
+fn=std::basic_ostream<char, std::char_traits<char> >& std::__ostream_insert<char, std::char_traits<char> >(std::basic_ostream<char, std::char_traits<char> >&, char const*, long)
+0 0 0 0 0 0
+fl=???
+fn=std::basic_ostream<char, std::char_traits<char> >& std::operator<< <std::char_traits<char> >(std::basic_ostream<char, std::char_traits<char> >&, char const*)
+0 0 0 0 0 0
+fl=???
+fn=std::basic_ostream<wchar_t, std::char_traits<wchar_t> >::flush()
+0 0 0 0 0 0
+fl=???
+fn=std::basic_ostream<wchar_t, std::char_traits<wchar_t> >::sentry::sentry(std::basic_ostream<wchar_t, std::char_traits<wchar_t> >&)
+0 0 0 0 0 0
+fl=???
+fn=std::basic_string_view<char, std::char_traits<char> >::compare(std::basic_string_view<char, std::char_traits<char> >) const
+0 0 0 0 0 0
+fl=???
+fn=std::codecvt<char, char, __mbstate_t>::codecvt(unsigned long)
+0 0 0 0 0 0
+fl=???
+fn=std::codecvt<char, char, __mbstate_t>::do_always_noconv() const
+0 0 0 0 0 0
+fl=???
+fn=std::codecvt<wchar_t, char, __mbstate_t>::codecvt(unsigned long)
+0 0 0 0 0 0
+fl=???
+fn=std::ctype<char>::_M_widen_init() const
+0 0 0 0 0 0
+fl=???
+fn=std::ctype<char>::ctype(unsigned short const*, bool, unsigned long)
+0 0 0 0 0 0
+fl=???
+fn=std::ctype<wchar_t>::_M_convert_to_wmask(unsigned short) const
+0 0 0 0 0 0
+fl=???
+fn=std::ctype<wchar_t>::_M_initialize_ctype()
+0 0 0 0 0 0
+fl=???
+fn=std::ctype<wchar_t>::ctype(unsigned long)
+0 0 0 0 0 0
+fl=???
+fn=std::error_category::error_category()
+0 0 0 0 0 0
+fl=???
+fn=std::error_category::~error_category()
+0 0 0 0 0 0
+fl=???
+fn=std::future_category()
+0 0 0 0 0 0
+fl=???
+fn=std::ios_base::Init::Init()
+0 0 0 0 0 0
+fl=???
+fn=std::ios_base::Init::~Init()
+0 0 0 0 0 0
+fl=???
+fn=std::ios_base::_M_call_callbacks(std::ios_base::event)
+0 0 0 0 0 0
+fl=???
+fn=std::ios_base::_M_dispose_callbacks()
+0 0 0 0 0 0
+fl=???
+fn=std::ios_base::_M_init()
+0 0 0 0 0 0
+fl=???
+fn=std::ios_base::ios_base()
+0 0 0 0 0 0
+fl=???
+fn=std::ios_base::~ios_base()
+0 0 0 0 0 0
+fl=???
+fn=std::istream::sentry::sentry(std::istream&, bool)
+0 0 0 0 0 0
+fl=???
+fn=std::locale::_Impl::_Impl(unsigned long)
+0 0 0 0 0 0
+fl=???
+fn=std::locale::_Impl::_M_install_facet(std::locale::id const*, std::locale::facet const*)
+0 0 0 0 0 0
+fl=???
+fn=std::locale::facet::_S_create_c_locale(__locale_struct*&, char const*, __locale_struct*)
+0 0 0 0 0 0
+fl=???
+fn=std::locale::facet::_S_get_c_locale()
+0 0 0 0 0 0
+fl=???
+fn=std::locale::facet::_S_get_c_name()
+0 0 0 0 0 0
+fl=???
+fn=std::locale::id::_M_id() const
+0 0 0 0 0 0
+fl=???
+fn=std::locale::locale()
+0 0 0 0 0 0
+fl=???
+fn=std::locale::locale(std::locale::_Impl*)
+0 0 0 0 0 0
+fl=???
+fn=std::locale::operator=(std::locale const&)
+0 0 0 0 0 0
+fl=???
+fn=std::locale::~locale()
+0 0 0 0 0 0
+fl=???
+fn=std::messages<char>::messages(unsigned long)
+0 0 0 0 0 0
+fl=???
+fn=std::messages<wchar_t>::messages(unsigned long)
+0 0 0 0 0 0
+fl=???
+fn=std::moneypunct<char, false>::_M_initialize_moneypunct(__locale_struct*, char const*)
+0 0 0 0 0 0
+fl=???
+fn=std::moneypunct<char, true>::_M_initialize_moneypunct(__locale_struct*, char const*)
+0 0 0 0 0 0
+fl=???
+fn=std::moneypunct<wchar_t, false>::_M_initialize_moneypunct(__locale_struct*, char const*)
+0 0 0 0 0 0
+fl=???
+fn=std::moneypunct<wchar_t, true>::_M_initialize_moneypunct(__locale_struct*, char const*)
+0 0 0 0 0 0
+fl=???
+fn=std::num_put<char, std::ostreambuf_iterator<char, std::char_traits<char> > >::do_put(std::ostreambuf_iterator<char, std::char_traits<char> >, std::ios_base&, char, double) const
+0 0 0 0 0 0
+fl=???
+fn=std::num_put<char, std::ostreambuf_iterator<char, std::char_traits<char> > >::do_put(std::ostreambuf_iterator<char, std::char_traits<char> >, std::ios_base&, char, unsigned long) const
+0 0 0 0 0 0
+fl=???
+fn=std::numpunct<char>::_M_initialize_numpunct(__locale_struct*)
+0 0 0 0 0 0
+fl=???
+fn=std::numpunct<wchar_t>::_M_initialize_numpunct(__locale_struct*)
+0 0 0 0 0 0
+fl=???
+fn=std::ostream& std::ostream::_M_insert<double>(double)
+0 0 0 0 0 0
+fl=???
+fn=std::ostream& std::ostream::_M_insert<unsigned long>(unsigned long)
+0 0 0 0 0 0
+fl=???
+fn=std::ostream::flush()
+0 0 0 0 0 0
+fl=???
+fn=std::ostream::sentry::sentry(std::ostream&)
+0 0 0 0 0 0
+fl=???
+fn=std::ostreambuf_iterator<char, std::char_traits<char> > std::num_put<char, std::ostreambuf_iterator<char, std::char_traits<char> > >::_M_insert_float<double>(std::ostreambuf_iterator<char, std::char_traits<char> >, std::ios_base&, char, char, double) const
+0 0 0 0 0 0
+fl=???
+fn=std::ostreambuf_iterator<char, std::char_traits<char> > std::num_put<char, std::ostreambuf_iterator<char, std::char_traits<char> > >::_M_insert_int<unsigned long>(std::ostreambuf_iterator<char, std::char_traits<char> >, std::ios_base&, char, unsigned long) const
+0 0 0 0 0 0
+fl=???
+fn=std::pmr::get_default_resource()
+0 240 0 0 0 0
+fl=???
+fn=std::uncaught_exception()
+0 0 0 0 0 0
+fl=???
+fn=std::unique_ptr<nanobook::fast::BasicFastBook<nanobook::fast::SortedLevels>, std::default_delete<nanobook::fast::BasicFastBook<nanobook::fast::SortedLevels> > >::~unique_ptr()
+0 0 0 0 0 0
+fl=???
+fn=std::vector<nanobook::Event, std::allocator<nanobook::Event> >::vector(unsigned long, std::allocator<nanobook::Event> const&) [clone .constprop.0]
+0 0 0 0 0 0
+fl=???
+fn=std::vector<nanobook::fast::Level, std::pmr::polymorphic_allocator<nanobook::fast::Level> >::reserve(unsigned long)
+0 920 80 0 20 0
+fl=???
+fn=std::vector<std::pair<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::allocator<std::pair<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > > > >::~vector()
+0 0 0 0 0 0
+fl=???
+fn=stpcpy
+0 0 0 0 0 0
+fl=???
+fn=stpncpy
+0 0 0 0 0 0
+fl=???
+fn=strcasecmp
+0 0 0 0 0 0
+fl=???
+fn=strcasecmp_l
+0 0 0 0 0 0
+fl=???
+fn=strcat
+0 0 0 0 0 0
+fl=???
+fn=strchrnul
+0 0 0 0 0 0
+fl=???
+fn=strcmp
+0 0 0 0 0 0
+fl=???
+fn=strcpy
+0 0 0 0 0 0
+fl=???
+fn=strcspn
+0 0 0 0 0 0
+fl=???
+fn=strlen
+0 0 0 0 0 0
+fl=???
+fn=strncasecmp
+0 0 0 0 0 0
+fl=???
+fn=strncasecmp_l
+0 0 0 0 0 0
+fl=???
+fn=strncmp
+0 0 0 0 0 0
+fl=???
+fn=strncpy
+0 0 0 0 0 0
+fl=???
+fn=strnlen
+0 0 0 0 0 0
+fl=???
+fn=strpbrk
+0 0 0 0 0 0
+fl=???
+fn=strspn
+0 0 0 0 0 0
+fl=???
+fn=tcgetattr
+0 0 0 0 0 0
+fl=???
+fn=tolower
+0 0 0 0 0 0
+fl=???
+fn=uname
+0 0 0 0 0 0
+fl=???
+fn=uselocale
+0 0 0 0 0 0
+fl=???
+fn=void std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::_M_construct<char const*>(char const*, char const*, std::forward_iterator_tag) [clone .isra.0]
+0 0 0 0 0 0
+fl=???
+fn=void std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::_M_construct<char*>(char*, char*, std::forward_iterator_tag) [clone .isra.0]
+0 0 0 0 0 0
+fl=???
+fn=void std::__introsort_loop<__gnu_cxx::__normal_iterator<double*, std::vector<double, std::allocator<double> > >, long, __gnu_cxx::__ops::_Iter_comp_iter<std::ranges::__detail::__make_comp_proj<std::ranges::less, std::identity>(std::ranges::less&, std::identity&)::{lambda(auto:1&&, auto:2&&)#1}> >(__gnu_cxx::__normal_iterator<double*, std::vector<double, std::allocator<double> > >, __gnu_cxx::__normal_iterator<double*, std::vector<double, std::allocator<double> > >, long, __gnu_cxx::__ops::_Iter_comp_iter<std::ranges::__detail::__make_comp_proj<std::ranges::less, std::identity>(std::ranges::less&, std::identity&)::{lambda(auto:1&&, auto:2&&)#1}>)
+0 0 0 0 0 0
+fl=???
+fn=void std::__introsort_loop<__gnu_cxx::__normal_iterator<unsigned long*, std::vector<unsigned long, std::allocator<unsigned long> > >, long, __gnu_cxx::__ops::_Iter_comp_iter<std::ranges::__detail::__make_comp_proj<std::ranges::less, std::identity>(std::ranges::less&, std::identity&)::{lambda(auto:1&&, auto:2&&)#1}> >(__gnu_cxx::__normal_iterator<unsigned long*, std::vector<unsigned long, std::allocator<unsigned long> > >, __gnu_cxx::__normal_iterator<unsigned long*, std::vector<unsigned long, std::allocator<unsigned long> > >, long, __gnu_cxx::__ops::_Iter_comp_iter<std::ranges::__detail::__make_comp_proj<std::ranges::less, std::identity>(std::ranges::less&, std::identity&)::{lambda(auto:1&&, auto:2&&)#1}>)
+0 3644379 690547 182356 0 0
+fl=???
+fn=vsnprintf
+0 0 0 0 0 0
+fl=???
+fn=wcpncpy
+0 0 0 0 0 0
+fl=???
+fn=wcscat
+0 0 0 0 0 0
+fl=???
+fn=wcschr
+0 0 0 0 0 0
+fl=???
+fn=wcscmp
+0 0 0 0 0 0
+fl=???
+fn=wcscpy
+0 0 0 0 0 0
+fl=???
+fn=wcslen
+0 0 0 0 0 0
+fl=???
+fn=wcsncpy
+0 0 0 0 0 0
+fl=???
+fn=wcsnlen
+0 0 0 0 0 0
+fl=???
+fn=wctob
+0 0 0 0 0 0
+fl=???
+fn=wctype_l
+0 0 0 0 0 0
+fl=???
+fn=wmemchr
+0 0 0 0 0 0
+fl=???
+fn=wmemcmp
+0 0 0 0 0 0
+fl=???
+fn=wmemset
+0 0 0 0 0 0
+fl=???
+fn=write
+0 0 0 0 0 0
+summary: 113049228 13207970 182456 723 119

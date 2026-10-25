@@ -1,0 +1,24 @@
+# *** NOT FOR PUBLISHING: measured in a virtual machine (README rule 20) ***
+# cpu: Intel(R) Core(TM) i7-14650HX
+# logical cores: 24
+# os: Ubuntu 24.04.5 LTS
+# kernel: Linux 6.18.54.1-microsoft-standard-WSL2 x86_64
+# virtual machine: yes: WSL2
+# isolated cores: none
+# nohz_full cores: unknown
+# governor: unknown
+# turbo: unknown
+# compiler: GCC 14.2.0
+# build type: Release
+# flags: -std=c++23 -O3 -DNDEBUG
+# commit: 943fe708a59e
+# pinned to core: 8
+# counter ticks per ns: 2.419198
+# counter spread (parts per million): 0.226223
+# counter drift during the run (parts per million): 0.034684
+# timer overhead min (ticks, subtracted): 28
+# timer overhead median (ticks): 33
+# mode: throughput
+# per run: 1000000
+# seed: 42
+scenario,book,tag,low_ns,high_ns,count

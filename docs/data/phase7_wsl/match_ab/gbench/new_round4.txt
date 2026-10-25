@@ -1,0 +1,16 @@
+2026-10-25T19:19:33+08:00
+Running /home/weijun/.claude/jobs/3ae40463/tmp/build-new/nanobook_microbench
+Run on (24 X 2419.2 MHz CPU s)
+CPU Caches:
+  L1 Data 48 KiB (x12)
+  L1 Instruction 32 KiB (x12)
+  L2 Unified 2048 KiB (x12)
+  L3 Unified 30720 KiB (x1)
+Load Average: 0.70, 0.95, 0.59
+---------------------------------------------------------------------------------------
+Benchmark                             Time             CPU   Iterations UserCounters...
+---------------------------------------------------------------------------------------
+BM_MatchOne<FastBook>_mean          122 us          133 us            3 allocs_per_op=0 items_per_second=74.9616M/s time_per_op=13.341ns
+BM_MatchOne<FastBook>_median        122 us          133 us            3 allocs_per_op=0 items_per_second=75.1089M/s time_per_op=13.314ns
+BM_MatchOne<FastBook>_stddev       1.22 us         1.34 us            3 allocs_per_op=0 items_per_second=749.231k/s time_per_op=133.726ps
+BM_MatchOne<FastBook>_cv           1.00 %          1.00 %             3 allocs_per_op=0.00% items_per_second=1.00% time_per_op=1.00%

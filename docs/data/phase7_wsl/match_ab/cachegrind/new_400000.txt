@@ -1,0 +1,11 @@
+==3076== Cachegrind, a high-precision tracing profiler
+==3076== Copyright (C) 2002-2017, and GNU GPL'd, by Nicholas Nethercote et al.
+==3076== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==3076== Command: build-new/nanobook_bench --scenario match --book sorted --ops 400000 --throughput
+==3076== 
+==3076== 
+==3076== I refs:        395,606,715
+==3076== 
+==3076== Branches:       62,540,289  (62,526,487 cond + 13,802 ind)
+==3076== Mispredicts:     1,292,494  ( 1,290,506 cond +  1,988 ind)
+==3076== Mispred rate:          2.1% (       2.1%     +   14.4%   )

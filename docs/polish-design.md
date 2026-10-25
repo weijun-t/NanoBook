@@ -5,7 +5,9 @@
 > note in the commit message. Step 2: `reproduce.sh` (quick level 60 s on WSL2, full level 393 s)
 > and `fetch_itch.sh`. Step 3: the flame graph script, revised (§6.1), and `plot_compare.py`.
 > Step 4: libFuzzer target with a structured mode (§2), a planted bug caught in 0.4 s. Step 5:
-> interview notes. Step 5b: the release session as one script (§3.4).
+> interview notes. Step 5b: the release session as one script (§3.4). Step 6 found the synthetic
+> `match` 8–17% slower since E9b; checked on WSL2 and published as measured, the user's decision
+> (perf log 2026-10-25): the README says so in one line.
 
 Phases 0–6 built, tested, measured and tuned NanoBook. The work is real, but a stranger landing on
 the repo sees a **plan** (the README is still the project's rule book) and a pile of reports.
