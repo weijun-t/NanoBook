@@ -5,7 +5,8 @@
  *   and is the request rounded up to 2 MiB. Asking for more than it holds throws instead of
  *   falling back. DefaultResourceScope sets the default memory resource and puts the old one back.
  *   A FastBook built in the arena takes exactly what arena_bytes() says (one fits, a second does
- *   not), and still works. Every page was touched up front, so writing to it costs no page fault.
+ *   not), and still works. Every page was touched up front, so writing to it costs no page fault
+ *   (checked in builds without sanitizers, whose own memory faults on first use).
  *   And a whole day's books built in the arena end exactly like books built normally (the golden
  *   day and a busy day, compared stock by stock): the timed tools' books are the same books.
  *
@@ -137,7 +138,27 @@ TEST(HugePageArena, ABookTakesExactlyWhatArenaBytesSays) {
     EXPECT_EQ(book->best_bid(), nanobook::Price{100});
 }
 
+// ASan and TSan keep memory of their own (shadow memory, and Clang's ASan moves stack frames to
+// "fake stacks" made on first use) that faults the first time it's touched. Those faults aren't
+// the arena's, so "no faults" is checked in plain builds (both Release presets run it in CI).
+// Found 2026-10-25: under clang-debug-asan the test took 1 fault, depending only on how long the
+// command line was; with ASAN_OPTIONS=detect_stack_use_after_return=0 it took none.
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
+constexpr bool kSanitizer = true;
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer)
+constexpr bool kSanitizer = true;
+#else
+constexpr bool kSanitizer = false;
+#endif
+#else
+constexpr bool kSanitizer = false;
+#endif
+
 TEST(HugePageArena, EveryPageIsTouchedUpFront) {
+    if (kSanitizer) {
+        GTEST_SKIP() << "the sanitizer's own memory faults on first use (see kSanitizer)";
+    }
     HugePageArena arena{kHugePage};
     auto *bytes = static_cast<unsigned char *>(arena.resource()->allocate(kHugePage, 64));
     const nanobook::latency::PageFaults before = nanobook::latency::page_faults_now();
