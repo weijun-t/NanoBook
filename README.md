@@ -138,6 +138,7 @@ The full list, with what was tried instead and the evidence: `docs/interview-not
 | Document | What's in it |
 |---|---|
 | `docs/plan.md` | How the project was run: scope, the rules (hot path, correctness, measurement), the roadmap |
+| `docs/final-report.md` | The whole story in plain words: every test, why, what it told us, so what; the conclusion |
 | `docs/interview-notes.md` | Each decision: chose, instead of, because, would revisit if; likely questions |
 | `docs/design.md` | The reference book and the engine's interface (phase 1) |
 | `docs/fast-book-design.md` | The fast book's data structures (phase 2) |
@@ -161,4 +162,4 @@ The full list, with what was tried instead and the evidence: `docs/interview-not
 | 4. ITCH 5.0 replay | Done: the real day, every check passing, equal to the reference after every message |
 | 5. Pipeline | Done: three pinned threads over SPSC rings, TSan clean, log identical to one thread |
 | 6. Optimise | Done: 11 experiments, 4 kept, each with a before/after table, re-checked on bare metal |
-| 7. Polish | In progress: front page, reproducing, flame graph, interview notes; the final report next |
+| 7. Polish | Done: this front page, one-command reproduction (55 s), flame graph, interview notes, final report |

@@ -12,6 +12,8 @@
 > and "README rule N" / "README §N" became "plan rule N" / "plan §N" everywhere. Step 8: every
 > Markdown link, image and backticked repo path checked (four stale paths fixed); the design
 > notes' status headers say each phase is complete; the interview notes use the release numbers.
+> Step 8b: `docs/final-report.md` + PDF, §10 (phase 7's tests) and §11 (the conclusion) added.
+> Step 9: README status. **Phase 7 complete (2026-10-25), and with it the roadmap.**
 
 Phases 0–6 built, tested, measured and tuned NanoBook. The work is real, but a stranger landing on
 the repo sees a **plan** (the README is still the project's rule book) and a pile of reports.
