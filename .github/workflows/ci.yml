@@ -2,8 +2,8 @@
 #
 # What it does: On every push and pull request, builds and tests 6 presets (GCC and Clang, Debug
 #   with ASan and UBSan, Release, and ThreadSanitizer), runs a short differential fuzz and smoke
-#   runs of both benchmark tools, and checks formatting (clang-format) and code quality
-#   (clang-tidy).
+#   runs of both benchmark tools, runs the libFuzzer target on the ITCH parser for 60 s, and
+#   checks formatting (clang-format) and code quality (clang-tidy).
 #
 # Why it exists: Every commit must build and pass its tests on both compilers (rule 21).
 #
@@ -71,6 +71,41 @@ jobs:
           ./build/${{ matrix.preset }}/nanobook_bench --ops 20000 --csv "$RUNNER_TEMP/latency.csv"
           ./build/${{ matrix.preset }}/nanobook_bench --ops 20000 --throughput
 
+  # libFuzzer (polish design Q6): random bytes and random valid operations into the ITCH parser
+  # and two book builders, under ASan and UBSan, for 60 s. A crash or a disagreement fails the
+  # job, and the failing input is uploaded so it can be replayed locally:
+  #   build/clang-fuzz/nanobook_fuzz_itch crash-<hash>
+  libfuzzer:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang-19
+
+      - name: Make sanitizers work on this kernel
+        run: sudo sysctl vm.mmap_rnd_bits=28
+
+      - name: Build
+        run: |
+          cmake --preset clang-fuzz
+          cmake --build --preset clang-fuzz --target nanobook_fuzz_itch
+
+      - name: Fuzz for 60 s
+        run: |
+          mkdir -p corpus
+          ./build/clang-fuzz/nanobook_fuzz_itch -max_total_time=60 -print_final_stats=1 corpus
+
+      - name: Upload the failing input
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crash
+          path: crash-*
+
   # Fails if any file differs from .clang-format.
   format:
     runs-on: ubuntu-24.04
@@ -100,7 +135,7 @@ jobs:
 
       # Configure only: produces compile_commands.json, which clang-tidy reads.
       - name: Configure
-        run: cmake --preset clang-debug-asan -DNANOBOOK_BUILD_BENCH=ON
+        run: cmake --preset clang-debug-asan -DNANOBOOK_BUILD_BENCH=ON -DNANOBOOK_BUILD_LIBFUZZER=ON
 
       - name: Run clang-tidy
-        run: run-clang-tidy-19 -quiet -p build/clang-debug-asan "$PWD/(src|tests|bench|tools|support)/"
+        run: run-clang-tidy-19 -quiet -p build/clang-debug-asan "$PWD/(src|tests|bench|tools|support|fuzz)/"

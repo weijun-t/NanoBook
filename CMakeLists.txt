@@ -4,8 +4,9 @@
 #   nanobook_alloc_tests in builds without sanitizers), the differential fuzzer (nanobook_fuzz),
 #   the benchmarks (nanobook_microbench), the rdtsc latency harness (nanobook_bench), the ring
 #   benchmark (nanobook_ringbench), the ITCH day replay (nanobook_replay), the pipeline
-#   (nanobook_pipeline) and its log reader (nanobook_logdump). Downloads GoogleTest and Google
-#   Benchmark at pinned versions, checked by SHA256.
+#   (nanobook_pipeline), its log reader (nanobook_logdump) and, with Clang, the libFuzzer target
+#   for the ITCH parser (nanobook_fuzz_itch). Downloads GoogleTest and Google Benchmark at pinned
+#   versions, checked by SHA256.
 #
 # How it works: Options come from CMakePresets.json. Sanitizer flags are global, so third-party code
 #   is built the same way as ours. The strict warnings (-Werror) apply to our code only, as do the
@@ -33,6 +34,7 @@ option(NANOBOOK_BUILD_TESTS "Build the test suite" OFF)
 option(NANOBOOK_BUILD_BENCH "Build benchmarks" OFF)
 option(NANOBOOK_NATIVE_OPTIMIZATION "Compile own targets with -march=native" OFF)
 option(NANOBOOK_LTO "Link-time optimisation for our own targets" OFF)
+option(NANOBOOK_BUILD_LIBFUZZER "Build the libFuzzer target for the ITCH parser (Clang)" OFF)
 set(NANOBOOK_PGO "" CACHE STRING "Profile-guided optimisation (GCC): empty, generate or use")
 set(NANOBOOK_PGO_DIR "${CMAKE_BINARY_DIR}/pgo-data" CACHE PATH "Where PGO profiles are written/read")
 
@@ -45,6 +47,9 @@ if(NANOBOOK_LTO)
 endif()
 if(NANOBOOK_PGO AND NOT NANOBOOK_PGO MATCHES "^(generate|use)$")
     message(FATAL_ERROR "NANOBOOK_PGO must be empty, generate or use (got ${NANOBOOK_PGO})")
+endif()
+if(NANOBOOK_BUILD_LIBFUZZER AND NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    message(FATAL_ERROR "NANOBOOK_BUILD_LIBFUZZER needs Clang: libFuzzer is part of it")
 endif()
 if(NANOBOOK_PGO AND NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     message(FATAL_ERROR "NANOBOOK_PGO uses GCC's profile files; Clang's need llvm-profdata")
@@ -64,6 +69,12 @@ if(NANOBOOK_SANITIZER)
     # -fno-sanitize-recover=all: UBSan aborts (test fails) instead of printing and continuing.
     add_compile_options(-fsanitize=${NANOBOOK_SANITIZER} -fno-sanitize-recover=all -fno-omit-frame-pointer)
     add_link_options(-fsanitize=${NANOBOOK_SANITIZER})
+endif()
+
+# libFuzzer: coverage instrumentation in every target, so the fuzzer sees new branches in the
+# library's .cpp files too. Only the fuzz target links libFuzzer's main() (section 9).
+if(NANOBOOK_BUILD_LIBFUZZER)
+    add_compile_options(-fsanitize=fuzzer-no-link)
 endif()
 
 # perf needs frame pointers in every function to build call stacks / flame graphs.
@@ -281,4 +292,15 @@ if(NANOBOOK_BUILD_BENCH)
     target_link_libraries(nanobook_ringbench PRIVATE nanobook nanobook_testing)
     nanobook_configure_target(nanobook_ringbench)
     nanobook_uses_environment(nanobook_ringbench)
+endif()
+
+# ---------------------------------------------------------------------------
+# 9. libFuzzer target (README §7.1, polish design Q6): random bytes into the ITCH parser and
+#    two book builders. Clang only; the clang-fuzz preset adds ASan and UBSan.
+# ---------------------------------------------------------------------------
+if(NANOBOOK_BUILD_LIBFUZZER)
+    add_executable(nanobook_fuzz_itch fuzz/fuzz_itch.cpp)
+    target_link_libraries(nanobook_fuzz_itch PRIVATE nanobook nanobook_testing)
+    target_link_options(nanobook_fuzz_itch PRIVATE -fsanitize=fuzzer)
+    nanobook_configure_target(nanobook_fuzz_itch)
 endif()

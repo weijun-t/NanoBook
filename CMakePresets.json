@@ -45,6 +45,16 @@
       }
     },
     {
+      "name": "fuzz",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "NANOBOOK_SANITIZER": "address,undefined",
+        "NANOBOOK_BUILD_TESTS": "OFF",
+        "NANOBOOK_BUILD_LIBFUZZER": "ON"
+      }
+    },
+    {
       "name": "release",
       "hidden": true,
       "cacheVariables": {
@@ -80,6 +90,7 @@
     { "name": "clang-debug-asan", "displayName": "Clang Debug + ASan + UBSan", "inherits": ["asan", "clang", "base"] },
     { "name": "gcc-tsan",         "displayName": "GCC TSan",                   "inherits": ["tsan", "gcc", "base"] },
     { "name": "clang-tsan",       "displayName": "Clang TSan",                 "inherits": ["tsan", "clang", "base"] },
+    { "name": "clang-fuzz",       "displayName": "Clang libFuzzer + ASan + UBSan", "inherits": ["fuzz", "clang", "base"] },
     { "name": "gcc-release",      "displayName": "GCC Release (-O3)",          "inherits": ["release", "gcc", "base"] },
     { "name": "clang-release",    "displayName": "Clang Release (-O3)",        "inherits": ["release", "clang", "base"] },
     { "name": "gcc-release-lto",    "displayName": "GCC Release + LTO",           "inherits": ["lto", "release", "gcc", "base"] },
@@ -93,6 +104,7 @@
     { "name": "clang-debug-asan", "configurePreset": "clang-debug-asan" },
     { "name": "gcc-tsan",         "configurePreset": "gcc-tsan" },
     { "name": "clang-tsan",       "configurePreset": "clang-tsan" },
+    { "name": "clang-fuzz",       "configurePreset": "clang-fuzz" },
     { "name": "gcc-release",      "configurePreset": "gcc-release" },
     { "name": "clang-release",    "configurePreset": "clang-release" },
     { "name": "gcc-release-lto",    "configurePreset": "gcc-release-lto" },
