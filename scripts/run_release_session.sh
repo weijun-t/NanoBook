@@ -13,8 +13,8 @@
 #     scripts/run_release_session.sh ITCH_FILE OUT_DIR [--core C] [--cores A,B,C] [--allow-vm]
 #   Defaults: core 8, pipeline cores 8,10,12 (the isolated performance cores of the bare-metal
 #   report §2). OUT_DIR for the published run: docs/data/bare_metal/release (scripts/reproduce.sh
-#   compares a stranger's numbers with release/phase3/round1.csv). About 45 minutes. Every part writes its own folder under OUT_DIR, with one
-#   OUT_DIR/progress.log for the whole session.
+#   compares a stranger's numbers with release/phase3/round1.csv). About 45 minutes. Every part
+#   writes its own folder under OUT_DIR, with one OUT_DIR/progress.log for the whole session.
 #
 # Why it exists: Polish design §3.4. The phase 3-5 numbers were published at 943fe70, before E9b
 #   was added back, so the README would mix commits; this re-runs them all at the release commit
@@ -118,7 +118,8 @@ part phase6_total scripts/run_ab_session.sh "$PHASE5_END" "$OUT/phase6_total" --
     nanobook_replay "$FILE" --throughput --latency --core "$CORE" --csv '{out}.csv'
 if [ -x .venv/bin/python ]; then
     part phase6_chart .venv/bin/python -I scripts/plot_compare.py \
-        --before "$OUT"/phase6_total/before_round*.csv --after "$OUT"/phase6_total/after_round*.csv \
+        --before "$OUT"/phase6_total/before_round[0-9].csv \
+        --after "$OUT"/phase6_total/after_round[0-9].csv \
         --labels "end of phase 5" "release" --out "$OUT/phase6_total/compare.png" \
         --title "What phase 6 bought: FastBook per message, a real Nasdaq day (lower is better)"
 fi

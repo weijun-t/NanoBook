@@ -25,8 +25,8 @@ How it works:
   - `addr2line -f -i -C -a` prints each address's inlined frames, innermost first; reversed,
     they replace that one frame, so a stack reads main -> ... -> the innermost inlined function.
   - Names are shortened to Class::function (return types, template arguments, parameter
-    lists, clone suffixes and the nanobook/std namespaces dropped) so the boxes are readable. Frames in other files become one
-    box per file ([libc.so.6], mostly memmove); kernel addresses one [kernel] box; garbage
+    lists, clone suffixes and the nanobook/std namespaces dropped) so the boxes are readable.
+    Frames in other files become one box per file ([libc.so.6], mostly memmove); kernel addresses one [kernel] box; garbage
     frames ([unknown], from a function without a frame pointer) are dropped.
 
 Data structures: Counter {stack as a tuple of (address, file): samples}; dict {address: frames}
