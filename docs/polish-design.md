@@ -2,7 +2,10 @@
 
 > **Status:** approved (2026-10-25): every decision in §8 as proposed, plus a final project
 > report (§5.1, step 8b), the user's addition. Changes from here on are made by an edit plus a
-> note in the commit message.
+> note in the commit message. Step 2: `reproduce.sh` (quick level 60 s on WSL2, full level 393 s)
+> and `fetch_itch.sh`. Step 3: the flame graph script, revised (§6.1), and `plot_compare.py`.
+> Step 4: libFuzzer target with a structured mode (§2), a planted bug caught in 0.4 s. Step 5:
+> interview notes. Step 5b: the release session as one script (§3.4).
 
 Phases 0–6 built, tested, measured and tuned NanoBook. The work is real, but a stranger landing on
 the repo sees a **plan** (the README is still the project's rule book) and a pile of reports.
@@ -76,7 +79,7 @@ Phase 7 is done when:
 | Interview-notes section | First draft in phase 6 report §8 | `docs/interview-notes.md` (§5) |
 | Flame graphs (§7.3) | Never made (phase 6 profiled with `perf` + `addr2line` into a table) | `scripts/flamegraph.sh` (§6) |
 | `plot_compare.py`, before/after curves (§7.5) | Never built; the perf log used tables | Build it for one chart: phase 5's end against the release (§6) |
-| libFuzzer on the ITCH parser (§7.1, optional) | Not done | Q6 |
+| libFuzzer on the ITCH parser (§7.1, optional) | Not done | Q6. Built (step 4) with two modes: raw bytes, and a list of operations the test encoder writes as valid ITCH (raw alone reached 179 branches in 60 s and never a book; with both, 915) |
 | A stranger reproduces in < 10 min | No single command; steps scattered over reports | `scripts/reproduce.sh` (§3) |
 | Live view (§1, optional, after phase 7) | Not done | Out of scope (§9) |
 
@@ -116,7 +119,10 @@ One boot of the stick, at the release commit (code frozen; only docs change afte
    "what did phase 6 buy, in total?" with committed builds on both sides, so no
    `NOT FOR PUBLISHING` banner (§6.2).
 
-About an hour of runs. Same boot options and preparation as the bare-metal report §2.
+About an hour of runs. Same boot options and preparation as the bare-metal report §2. Built as
+one command (step 5b): `scripts/run_release_session.sh ITCH_FILE OUT_DIR` runs all four parts
+with the existing scripts, unchanged; the stranger test clones this repository at this commit
+into an empty folder (so it doesn't depend on GitHub access) and builds from nothing.
 
 ---
 
@@ -191,11 +197,21 @@ are the release commit's. The phase reports stay as the detailed record; this on
 ## 6. Charts and profiles
 
 ### 6.1 Flame graph (`scripts/flamegraph.sh`)
-`perf record -g --call-graph dwarf` around `nanobook_replay --throughput` (the `gcc-profile`
-preset: `-O2 -g -fno-omit-frame-pointer`), folded and drawn with Brendan Gregg's FlameGraph
-scripts, cloned at a pinned commit into the build folder (not copied into the repo). SVG in
-`docs/img/`. Tried on WSL2 first (software clock samples) to test the script; the published
-one comes from §3.4 with hardware cycle samples.
+Revised while building it (step 3), because two plans failed on contact:
+- **Not the `gcc-profile` preset.** It is `-O2`, which phase 6 measured 2.4× slower: a
+  different program. The graph profiles `gcc-release`'s program plus `-g`, and the script checks
+  that the instructions are the same (disassemblies compared with addresses masked).
+- **Not plain frame pointers.** GCC 14 gives functions that call nothing no frame, even with
+  `-mno-omit-leaf-frame-pointer` (checked on a 3-line example; Clang does give one). The hottest
+  function, `IdTable::find`, is such a leaf, so every sample in it lost its caller.
+
+So the script picks the first stack method this machine's perf can do: **LBR** (the CPU's own
+record of calls and returns, Intel, bare metal), then **DWARF** unwinding (needs a perf built with
+libdw, as Ubuntu's is), then frame pointers (WSL2: enough to test the script). WSL2's perf has no
+libelf or libdw, so it can't name functions at all; `scripts/fold_stacks.py` does that with
+`addr2line`, and expands each address into its inlined functions (in a `-O3` build most of the
+call stack is inlined). Drawn with Brendan Gregg's FlameGraph, cloned at a pinned commit into the
+build folder (not copied into the repo). SVG in `docs/img/`; the published one comes from §3.4.
 
 ### 6.2 `scripts/plot_compare.py`
 Reads two CSVs from the same tool and draws their percentile curves on one chart (README §7.5).
@@ -212,6 +228,7 @@ Used once, for "phase 5's end against the release" from §3.4.
 | 3 | `scripts/flamegraph.sh` (tried on WSL2), `scripts/plot_compare.py` (tried on old A/B data) | — |
 | 4 | Q6 if yes: libFuzzer target for the parser, a Clang preset, a 60 s CI run | — |
 | 5 | `docs/interview-notes.md` | — |
+| 5b | `scripts/run_release_session.sh`: step 6 as one command | — |
 | 6 | **Code freeze**, then the last bare-metal session (§3.4); data in `docs/data/bare_metal/release/` | The stick |
 | 7 | README front page with the §3.4 numbers and charts; plan to `docs/plan.md`; `CLAUDE.md` pointer | Step 6 |
 | 8 | Tidy: link check over README and `docs/`, design-note status headers, stale statements | — |
