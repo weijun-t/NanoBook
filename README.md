@@ -74,7 +74,7 @@ scripts/fetch_itch.sh
 scripts/reproduce.sh --itch data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50
 ```
 
-The tools, one at a time (built in `build/gcc-release/`):
+The tools, one at a time (built in `build/gcc-release/`; every command, with what it tells you: [Every command](#every-command)):
 
 | Tool | Does |
 |---|---|
@@ -261,6 +261,70 @@ The full list, with what was tried instead and the evidence: `docs/interview-not
   was 2.5–6× worse. It stays a tested option (`--book window`), not the default.
 - **Published only from bare metal.** On WSL2 the pipeline's p99 was 65–72 µs; on isolated cores
   it's 0.65 µs. That tail was the virtual machine.
+
+## Every command
+
+Every command a visitor might run, grouped by the question it answers. Shorthand:
+`B=build/gcc-release` (built by `scripts/reproduce.sh` or `cmake --workflow --preset gcc-release`)
+and `FILE=data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50` (from `scripts/fetch_itch.sh`).
+`--core C` pins a run to one CPU core so its numbers are steady. Times are from the laptop above.
+Every tool prints its usage when given a wrong flag.
+
+**Getting started**
+
+| Command | What it does | What it tells you |
+|---|---|---|
+| `scripts/reproduce.sh` | Builds, runs the 837 tests, fuzzes 30M operations, times the book (about 1 min) | Whether it all works on your machine, and your latency next to the published numbers |
+| `scripts/fetch_itch.sh` | Downloads the real Nasdaq day (4.76 GB, unpacks to 11.2 GB) | Nothing yet: it's the input for every command that takes `$FILE` |
+| `scripts/reproduce.sh --itch $FILE` | The above, plus the real day's replay and the pipeline | The day's throughput and latency on your machine |
+| `ctest --preset gcc-release` | Runs every test again | Pass or fail for each test |
+
+**Is it correct?**
+
+| Command | What it does | What it tells you |
+|---|---|---|
+| `$B/nanobook_fuzz --seeds 3 --ops 10000000` | Sends the same random orders to the fast book and the simple reference book, and compares every event (13 s) | `PASS` for each seed, or the first operation where the two books disagree |
+| `$B/nanobook_replay $FILE --check --differential` | Replays the whole day through both books, checking the book's structure as it goes (about 5 min) | 0 mismatches: a quick comparison after each of the 363 million order messages, and 61,354 full comparisons of the two books |
+| `$B/nanobook_depth $FILE --check-day AAPL,SPY` | Replays only those stocks (the depth view's way) and compares them with a full replay at the open, every hour and the close (about 1.5 min) | `PASS` for each stock: equal at 9 of 9 checkpoints, the reference book agreeing too, and the most orders resting at once |
+
+**How fast is it?**
+
+| Command | What it does | What it tells you |
+|---|---|---|
+| `$B/nanobook_bench --core 2` | Times each kind of operation (add, cancel, modify, match, …) one at a time, on the reference book and the fast books | Latency percentiles in nanoseconds (p50 to max) and allocations while timing (0 for the fast books). `--csv FILE.csv` also saves a histogram |
+| `$B/nanobook_bench --core 2 --throughput` | The same scenarios, run flat out | Operations per second, so the fast book can be compared with the reference |
+| `$B/nanobook_replay $FILE --throughput --latency --core 2` | Replays the real day as fast as it can, then again timing every 8th order message (about 2 min) | Messages per second for the whole day, and latency percentiles for each message kind (add, cancel, execute, …) |
+| `$B/nanobook_pipeline $FILE --cores 2,4,6 --throughput` | The day through three threads on three cores: parser, engine, publisher | Messages per second for the pipeline, to compare with the one-thread replay |
+| `$B/nanobook_pipeline $FILE --cores 2,4,6 --latency --rate 1000000 --from 10:00:00 --until 10:05:00` | Feeds five minutes of the day at a steady million messages a second | Time from a message going in to its result coming out, as percentiles |
+| `$B/nanobook_ringbench --cores 2,4` | Passes records between two cores through the lock-free ring | What one hand-over between threads costs |
+| `$B/nanobook_microbench` | Google Benchmark loops over the book (needs `-DNANOBOOK_BUILD_BENCH=ON`) | Time per operation, and allocations per operation (0) |
+
+**Show me the market**
+
+| Command | What it does | What it tells you |
+|---|---|---|
+| `$B/nanobook_replay $FILE --symbol AAPL --depth 10 --until 12:00:00` | Replays up to noon and prints one stock's book | Messages by type and how each was handled, the stocks with the biggest books, and AAPL's 10 best bid and ask prices at noon with the shares at each |
+| `$B/nanobook_replay $FILE --symbol AAPL --until 12:00:00 --snapshot-csv aapl.csv`, then `.venv/bin/python scripts/plot_depth.py aapl.csv` | Saves the stock's whole book at noon, then draws it (`aapl.png`) | A picture of how many shares wait at each price on each side |
+| `$B/nanobook_pipeline $FILE --view nb --speed 60 --from 09:30:00`, and in a second terminal `$B/nanobook_view nb` | Runs the day at 60× the market's clock and shows every stock's best prices live | A watchlist: best bid and ask, spread, updates per second, the busiest stocks |
+| `$B/nanobook_depth $FILE AAPL --speed 1 --from 10:30:00` | Replays one stock live from 10:30 | Every price level, the queue of orders at each price, the trade tape. Keys: ↑↓ move, Tab switches side, Space pauses, `f` follows an order through the queue, `+`/`-` change speed, `q` quits |
+
+The live viewer and the depth view need `-DNANOBOOK_BUILD_VIEWER=ON` (see "Watch it run").
+
+**Going deeper**
+
+| Command | What it does | What it tells you |
+|---|---|---|
+| `python3 scripts/itch_slice.py $FILE morning.itch --until 09:31:00` | Cuts the start of the day into a small file | A quick input for the commands below |
+| `$B/nanobook_pipeline morning.itch --log out.bin --checksum` | Runs the pipeline and writes every best-price update it publishes to a log. Use a slice: the whole day's log is about 17 GB | How many updates went out, how often the rings were full, and a checksum to compare runs with |
+| `$B/nanobook_logdump out.bin --head 3` | Prints the log as CSV | What the engine sent out: one line per update, with its time, stock, best bid and best ask |
+| `$B/nanobook_replay $FILE --flow` | Watches how the price levels change through the day (about 4 min) | How many levels each new price level pushes along the sorted array, how far from the best price orders land, and how a moving window of price slots would have done: the evidence behind the data-structure choice |
+| `scripts/flamegraph.sh $FILE out/ --core 2` | Profiles the replay with `perf` (about 3 min) | A flame graph of where the time goes (the ID table, the price levels, …) |
+| `scripts/run_ab_session.sh BEFORE_REF out/ -- nanobook_bench --core 2` | Builds an older commit and the current tree, and runs them in turns | Whether a change made things faster, with the noise between rounds shown |
+
+Publishing numbers takes bare metal: on WSL2 or another VM every timing tool prints a
+`NOT FOR PUBLISHING` banner. The scripts behind the published numbers
+(`run_latency_session.sh`, `run_pipeline_session.sh`, `run_release_session.sh`,
+`run_viewer_session.sh`) explain their use at the top of each file.
 
 ## Read more
 
