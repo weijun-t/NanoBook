@@ -14,7 +14,7 @@
  *   from each record's intended send time to the publisher (pipeline design §9.2). Both also
  *   report the page faults taken during each run (optimise design §3.2).
  *     nanobook_pipeline FILE [--log OUT] [--checksum] [--sequential] [--cores A,B,C]
- *                       [--window-mb N] [--view NAME]
+ *                       [--window-mb N] [--view NAME] [--speed N [--from HH:MM:SS]]
  *     nanobook_pipeline FILE --cores A,B,C --throughput [--log OUT]
  *     nanobook_pipeline FILE --cores A,B,C --latency --rate R [--from HH:MM:SS]
  *                       [--until HH:MM:SS] [--csv FILE.csv] [--sequential] [--view NAME]
@@ -26,7 +26,10 @@
  *   --view NAME (viewer design §2, not with --throughput) also makes the viewer's table in shared
  *   memory (/dev/shm/NAME, support/l1_mapping.hpp), writes every stock's name into it, and has
  *   the publisher write each update into its stock's slot after logging it (and, when paced, its
- *   latency into the table's histogram), for nanobook_view to read.
+ *   latency into the table's histogram), for nanobook_view to read. --speed N (the first form
+ *   only) paces that run by the ITCH clock from --from on, N ITCH seconds per real second
+ *   (support/pacing.hpp's ClockPacer, viewer design §5), so the day can be watched: the morning
+ *   before --from replays at full speed to build the books.
  *
  * Why it exists: Step 3 proves the pipeline changes nothing: the same day must give the same log,
  *   byte for byte, on three threads and on one (rule 11). Comparing checksums proves it without
@@ -85,7 +88,7 @@ using nanobook::view::L1Table;
 
 constexpr std::string_view kUsage =
     "usage: nanobook_pipeline FILE [--log OUT] [--checksum] [--sequential] [--cores A,B,C]\n"
-    "                         [--window-mb N] [--view NAME]\n"
+    "                         [--window-mb N] [--view NAME] [--speed N [--from HH:MM:SS]]\n"
     "       nanobook_pipeline FILE --cores A,B,C --throughput [--log OUT]\n"
     "       nanobook_pipeline FILE --cores A,B,C --latency --rate R [--from HH:MM:SS]\n"
     "                         [--until HH:MM:SS] [--csv FILE.csv] [--sequential]\n"
@@ -105,7 +108,8 @@ struct Options {
     std::uint64_t from{10ULL * 3'600 * 1'000'000'000}; // 10:00:00, ITCH time
     std::uint64_t until{10ULL * 3'600 * 1'000'000'000 + 60ULL * 1'000'000'000}; // 10:01:00
     std::string csv;
-    std::string view; // --view NAME: the viewer's table in shared memory (viewer design §2)
+    std::string view;       // --view NAME: the viewer's table in shared memory (viewer design §2)
+    std::uint64_t speed{0}; // --speed N: ITCH seconds per real second from --from on; 0: unpaced
 };
 
 template <typename T> bool parse_number(std::string_view text, T &value) {
@@ -186,6 +190,8 @@ std::optional<Options> parse_args(int argc, char **argv) {
         } else if (arg == "--csv") {
             o.csv = value;
             ok = !o.csv.empty();
+        } else if (arg == "--speed") {
+            ok = parse_number(value, o.speed) && o.speed > 0;
         } else if (arg == "--view") {
             o.view = value;
             ok = !o.view.empty() && o.view.find('/') == std::string::npos;
@@ -194,10 +200,12 @@ std::optional<Options> parse_args(int argc, char **argv) {
             return std::nullopt;
         }
     }
+    // Timing needs pinned cores, and --latency a rate. --throughput takes no view, and --speed is
+    // for watching only (--latency paces by --rate).
     if (o.file.empty() || (o.latency && o.rate == 0) ||
         ((o.throughput || o.latency) && o.pipeline.feed_core < 0) ||
-        (o.throughput && !o.view.empty())) {
-        return std::nullopt; // timing needs pinned cores, --latency a rate; --throughput no view
+        (o.throughput && !o.view.empty()) || (o.speed > 0 && (o.throughput || o.latency))) {
+        return std::nullopt;
     }
     o.pipeline.spin_only = o.throughput || o.latency; // pinned, dedicated cores: never yield
     return o;
@@ -518,20 +526,38 @@ int main(int argc, char **argv) {
         return run.has_value() && run->bytes == bytes.size();
     };
 
-    const auto run = [&](auto &sink) {
-        return o.sequential ? run_sequential(read_feed, builder, sink)
-                            : run_pipeline(read_feed, builder, sink, o.pipeline);
+    const auto run = [&](auto &sink, auto stamp) {
+        return o.sequential ? run_sequential(read_feed, builder, sink, stamp)
+                            : run_pipeline(read_feed, builder, sink, o.pipeline, stamp);
     };
     auto viewed = [&](const TopOfBook &t) { // --view: the log, then the stock's slot
         log.append(t);
+        if (t.sent != 0) { // paced (--speed): the latency from the intended send time
+            view::record_latency(*table, latency::stop().ticks - t.sent);
+        }
         view::publish(*table, t);
     };
 
+    std::uint64_t ticks_per_second = 0; // only --speed reads the counter
+    if (o.speed > 0) {
+        if (!latency::missing_tsc_flags(latency::read_cpu_flags()).empty()) {
+            std::cerr << "the time-stamp counter can't be used as a clock here\n";
+            return 3;
+        }
+        ticks_per_second = static_cast<std::uint64_t>(latency::calibrate().ticks_per_ns * 1e9);
+    }
     if (table != nullptr) {
-        view::start(*table, 0); // unpaced: no latency to convert
+        view::start(*table, ticks_per_second);
     }
     const auto start = std::chrono::steady_clock::now();
-    const PipelineResult r = table != nullptr ? run(viewed) : run(log);
+    const PipelineResult r = [&] {
+        if (o.speed == 0) {
+            return table != nullptr ? run(viewed, NoStamp{}) : run(log, NoStamp{});
+        }
+        ClockPacer pacer{TscClock{}, ticks_per_second, o.speed, o.from, ticks_per_second / 10};
+        auto stamp = [&pacer](const FeedRecord &record) { return pacer(record); };
+        return table != nullptr ? run(viewed, stamp) : run(log, stamp);
+    }();
     log.close();
     if (table != nullptr) {
         view::finish(*table);
@@ -545,6 +571,9 @@ int main(int argc, char **argv) {
         std::cout << " on cores " << o.pipeline.feed_core << ", " << o.pipeline.engine_core << ", "
                   << o.pipeline.publish_core
                   << (r.feed_pinned && r.engine_pinned && r.publish_pinned ? "" : " (NOT pinned)");
+    }
+    if (o.speed > 0) {
+        std::cout << "\nPaced:      " << o.speed << "x the ITCH clock from " << time_of_day(o.from);
     }
     std::cout << "\nRecords:    " << r.records << " sent to the engine, " << r.skipped
               << " messages the books don't use\n"

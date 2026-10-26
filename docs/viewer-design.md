@@ -10,6 +10,10 @@
 > `748abedf40533b82` (the published one, pipeline design §8) with the view off, on (three
 > threads) and on (one thread); 363,118,215 updates written to the table; the table read back
 > by an independent Python decoder (AAPL, SPY, MSFT empty at 20:00, `seq` = 2 × updates).
+> Step 4 (the publisher's cost) moved to one bare-metal session after step 6, the user's choice.
+> Step 5: `ClockPacer` and `--speed N` (watch runs only; `--latency` keeps `--rate`). Real day,
+> `--speed 60 --from 09:30:00`: the table's ITCH clock moved 59.9–60.4 s per real second, about
+> 1.3 M updates/s through the open; about 35 s to get there (counting pass and warm-up).
 
 The roadmap is done (`v1.0.0`, phases 0–7). Plan §1 allows one optional extra after phase 7: a
 live view in a **separate process** that reads the publisher's output, as a TUI or a small web
