@@ -221,6 +221,7 @@ if(NANOBOOK_BUILD_TESTS)
         tests/pipeline/test_pipeline.cpp
         tests/pipeline/test_binary_log.cpp
         tests/pipeline/test_pacing.cpp
+        tests/pipeline/test_l1_table.cpp
     )
     target_link_libraries(nanobook_tests PRIVATE nanobook nanobook_testing GTest::gtest_main)
     nanobook_configure_target(nanobook_tests)

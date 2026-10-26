@@ -2,6 +2,9 @@
 
 > **Status:** approved (2026-10-26): every decision in §9 as proposed. Work happens on the `ui`
 > branch. Changes from here on are made by an edit plus a note in the commit message.
+> Step 2: the table is in `support/` (`l1_table.hpp`, `l1_mapping.hpp`), next to the publisher's
+> other sink (`binary_log.hpp`), so it reuses the recorder's buckets without `include/` depending
+> on `support/`; the seqlock uses release stores / acquire loads instead of fences (§3.3).
 
 The roadmap is done (`v1.0.0`, phases 0–7). Plan §1 allows one optional extra after phase 7: a
 live view in a **separate process** that reads the publisher's output, as a TUI or a small web
@@ -66,7 +69,8 @@ So the viewer reads **the latest value per stock**, whenever it likes, and never
 ```
 
 Three new pieces:
-- `include/nanobook/view/l1_table.hpp`: the shared-memory layout and its seqlock (§3).
+- `support/l1_table.hpp`: the table's layout and its seqlock (§3); `support/l1_mapping.hpp`
+  puts it in named shared memory.
 - A second sink in `nanobook_pipeline` (`--view NAME`): the publisher thread writes each update
   into the table after appending it to the log (§4). Feed and engine threads: no change.
 - `tools/nanobook_view.cpp`: the terminal UI (§6).
@@ -99,16 +103,19 @@ About 4.5 MiB in all, mapped once at startup and pre-touched, so writing never p
 
 ### 3.3 The seqlock (one writer, any number of readers)
 Each slot's `seq` is even when the slot is stable and odd while it is being written.
-- **Write** (publisher): `seq = s + 1` (relaxed); release fence; store the fields (relaxed);
-  `seq = s + 2` (release). No read-modify-write, no lock: the publisher is the only writer.
-- **Read** (viewer): `s1 = seq` (acquire); if odd, retry; load the fields (relaxed); acquire fence;
-  `s2 = seq` (relaxed); if `s1 != s2`, the writer was in the middle: retry.
+- **Write** (publisher): `seq = s + 1` (relaxed); store the fields (release, so the odd `seq` is
+  visible before any of them); `seq = s + 2` (release). No read-modify-write, no lock: the
+  publisher is the only writer.
+- **Read** (viewer): `s1 = seq` (acquire); if odd, retry; load the fields (acquire, so the next
+  load can't move before them); `s2 = seq` (relaxed); if `s1 != s2`, the writer was in the
+  middle: retry. A reader that saw even one new field must then see `seq` changed.
 
 Every field is a `std::atomic<std::uint64_t>`, so there is no data race in the C++ sense (a seqlock
-over plain fields is undefined behaviour), and TSan, which can't follow fences but only reports
-races on non-atomic memory, has nothing to flag. Atomics shared between processes must be
+over plain fields is undefined behaviour). No standalone fences: TSan can't follow them, and GCC
+warns about them under `-fsanitize=thread` (which `-Werror` turns into a failed build). Atomics shared between processes must be
 lock-free (address-free): `static_assert(std::atomic<std::uint64_t>::is_always_lock_free)`. On
-x86 the fences and relaxed atomics compile to plain `mov`s: the cost is two extra stores per update.
+x86-64 release stores and acquire loads compile to plain `mov`s: the cost is two extra stores
+per update (the two `seq` stores).
 
 ### 3.4 Latency without coordinated omission
 In paced runs the publisher already computes `now − sent` per update (the phase 5 latency). It
@@ -171,7 +178,7 @@ build the books first.
 ## 7. Testing
 
 - `l1_table` unit tests: layout `static_assert`s; write then read returns the same values; a
-  reader during a write retries (forced by a test hook that stops between the two `seq` stores).
+  slot with an odd `seq` (the writer in the middle, set by hand) is refused.
 - Torn-read stress: one thread writes slots whose fields are all the same number, readers check
   every read they accept has all fields equal; under TSan in CI (rule 14).
 - Two-process test: `fork()`, the child writes through `shm_open`, the parent reads.
