@@ -26,7 +26,8 @@ How to read this report:
 - §2 explains the viewer in plain words, and §3 the plan.
 - §4 covers what was built, and §5 the seqlock line by line.
 - §6 shows how correctness was proven, §7 what watching the day showed and what the viewer costs.
-- §8 lists the decisions and what changed along the way, and §9 what's next.
+- §8 lists the decisions and what changed along the way, §9 what's next, and §10 how to run
+  it all yourself.
 
 All numbers are from WSL2 on an Intel Core i7-14650HX (24 threads), kernel
 6.18.54.1-microsoft-standard-WSL2, GCC 14.2: **not for publishing** (rule 20). None of them is a
@@ -375,10 +376,79 @@ What changed along the way, each recorded in the design note:
 
 ## 9. What's next
 
-1. **If the reader's cost is ever worth settling** (§7.3): a bare-metal session with the order
-   rotated (each way first, second and third once), 4 rounds, and `perf c2c` during a viewer run
-   to see whether the slots' cache lines bounce between cores. If they do and it matters, the fix
-   is on the publisher's side (for example, write each stock's slot every N updates), never on
-   the engine.
+1. **The reader's cost stays as measured** (§7.3): no second session, the user's decision
+   (2026-10-26). If it ever needs settling: rotate the order (each way first, second and third
+   once), 4 rounds, and `perf c2c` during a viewer run, to see whether the slots' cache lines
+   bounce between cores. A fix would go on the publisher's side (for example, write each stock's
+   slot every N updates), never on the engine.
 2. **Then maybe:** an L2 ladder for one chosen stock (engine-side work, so a measured
    experiment); a trade tape; a small web page reading the same table.
+
+---
+
+## 10. How to run it
+
+Five things you can run, from the quickest to the longest. All of them start in the repository's
+folder, on Linux (x86-64).
+
+**What you need.** GCC 14, CMake 3.25 or newer and Ninja (on Ubuntu 24.04: `sudo apt-get install
+-y cmake ninja-build g++-14`). For steps 3 and 4, the real day too: `scripts/fetch_itch.sh`
+downloads 4.76 GB and unpacks it to 11.2 GB in `data/itch/`. Step 4 also needs `tmux`.
+
+### 10.1 Build everything, viewer included
+
+```bash
+cmake --preset gcc-release -DNANOBOOK_BUILD_VIEWER=ON   # also downloads FTXUI
+cmake --build build/gcc-release
+```
+
+The programs land in `build/gcc-release/`. Without `-DNANOBOOK_BUILD_VIEWER=ON` everything except
+`nanobook_view` is built.
+
+### 10.2 Run every test
+
+```bash
+ctest --preset gcc-release
+```
+
+**823 tests**, a few seconds: the engine's, the table's and the watchlist's, plus the viewer's 4
+layout tests (one is skipped in Release builds: it checks a Debug-only assertion).
+
+### 10.3 Watch the day live
+
+Two terminals. The viewer first: it waits until the pipeline makes the table.
+
+```bash
+./build/gcc-release/nanobook_view nanobook                 # terminal 1
+./build/gcc-release/nanobook_pipeline data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50 \
+    --view nanobook --speed 60 --from 09:30:00             # terminal 2
+```
+
+- `--speed 60` plays the market 60 times faster than it happened; `--speed 1` is real time.
+- `--from 09:30:00` starts the pacing at the open; the hours before it go through at full speed.
+- About 35 s before the first update shows: the pipeline first counts the day's stocks.
+- Keys in the viewer: arrows move, `p` pins a stock to the top, `/` filters by name, `s` changes
+  the sort (activity, symbol, spread), `q` quits. The viewer keeps the last screen when the run
+  ends, and picks up the next run by itself.
+
+### 10.4 Measure what the viewer costs (§7.3)
+
+```bash
+scripts/run_viewer_session.sh data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50 OUT_DIR
+```
+
+18 timed runs, about 10 minutes on bare metal (about 20 on WSL2), then `OUT_DIR/summary.csv`.
+Keep the computer idle for all of it. It refuses to run with uncommitted changes, or in a
+virtual machine: on WSL2 add `--allow-vm`, and the numbers are then for comparison only (rule
+20). The defaults expect cores 8, 10, 12 free; `--cores A,B,C` and `--view-core V` change them.
+
+### 10.5 The whole project in one command
+
+```bash
+scripts/reproduce.sh                                # build, every test, the fuzzer, latency table
+scripts/reproduce.sh --itch data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50
+```
+
+The first takes about a minute and prints your latency next to the published numbers. The second
+adds the real day and the pipeline. Output goes to `repro/`. The README's "Quickstart" explains
+each tool one at a time.
