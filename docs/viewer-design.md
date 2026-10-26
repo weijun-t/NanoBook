@@ -5,6 +5,11 @@
 > Step 2: the table is in `support/` (`l1_table.hpp`, `l1_mapping.hpp`), next to the publisher's
 > other sink (`binary_log.hpp`), so it reuses the recorder's buckets without `include/` depending
 > on `support/`; the seqlock uses release stores / acquire loads instead of fences (§3.3).
+> Step 3: `nanobook_pipeline --view NAME` (not with `--throughput`); without `--view` the sink is
+> the same code as before (a compile-time choice). Full day on WSL2: log checksum
+> `748abedf40533b82` (the published one, pipeline design §8) with the view off, on (three
+> threads) and on (one thread); 363,118,215 updates written to the table; the table read back
+> by an independent Python decoder (AAPL, SPY, MSFT empty at 20:00, `seq` = 2 × updates).
 
 The roadmap is done (`v1.0.0`, phases 0–7). Plan §1 allows one optional extra after phase 7: a
 live view in a **separate process** that reads the publisher's output, as a TUI or a small web

@@ -7,8 +7,10 @@
  *   2-record rings (constantly full and empty, so the threads hand over on almost every record),
  *   the stream of TopOfBook updates must be identical, update for update, and the final books
  *   identical to a plain phase 4 replay. A stamp (the pacer, in latency runs) must reach every
- *   update alike on one thread and on three (phase 6 E1c). Last, a broken message mid-stream:
- *   every thread must still stop, and the pipeline must say the input was broken.
+ *   update alike on one thread and on three (phase 6 E1c). A broken message mid-stream: every
+ *   thread must still stop, and the pipeline must say the input was broken. Last, the viewer's
+ *   table (viewer design §3) written by the publisher thread while another thread reads it: at
+ *   the end, every stock's slot holds that stock's last update and its update count.
  *
  * Why it exists: Threads must change nothing but speed. A lost, repeated or reordered record, or
  *   a field dropped on the way through a ring, would quietly change the books. These tests run
@@ -20,13 +22,18 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <map>
+#include <memory>
 #include <span>
+#include <thread>
 #include <vector>
 
 #include "itch_golden_day.hpp"
 #include "itch_replay_comparison.hpp"
+#include "l1_table.hpp"
 #include "nanobook/fast/fast_book.hpp"
 #include "nanobook/itch/book_builder.hpp"
 #include "nanobook/itch/day_stats.hpp"
@@ -295,4 +302,49 @@ TEST(Pipeline, ABrokenMessageStillStopsEveryThread) {
     EXPECT_FALSE(got.result.parsed);
     EXPECT_EQ(got.result.records, 10U); // the messages before the broken one
     EXPECT_EQ(got.updates.size(), 3U);  // the three adds
+}
+
+TEST(Pipeline, TheViewersTableEndsWithEachStocksLastUpdate) {
+    const std::vector<std::byte> day = golden::busy_day(kThreadSanitizer ? 5'000 : 50'000);
+    Builder three{configs_for(day), BuilderOptions{}};
+    auto table = std::make_unique<view::L1Table>();
+    std::vector<TopOfBook> updates;
+    updates.reserve(day.size() / 19);
+    auto sink = [&](const TopOfBook &t) { // what nanobook_pipeline --view does
+        updates.push_back(t);
+        view::publish(*table, t);
+    };
+    std::atomic<bool> done{false};
+    std::jthread viewer{[&] { // reads every slot it can while the publisher writes
+        while (!done.load(std::memory_order_acquire)) {
+            for (std::size_t locate = 0; locate < 64; ++locate) {
+                (void)view::try_read(table->slots[locate]);
+            }
+        }
+    }};
+    const PipelineResult result = run_pipeline(whole(day), three, sink, PipelineOptions{});
+    done.store(true, std::memory_order_release);
+    viewer.join();
+
+    ASSERT_TRUE(result.parsed);
+    ASSERT_FALSE(updates.empty());
+    std::map<std::uint16_t, std::pair<TopOfBook, std::uint64_t>> last; // locate -> last, count
+    for (const TopOfBook &t : updates) {
+        auto &[update, count] = last[t.locate];
+        update = t;
+        ++count;
+    }
+    for (const auto &[locate, entry] : last) {
+        const auto &[t, count] = entry;
+        EXPECT_EQ(view::try_read(table->slots[locate]), (view::Quote{.sequence = t.sequence,
+                                                                     .timestamp = t.timestamp,
+                                                                     .bid_price = t.bid_price,
+                                                                     .bid_qty = t.bid_qty,
+                                                                     .ask_price = t.ask_price,
+                                                                     .ask_qty = t.ask_qty,
+                                                                     .updates = count}))
+            << "locate " << locate;
+    }
+    EXPECT_EQ(table->header.updates.load(), updates.size());
+    EXPECT_EQ(table->header.itch_time.load(), updates.back().timestamp);
 }

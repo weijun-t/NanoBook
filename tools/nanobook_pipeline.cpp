@@ -14,15 +14,19 @@
  *   from each record's intended send time to the publisher (pipeline design §9.2). Both also
  *   report the page faults taken during each run (optimise design §3.2).
  *     nanobook_pipeline FILE [--log OUT] [--checksum] [--sequential] [--cores A,B,C]
- *                       [--window-mb N]
+ *                       [--window-mb N] [--view NAME]
  *     nanobook_pipeline FILE --cores A,B,C --throughput [--log OUT]
  *     nanobook_pipeline FILE --cores A,B,C --latency --rate R [--from HH:MM:SS]
- *                       [--until HH:MM:SS] [--csv FILE.csv] [--sequential]
+ *                       [--until HH:MM:SS] [--csv FILE.csv] [--sequential] [--view NAME]
  *   With --latency, --sequential runs the same paced day on one thread, pinned to the engine's
  *   core B, to compare one thread with three on latency (optimise design E1c). The one-thread
  *   throughput run is pinned to core B too. --throughput --log OUT writes both runs' logs to a
  *   real file (the second replaces the first), to time real logging, not /dev/null. The timed
  *   runs build their books in a huge-page arena (support/huge_page_arena.hpp, optimise design E6).
+ *   --view NAME (viewer design §2, not with --throughput) also makes the viewer's table in shared
+ *   memory (/dev/shm/NAME, support/l1_mapping.hpp), writes every stock's name into it, and has
+ *   the publisher write each update into its stock's slot after logging it (and, when paced, its
+ *   latency into the table's histogram), for nanobook_view to read.
  *
  * Why it exists: Step 3 proves the pipeline changes nothing: the same day must give the same log,
  *   byte for byte, on three threads and on one (rule 11). Comparing checksums proves it without
@@ -31,9 +35,10 @@
  *
  * How it works: The file is mapped (support/mapped_file.hpp) and read in pre-loaded windows
  *   (support/itch_timing.hpp) by whichever thread parses: the feed thread, or the only thread.
- *   The publisher's sink is the BinaryLog. --cores pins the three threads (feed, engine,
- *   publisher) to three cores. The wall time is the system clock's, for orientation only: this
- *   is a correctness run, not a benchmark.
+ *   The publisher's sink is the BinaryLog (with --view, a sink that logs and then writes the
+ *   table; without it, the sink is exactly what it was before the viewer). --cores pins the
+ *   three threads (feed, engine, publisher) to three cores. The wall time is the system clock's,
+ *   for orientation only: this is a correctness run, not a benchmark.
  *
  * Trade-offs: A tool: it prints and allocates freely outside the pipeline's run.
  */
@@ -44,6 +49,7 @@
 #include <cstdio>
 #include <fstream>
 #include <type_traits>
+#include <utility>
 #include <cstddef>
 #include <cstdint>
 #include <iomanip>
@@ -58,6 +64,7 @@
 #include "environment.hpp"
 #include "itch_timing.hpp"
 #include "huge_page_arena.hpp"
+#include "l1_mapping.hpp"
 #include "latency_recorder.hpp"
 #include "mapped_file.hpp"
 #include "pacing.hpp"
@@ -74,13 +81,15 @@ namespace {
 using namespace nanobook;
 using namespace nanobook::pipeline;
 using nanobook::latency::Environment;
+using nanobook::view::L1Table;
 
 constexpr std::string_view kUsage =
     "usage: nanobook_pipeline FILE [--log OUT] [--checksum] [--sequential] [--cores A,B,C]\n"
-    "                         [--window-mb N]\n"
+    "                         [--window-mb N] [--view NAME]\n"
     "       nanobook_pipeline FILE --cores A,B,C --throughput [--log OUT]\n"
     "       nanobook_pipeline FILE --cores A,B,C --latency --rate R [--from HH:MM:SS]\n"
-    "                         [--until HH:MM:SS] [--csv FILE.csv] [--sequential]\n";
+    "                         [--until HH:MM:SS] [--csv FILE.csv] [--sequential]\n"
+    "                         [--view NAME]\n";
 
 struct Options {
     std::string file;
@@ -96,6 +105,7 @@ struct Options {
     std::uint64_t from{10ULL * 3'600 * 1'000'000'000}; // 10:00:00, ITCH time
     std::uint64_t until{10ULL * 3'600 * 1'000'000'000 + 60ULL * 1'000'000'000}; // 10:01:00
     std::string csv;
+    std::string view; // --view NAME: the viewer's table in shared memory (viewer design §2)
 };
 
 template <typename T> bool parse_number(std::string_view text, T &value) {
@@ -176,14 +186,18 @@ std::optional<Options> parse_args(int argc, char **argv) {
         } else if (arg == "--csv") {
             o.csv = value;
             ok = !o.csv.empty();
+        } else if (arg == "--view") {
+            o.view = value;
+            ok = !o.view.empty() && o.view.find('/') == std::string::npos;
         }
         if (!ok) {
             return std::nullopt;
         }
     }
     if (o.file.empty() || (o.latency && o.rate == 0) ||
-        ((o.throughput || o.latency) && o.pipeline.feed_core < 0)) {
-        return std::nullopt; // timing needs pinned cores, and --latency a rate
+        ((o.throughput || o.latency) && o.pipeline.feed_core < 0) ||
+        (o.throughput && !o.view.empty())) {
+        return std::nullopt; // timing needs pinned cores, --latency a rate; --throughput no view
     }
     o.pipeline.spin_only = o.throughput || o.latency; // pinned, dedicated cores: never yield
     return o;
@@ -234,6 +248,22 @@ struct TscClock {
 
 using Builder = itch::BookBuilder<FastBook>;
 
+// --view NAME: a fresh table with every stock's name, still in state Starting (viewer design
+// §3.2). Before the run, so the system calls and the 4.6 MiB of page touching are untimed.
+std::optional<view::L1Mapping> make_view(const std::string &name,
+                                         const std::vector<itch::Symbol> &directory) {
+    auto made = view::L1Mapping::create(name);
+    if (!made) {
+        std::cerr << made.error() << "\n";
+        return std::nullopt;
+    }
+    L1Table &table = *made->writable();
+    for (std::size_t locate = 0; locate < directory.size() && locate < view::kSlots; ++locate) {
+        table.symbols[locate] = directory[locate];
+    }
+    return std::move(*made);
+}
+
 std::string time_of_day(std::uint64_t ns) {
     const std::uint64_t s = ns / 1'000'000'000;
     std::array<char, 16> text{};
@@ -253,8 +283,9 @@ std::string faults_text(const latency::PageFaults &f) {
     return std::to_string(f.minor) + " minor, " + std::to_string(f.major) + " major";
 }
 
+// `table`: the viewer's table with --view, else nullptr.
 int run_timing(const Options &o, std::span<const std::byte> bytes,
-               const std::vector<BookConfig> &configs) {
+               const std::vector<BookConfig> &configs, L1Table *table) {
     if (!latency::missing_tsc_flags(latency::read_cpu_flags()).empty()) {
         std::cerr << "the time-stamp counter can't be used as a clock here\n";
         return 3;
@@ -341,12 +372,6 @@ int run_timing(const Options &o, std::span<const std::byte> bytes,
         support::HugePageArena arena{support::arena_bytes(configs)}; // outlives the books
         auto builder = support::build_books<Builder>(arena, configs, itch::BuilderOptions{});
         BinaryLog log{"/dev/null"};
-        auto sink = [&](const TopOfBook &t) {
-            log.append(t);
-            if (t.sent != 0) { // 0: the warm-up, not paced
-                recorder.record_across_cores(latency::stop().ticks - t.sent, latency::Tag::Other);
-            }
-        };
         const auto ticks_per_second = static_cast<std::uint64_t>(rate * 1e9);
         Pacer pacer{TscClock{}, ticks_per_second, o.rate, o.from, ticks_per_second / 10}; // 100 ms
         auto stamp = [&pacer](const FeedRecord &r) { return pacer(r); };
@@ -354,12 +379,35 @@ int run_timing(const Options &o, std::span<const std::byte> bytes,
             StopAfter<std::remove_reference_t<decltype(handler)>> stop{handler, o.until};
             return itch::parse(bytes, stop).has_value();
         };
+        // kView is a compile-time choice: without --view the sink has no view code at all, so the
+        // "before" of viewer design §4 is the sink exactly as it was.
+        const auto run = [&]<bool kView>(std::bool_constant<kView>) {
+            auto sink = [&](const TopOfBook &t) {
+                log.append(t);
+                if (t.sent != 0) { // 0: the warm-up, not paced
+                    const std::uint64_t ticks = latency::stop().ticks - t.sent;
+                    recorder.record_across_cores(ticks, latency::Tag::Other);
+                    if constexpr (kView) {
+                        view::record_latency(*table, ticks);
+                    }
+                }
+                if constexpr (kView) {
+                    view::publish(*table, t); // after the stamp: the measured end stays the same
+                }
+            };
+            return o.sequential ? run_sequential(until, builder, sink, stamp)
+                                : run_pipeline(until, builder, sink, o.pipeline, stamp);
+        };
+        if (table != nullptr) {
+            view::start(*table, ticks_per_second);
+        }
         const latency::PageFaults f0 = latency::page_faults_now();
         const bool one_pinned = o.sequential && pin_this_thread(o.pipeline.engine_core);
-        const PipelineResult r = o.sequential
-                                     ? run_sequential(until, builder, sink, stamp)
-                                     : run_pipeline(until, builder, sink, o.pipeline, stamp);
+        const PipelineResult r = table != nullptr ? run(std::true_type{}) : run(std::false_type{});
         const latency::PageFaults faults = latency::page_faults_now() - f0;
+        if (table != nullptr) {
+            view::finish(*table);
+        }
         const latency::Summary s = latency::summarize(recorder, 0, rate, std::nullopt);
         const std::string mode = o.sequential ? "sequential" : "pipeline"; // the CSV's names
         std::cout << "\nLatency, " << (o.sequential ? "one thread" : "three threads") << ": "
@@ -448,8 +496,16 @@ int main(int argc, char **argv) {
     }
     const std::vector<BookConfig> configs =
         itch::size_books(counter.directory(), counter.stats(), itch::SizingRules{});
+    std::optional<view::L1Mapping> view_mapping;
+    if (!o.view.empty()) {
+        view_mapping = make_view(o.view, counter.directory());
+        if (!view_mapping) {
+            return 1;
+        }
+    }
+    L1Table *table = view_mapping ? view_mapping->writable() : nullptr;
     if (o.throughput || o.latency) {
-        return run_timing(o, bytes, configs);
+        return run_timing(o, bytes, configs, table);
     }
     itch::BookBuilder<FastBook> builder{configs, itch::BuilderOptions{}};
     BinaryLog log{o.log, o.checksum};
@@ -462,10 +518,24 @@ int main(int argc, char **argv) {
         return run.has_value() && run->bytes == bytes.size();
     };
 
+    const auto run = [&](auto &sink) {
+        return o.sequential ? run_sequential(read_feed, builder, sink)
+                            : run_pipeline(read_feed, builder, sink, o.pipeline);
+    };
+    auto viewed = [&](const TopOfBook &t) { // --view: the log, then the stock's slot
+        log.append(t);
+        view::publish(*table, t);
+    };
+
+    if (table != nullptr) {
+        view::start(*table, 0); // unpaced: no latency to convert
+    }
     const auto start = std::chrono::steady_clock::now();
-    const PipelineResult r = o.sequential ? run_sequential(read_feed, builder, log)
-                                          : run_pipeline(read_feed, builder, log, o.pipeline);
+    const PipelineResult r = table != nullptr ? run(viewed) : run(log);
     log.close();
+    if (table != nullptr) {
+        view::finish(*table);
+    }
     const double seconds =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
 
@@ -479,6 +549,10 @@ int main(int argc, char **argv) {
     std::cout << "\nRecords:    " << r.records << " sent to the engine, " << r.skipped
               << " messages the books don't use\n"
               << "Updates:    " << r.updates << " TopOfBook updates published\n";
+    if (table != nullptr) {
+        std::cout << "View:       /dev/shm/" << o.view << ", " << table->header.updates.load()
+                  << " updates written\n";
+    }
     if (!o.sequential) {
         std::cout << "Waits:      ring 1 full " << r.feed_waits << " times, ring 2 full "
                   << r.engine_waits << " times\n";
