@@ -123,7 +123,7 @@ jobs:
       - name: Build
         run: |
           cmake --preset gcc-release -DNANOBOOK_BUILD_VIEWER=ON
-          cmake --build build/gcc-release --target nanobook_view nanobook_view_tests
+          cmake --build build/gcc-release --target nanobook_view nanobook_depth nanobook_view_tests
 
       - name: Layout tests
         run: ./build/gcc-release/nanobook_view_tests

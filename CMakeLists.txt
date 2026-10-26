@@ -219,6 +219,7 @@ if(NANOBOOK_BUILD_TESTS)
         tests/itch/test_itch_timing.cpp
         tests/itch/test_itch_flow.cpp
         tests/itch/test_itch_window.cpp
+        tests/itch/test_depth_replay.cpp
         tests/pipeline/test_spsc_ring.cpp
         tests/pipeline/test_pipeline.cpp
         tests/pipeline/test_binary_log.cpp
@@ -284,8 +285,15 @@ if(NANOBOOK_BUILD_VIEWER)
         ftxui::component ftxui::dom ftxui::screen)
     nanobook_configure_target(nanobook_view)
 
+    # One stock's L2 ladder and L3 queues, rebuilt by its own replay (depth design).
+    add_executable(nanobook_depth tools/nanobook_depth.cpp)
+    target_link_libraries(nanobook_depth PRIVATE nanobook nanobook_testing
+        ftxui::component ftxui::dom ftxui::screen)
+    nanobook_configure_target(nanobook_depth)
+
     if(NANOBOOK_BUILD_TESTS)
-        add_executable(nanobook_view_tests tests/pipeline/test_view_render.cpp)
+        add_executable(nanobook_view_tests tests/pipeline/test_view_render.cpp
+            tests/itch/test_depth_render.cpp)
         target_include_directories(nanobook_view_tests PRIVATE tools)
         target_link_libraries(nanobook_view_tests PRIVATE nanobook nanobook_testing
             ftxui::dom ftxui::screen GTest::gtest_main)
