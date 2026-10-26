@@ -5,8 +5,9 @@
 #   the benchmarks (nanobook_microbench), the rdtsc latency harness (nanobook_bench), the ring
 #   benchmark (nanobook_ringbench), the ITCH day replay (nanobook_replay), the pipeline
 #   (nanobook_pipeline), its log reader (nanobook_logdump) and, with Clang, the libFuzzer target
-#   for the ITCH parser (nanobook_fuzz_itch). Downloads GoogleTest and Google Benchmark at pinned
-#   versions, checked by SHA256.
+#   for the ITCH parser (nanobook_fuzz_itch) and, with NANOBOOK_BUILD_VIEWER, the live viewer
+#   (nanobook_view) and its layout tests (nanobook_view_tests). Downloads GoogleTest, Google
+#   Benchmark and FTXUI at pinned versions, checked by SHA256.
 #
 # How it works: Options come from CMakePresets.json. Sanitizer flags are global, so third-party code
 #   is built the same way as ours. The strict warnings (-Werror) apply to our code only, as do the
@@ -35,6 +36,7 @@ option(NANOBOOK_BUILD_BENCH "Build benchmarks" OFF)
 option(NANOBOOK_NATIVE_OPTIMIZATION "Compile own targets with -march=native" OFF)
 option(NANOBOOK_LTO "Link-time optimisation for our own targets" OFF)
 option(NANOBOOK_BUILD_LIBFUZZER "Build the libFuzzer target for the ITCH parser (Clang)" OFF)
+option(NANOBOOK_BUILD_VIEWER "Build the live viewer, nanobook_view (downloads FTXUI)" OFF)
 set(NANOBOOK_PGO "" CACHE STRING "Profile-guided optimisation (GCC): empty, generate or use")
 set(NANOBOOK_PGO_DIR "${CMAKE_BINARY_DIR}/pgo-data" CACHE PATH "Where PGO profiles are written/read")
 
@@ -178,7 +180,7 @@ endif()
 # ---------------------------------------------------------------------------
 # 7. Tests (GoogleTest)
 # ---------------------------------------------------------------------------
-if(NANOBOOK_BUILD_TESTS OR NANOBOOK_BUILD_BENCH)
+if(NANOBOOK_BUILD_TESTS OR NANOBOOK_BUILD_BENCH OR NANOBOOK_BUILD_VIEWER)
     include(FetchContent)
 endif()
 
@@ -222,6 +224,7 @@ if(NANOBOOK_BUILD_TESTS)
         tests/pipeline/test_binary_log.cpp
         tests/pipeline/test_pacing.cpp
         tests/pipeline/test_l1_table.cpp
+        tests/pipeline/test_watchlist.cpp
     )
     target_link_libraries(nanobook_tests PRIVATE nanobook nanobook_testing GTest::gtest_main)
     nanobook_configure_target(nanobook_tests)
@@ -258,6 +261,37 @@ if(NANOBOOK_BUILD_TESTS)
     add_executable(nanobook_logdump tools/nanobook_logdump.cpp)
     target_link_libraries(nanobook_logdump PRIVATE nanobook nanobook_testing)
     nanobook_configure_target(nanobook_logdump)
+endif()
+
+# ---------------------------------------------------------------------------
+# 7b. The live viewer (viewer design §6): a terminal UI on FTXUI, off by default so the normal
+#     build and reproduce.sh download nothing more. SYSTEM: FTXUI's headers are not held to our
+#     -Werror warnings.
+# ---------------------------------------------------------------------------
+if(NANOBOOK_BUILD_VIEWER)
+    FetchContent_Declare(
+        ftxui
+        URL      https://github.com/ArthurSonzogni/FTXUI/archive/refs/tags/v6.1.9.tar.gz
+        URL_HASH SHA256=45819c1e54914783d4a1ca5633885035d74146778a1f74e1213cdb7b76340e71
+        SYSTEM
+    )
+    set(FTXUI_QUIET ON CACHE INTERNAL "")
+    set(FTXUI_ENABLE_INSTALL OFF CACHE INTERNAL "")
+    FetchContent_MakeAvailable(ftxui)
+
+    add_executable(nanobook_view tools/nanobook_view.cpp)
+    target_link_libraries(nanobook_view PRIVATE nanobook nanobook_testing
+        ftxui::component ftxui::dom ftxui::screen)
+    nanobook_configure_target(nanobook_view)
+
+    if(NANOBOOK_BUILD_TESTS)
+        add_executable(nanobook_view_tests tests/pipeline/test_view_render.cpp)
+        target_include_directories(nanobook_view_tests PRIVATE tools)
+        target_link_libraries(nanobook_view_tests PRIVATE nanobook nanobook_testing
+            ftxui::dom ftxui::screen GTest::gtest_main)
+        nanobook_configure_target(nanobook_view_tests)
+        gtest_discover_tests(nanobook_view_tests)
+    endif()
 endif()
 
 # ---------------------------------------------------------------------------

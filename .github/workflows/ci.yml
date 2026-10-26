@@ -2,8 +2,9 @@
 #
 # What it does: On every push and pull request, builds and tests 6 presets (GCC and Clang, Debug
 #   with ASan and UBSan, Release, and ThreadSanitizer), runs a short differential fuzz and smoke
-#   runs of both benchmark tools, runs the libFuzzer target on the ITCH parser for 60 s, and
-#   checks formatting (clang-format) and code quality (clang-tidy).
+#   runs of both benchmark tools, runs the libFuzzer target on the ITCH parser for 60 s, builds
+#   the live viewer and runs its layout tests, and checks formatting (clang-format) and code
+#   quality (clang-tidy, the viewer included).
 #
 # Why it exists: Every commit must build and pass its tests on both compilers (rule 21).
 #
@@ -106,6 +107,27 @@ jobs:
           name: fuzz-crash
           path: crash-*
 
+  # The live viewer (viewer design §6): off in every preset, so it gets its own job. Builds
+  # nanobook_view with FTXUI and runs its layout tests (frames drawn off-screen, no terminal).
+  viewer:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build g++-14
+
+      - name: Build
+        run: |
+          cmake --preset gcc-release -DNANOBOOK_BUILD_VIEWER=ON
+          cmake --build build/gcc-release --target nanobook_view nanobook_view_tests
+
+      - name: Layout tests
+        run: ./build/gcc-release/nanobook_view_tests
+
   # Fails if any file differs from .clang-format.
   format:
     runs-on: ubuntu-24.04
@@ -135,7 +157,9 @@ jobs:
 
       # Configure only: produces compile_commands.json, which clang-tidy reads.
       - name: Configure
-        run: cmake --preset clang-debug-asan -DNANOBOOK_BUILD_BENCH=ON -DNANOBOOK_BUILD_LIBFUZZER=ON
+        run: >-
+          cmake --preset clang-debug-asan -DNANOBOOK_BUILD_BENCH=ON -DNANOBOOK_BUILD_LIBFUZZER=ON
+          -DNANOBOOK_BUILD_VIEWER=ON
 
       - name: Run clang-tidy
         run: run-clang-tidy-19 -quiet -p build/clang-debug-asan "$PWD/(src|tests|bench|tools|support|fuzz)/"

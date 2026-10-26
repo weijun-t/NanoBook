@@ -14,6 +14,15 @@
 > Step 5: `ClockPacer` and `--speed N` (watch runs only; `--latency` keeps `--rate`). Real day,
 > `--speed 60 --from 09:30:00`: the table's ITCH clock moved 59.9–60.4 s per real second, about
 > 1.3 M updates/s through the open; about 35 s to get there (counting pass and warm-up).
+> Step 6: `nanobook_view` on FTXUI v6.1.9 (pinned by SHA256; v7 exists, but v6's API is the one
+> explained here). Split in three: `support/watchlist.hpp` (the numbers, tested in the main
+> suite), `tools/view_render.hpp` (layout, tested off-screen in `nanobook_view_tests`) and
+> `tools/nanobook_view.cpp` (keys, the 10 Hz timer, re-attaching to a newer run). CI: a `viewer`
+> job, and clang-tidy now covers the viewer. Real day at 60x from 09:30: every key works (pin,
+> filter, sort). Found while watching: the latency tail is **queueing behind sped-up bursts**,
+> not a fault: p99 31–54 µs at 1x (phase 5's WSL2 figure: 65–72 µs), 0.6–2.4 ms at 60x, where a
+> burst Nasdaq sent over 1 ms of ITCH time arrives in 17 µs. The intended-time stamps (rule 18)
+> count that wait, as they should; the screen says "(sped-up bursts queue)" above 1x.
 
 The roadmap is done (`v1.0.0`, phases 0–7). Plan §1 allows one optional extra after phase 7: a
 live view in a **separate process** that reads the publisher's output, as a TUI or a small web
