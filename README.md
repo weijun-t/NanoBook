@@ -131,6 +131,9 @@ cmake --build build/gcc-release --target nanobook_pipeline nanobook_view
   off (`748abedf40533b82`, as in phase 5).
 - **Each stock's slot is a seqlock** of 64 bytes: the publisher writes without ever waiting, and
   a reader that catches a slot mid-write throws its copy away and reads it again next frame.
+- **An update is one order message**, not a price change: after each, the publisher gets the
+  stock's best bid and ask, moved or not. `UPD/S` counts a stock's order traffic; the screen
+  shows each stock's latest L1 and skips the updates between two redraws.
 - **Latency above 1× is mostly queueing:** at 60× a burst Nasdaq spread over 1 ms arrives in
   17 µs, and the feed stamps when each update was *due*, so the wait counts. At 1× the same
   screen shows a p99 of 31–54 µs on WSL2.

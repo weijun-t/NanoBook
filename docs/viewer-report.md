@@ -39,8 +39,9 @@ cost: measured on the same laptop on bare metal, with isolated cores, so it can 
 ## 2. What the viewer is, in plain words
 
 The pipeline already had three workers on an assembly line (phase 5): the **feed** reads the
-Nasdaq file, the **engine** keeps the books, the **publisher** logs every change to a stock's best
-bid and ask. The viewer adds a **window onto the publisher's desk**, in another room.
+Nasdaq file, the **engine** keeps the books, the **publisher** logs the stock's best bid and ask
+after every order message. The viewer adds a **window onto the publisher's desk**, in another
+room.
 
 Three ways to look at an order book:
 
@@ -146,6 +147,10 @@ Split in three, so that most of it can be tested without a terminal:
 | `tools/nanobook_view.cpp` | The loop: a 100 ms timer, the keys, re-attaching to a newer run | By hand, on the real day (§7.1) |
 
 - **Rates change once a second**, from 1 s windows: ten noisy values a second are harder to read.
+- **An update is one order message**, not one price change. After each order message the engine
+  passes on the stock's L1, whether the best bid or ask moved or not (an order added deep in the
+  book is still an update). So `UPD/S` and `updates/s` count order traffic: QQQ's 17,690 a second
+  are its order messages, and the screen shows only the last of them at each redraw.
 - **Latency is the last second's**, from the difference between the histogram's bucket counts
   then and now; the p-th percentile is the bucket holding the sample at rank ⌈p × N⌉, reported as
   that bucket's lower edge (at most 1.6% low).
