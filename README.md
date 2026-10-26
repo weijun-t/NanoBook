@@ -58,7 +58,7 @@ Needs Linux on x86-64, GCC 14, CMake 3.25 or newer, and Ninja. On Ubuntu 24.04:
 ```bash
 git clone https://github.com/weijun-t/NanoBook.git
 cd NanoBook
-scripts/reproduce.sh        # build, 819 tests, 30M fuzzed operations, the latency table
+scripts/reproduce.sh        # build, 837 tests, 30M fuzzed operations, the latency table
 ```
 
 It takes **55 s** from a fresh clone on the machine above, including the GoogleTest and Google
@@ -84,6 +84,7 @@ The tools, one at a time (built in `build/gcc-release/`):
 | `nanobook_pipeline FILE --cores A,B,C --latency --rate R` | The three-thread pipeline, paced at R messages a second |
 | `nanobook_pipeline FILE --view NAME --speed N --from HH:MM:SS` | The pipeline at N× the market's own clock, every stock's best bid and ask in shared memory |
 | `nanobook_view [NAME]` | The live watchlist of that table (below); built with `-DNANOBOOK_BUILD_VIEWER=ON` |
+| `nanobook_depth FILE SYMBOL --speed N --from HH:MM:SS` | One stock's whole book, live: price levels, the queue at each price, its tape (below); also built with `-DNANOBOOK_BUILD_VIEWER=ON` |
 
 ## Watch it run
 
@@ -142,6 +143,75 @@ cmake --build build/gcc-release --target nanobook_pipeline nanobook_view
 - Keys: arrows to move, `p` pin, `/` filter, `s` sort (activity, symbol, spread), `q` quit.
   Design: `docs/viewer-design.md`; what was built and tested: `docs/viewer-report.md`.
 
+## Watch one stock
+
+One stock's **whole book**: the best 10 prices on each side with their shares and orders (L2),
+and the queue of orders waiting at a chosen price, front first (L3), with the shares ahead of
+each one. It's a **second copy of the book**, rebuilt from the same file by its own replay, the
+way a trading firm keeps its own copy: the engine and the pipeline never know it exists.
+
+```bash
+cmake --build build/gcc-release --target nanobook_depth      # after the viewer's configure above
+./build/gcc-release/nanobook_depth data/itch/01302019.NASDAQ_ITCH50/01302019.NASDAQ_ITCH50 AMD \
+    --speed 1 --from 10:30:00
+```
+
+AMD at 10:30, paused, following the newest order at the best bid (5th in line, 900 shares ahead):
+
+```
+╭────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ NanoBook depth  AMD                                                      ITCH 10:30:02.704   1.0x   paused │
+│ bid 22.0800 x 1,400    ask 22.0900 x 2,900    spread 0.0100 (4.53 bps)    14,322 resting    state T        │
+│ last trade 22.0900 x 200 at 10:30:02.233    messages 655,410    reference: matches (655,410 checks)        │
+│ following 72,130,821: 5th in line at bid 22.0800, 500 shares, 900 ahead of it                              │
+├─────────────────────────────────────────────────────┬──────────────────────────────────────────────────────┤
+│    ORDERS       SHARES           BID                │ ASK                 SHARES   ORDERS                  │
+│>        5        1,400       22.0800                │ 22.0900              2,900        1                  │
+│         8        2,100       22.0700                │ 22.1000             22,504       30                  │
+│         8        1,500       22.0600                │ 22.1100              2,000        8                  │
+│         9        2,400       22.0500                │ 22.1200             13,600       24                  │
+│         9       11,492       22.0400                │ 22.1300              4,309       12                  │
+│         6        1,400       22.0300                │ 22.1400              2,009       13                  │
+│         7        3,822       22.0200                │ 22.1500             49,216       54                  │
+│         6        1,542       22.0100                │ 22.1600              2,490       15                  │
+│        21       12,666       22.0000                │ 22.1700             10,567       17                  │
+│        11        2,142       21.9900                │ 22.1800             10,124       19                  │
+├─────────────────────────────────────────────────────┴──────────────────────────────────────────────────────┤
+│ QUEUE  bid 22.0800  (5 orders, 1,400 shares; front first)                                                  │
+│  PLACE        ORDER ID      SHARES         AHEAD  SINCE         ATTRIBUTION                                │
+│      1      72,124,781         500             0  10:30:01.885                                             │
+│      2      72,124,785         100           500  10:30:01.885                                             │
+│      3      72,124,801         100           600  10:30:01.885                                             │
+│      4      72,124,829         200           700  10:30:01.886                                             │
+│      5      72,130,821         500           900  10:30:02.225                                             │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+├────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ TAPE  AMD, newest first                                                                                    │
+│ 10:30:02.611  DELETE   72,134,445                    S         200 @ 22.0900                               │
+│ 10:30:02.611  DELETE   72,134,437                    S         200 @ 22.0900                               │
+│ 10:30:02.464  DELETE   72,124,793                    B         400 @ 22.0800                               │
+│ 10:30:02.464  ADD      72,134,453                    B         400 @ 22.0500                               │
+│ 10:30:02.464  ADD      72,134,449                    S         400 @ 22.1300                               │
+│ 10:30:02.464  ADD      72,134,445                    S         200 @ 22.0900                               │
+│ 10:30:02.464  DELETE   72,036,661                    B         400 @ 22.0000                               │
+├────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ up/down level  tab side  space pause  n step  f follow  +/- speed  q quit                                  │
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+```
+
+- **Pause, step, follow:** Space pauses; `n` applies the stock's next message, so you see what
+  each one does to the book; `f` follows the newest order in the shown queue until it fills or
+  leaves. Up/down picks a price, Tab the side, `+`/`-` the speed.
+- **Checked live:** phase 1's reference book gets every message too. The two are compared after
+  each one; a difference turns the check red and stops the replay on that message.
+- **Checked on the real day:** `nanobook_depth FILE --check-day AAPL,SPY,QQQ` compares each
+  stock's copy with a full replay of every stock at the open, every hour and the end: equal at
+  all 9 moments for all three (AAPL up to 42,767 resting orders), the reference agreeing after
+  each of their 8.2 million messages.
+  Design: `docs/depth-design.md`; what was built and tested: `docs/depth-report.md`.
+
 ## How it works
 
 ```
@@ -167,7 +237,7 @@ The designs, with every alternative weighed: `docs/design.md` (start here).
   eye. The fast book must produce the same events and the same book: on 162 million random
   operations (phase 2), 30 million more in every `reproduce.sh` run, and after every one of the
   real day's 363,118,215 order messages (0 mismatches).
-- **819 GoogleTest tests** (823 with the viewer's), run by CI in 6 builds: GCC and Clang, each with Debug + ASan + UBSan,
+- **837 GoogleTest tests** (849 with the viewer and depth layout tests), run by CI in 6 builds: GCC and Clang, each with Debug + ASan + UBSan,
   Release, and ThreadSanitizer. CI also checks `clang-format` and `clang-tidy`, and runs
   libFuzzer on the ITCH parser for 60 s.
 - **Zero allocations:** 19 of those tests replace `operator new` and fail if the fast book
@@ -225,3 +295,4 @@ The full list, with what was tried instead and the evidence: `docs/interview-not
 | 6. Optimise | Done: 11 experiments, 4 kept, each with a before/after table, re-checked on bare metal |
 | 7. Polish | Done: this front page, one-command reproduction (55 s), flame graph, interview notes, final report |
 | Viewer (after the roadmap) | Done: a live watchlist in a separate process; its cost to the pipeline measured on bare metal |
+| Depth view (after the viewer) | Done: one stock's levels and queues from its own replay, checked against a full replay on the real day |

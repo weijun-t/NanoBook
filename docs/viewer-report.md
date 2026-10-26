@@ -386,8 +386,9 @@ What changed along the way, each recorded in the design note:
    once), 4 rounds, and `perf c2c` during a viewer run, to see whether the slots' cache lines
    bounce between cores. A fix would go on the publisher's side (for example, write each stock's
    slot every N updates), never on the engine.
-2. **Then maybe:** an L2 ladder for one chosen stock (engine-side work, so a measured
-   experiment); a trade tape; a small web page reading the same table.
+2. **Done since:** one stock's L2 ladder, L3 queues and tape, from its own replay rather than
+   the engine (`docs/depth-design.md`, `docs/depth-report.md`). **Maybe later:** a small web
+   page reading the same table.
 
 ---
 
@@ -416,8 +417,9 @@ The programs land in `build/gcc-release/`. Without `-DNANOBOOK_BUILD_VIEWER=ON` 
 ctest --preset gcc-release
 ```
 
-**823 tests**, a few seconds: the engine's, the table's and the watchlist's, plus the viewer's 4
-layout tests (one is skipped in Release builds: it checks a Debug-only assertion).
+**849 tests**, a few seconds: the engine's, the table's and the watchlist's, the depth tool's
+replay, plus 12 layout tests (the viewer's 4, the depth tool's 8). One is skipped in Release
+builds: it checks a Debug-only assertion.
 
 ### 10.3 Watch the day live
 

@@ -1,8 +1,22 @@
 # Depth design: one stock's L2 ladder and L3 queues, rebuilt by its own replay
 
-> **Status:** draft, for review (2026-10-26). Option A of the three the user was offered: a
+> **Status:** approved (2026-10-26), every decision as proposed except D6: the work stays on the
+> `ui` branch, which was merged into `main` first. Option A of the three the user was offered: a
 > separate program replays the day itself, with NanoBook's own book, for one chosen stock. No
 > engine file, no pipeline file and no published number changes.
+> Changes from here on are made by an edit plus a note in the commit message:
+> - The stock filter is part of `DepthReplay` (not a separate handler), and the live check is
+>   phase 4's `ReplayComparison`, reused: a quick check after every message of the stock, a
+>   full one every 1,024 (256 in the tests' default), every stock at each System Event.
+> - `f` follows the **newest** order in the shown queue (its back), not the front one: the
+>   newest has the longest way to go, which is what makes price-time priority visible.
+> - The real-day check is a mode of the tool, `nanobook_depth FILE --check-day AAPL,SPY,QQQ`,
+>   not a test: no test reads the 11 GB file (as for phase 4's `nanobook_replay`). Comparing
+>   only at the end proved nothing: Nasdaq clears every book at the close, so both copies were
+>   empty. It now compares with a full replay of every stock at the open, every hour to 16:00
+>   and the end.
+> - The trading state comes from the replay's own copy of the H messages: `BookBuilder` keeps
+>   one but has no accessor, and `include/` stays unchanged.
 
 The L1 viewer (`docs/viewer-design.md`) shows every stock's best bid and ask. This note designs
 the next view: **one stock's whole book**, by price (L2) and order by order (L3), live, with the
@@ -54,9 +68,9 @@ Here that's fine: this is another process, ten redraws a second, nowhere near th
    - **Tape:** the stock's latest order messages (add, execute, cancel, delete, replace).
 2. **Pause and step:** freeze the replay, then apply one message at a time and watch what it
    does to the book. **Follow** one order and see it move up its queue until it fills or leaves.
-3. **Correct:** at the end of the day, the chosen stock's book equals the one the full replay
-   builds (every stock), for AAPL, SPY and QQQ at least. A reference book runs alongside (§4.3)
-   and the screen says if they ever disagree.
+3. **Correct:** through the day (the open, every hour, the end), the chosen stock's book equals
+   the one the full replay builds (every stock), for AAPL, SPY and QQQ at least. A reference
+   book runs alongside (§4.3) and the screen says if they ever disagree.
 4. **Nothing else changes:** `git diff v1.0.0 -- include src` is empty; the pipeline, the L1
    viewer and every published number are untouched. CI green, as always.
 5. Built only with `-DNANOBOOK_BUILD_VIEWER=ON`, like the L1 viewer.
@@ -170,7 +184,7 @@ floating point (display only, rule 2).
 | Tab | Switch between the bid and ask side |
 | Space | Pause / resume |
 | `n` | While paused: apply the stock's next message |
-| `f` | Follow the order at the top of the shown queue (again: stop following) |
+| `f` | Follow the newest order in the shown queue (again: stop following) |
 | `+` / `-` | Double / halve the speed |
 | `q` | Quit |
 
@@ -194,9 +208,9 @@ and it shows the differential testing of phases 2 and 4 working live.
   the clock with a fake clock; following an order to its fill.
 - **The live check fires:** a planted wrong message order makes the two books differ, and the
   replay stops at that message.
-- **The real day** (skipped if the file isn't there, like the other ITCH tests): for AAPL, SPY
-  and QQQ, the end-of-day book (`resting_ids()` and every level) equals the full replay's book for
-  that locate, and the reference never disagreed.
+- **The real day** (`nanobook_depth FILE --check-day AAPL,SPY,QQQ`, see the status above): for
+  each stock, every resting order, level and queue equals the full replay's at the open, every
+  hour and the end, and the reference never disagreed.
 - **Layout**, off-screen: a frame drawn from a small synthetic book, read back as text; the
   queue and tape fit 110 columns.
 - **Planted bugs**, as in every phase: e.g. the filter passing another stock's cancel, AHEAD
