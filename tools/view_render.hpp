@@ -134,12 +134,12 @@ inline std::string latency_text(const Health &h) {
     }
     std::array<char, 200> text{};
     std::snprintf(text.data(), text.size(),
-                  "latency, last second (%s updates): p50 %.2f us   p99 %.2f us   p99.9 %.2f us",
+                  "latency, last 1 s (%s paced): p50 %.2f us  p99 %.2f us  p99.9 %.2f us",
                   with_commas(h.latency->count).c_str(), h.latency->p50_ns / 1e3,
                   h.latency->p99_ns / 1e3, h.latency->p999_ns / 1e3);
     // Above 1x a burst arrives `speed` times denser than it did, so the tail is mostly queueing
     // behind compressed bursts (measured: p99 ~40 us at 1x, 0.6-2.4 ms at 60x, WSL2).
-    return std::string{text.data()} + (h.speed > 1.5 ? "   (sped-up bursts queue)" : "");
+    return std::string{text.data()} + (h.speed > 1.5 ? "  (sped-up bursts queue)" : "");
 }
 
 // The first visible line, so that `cursor` is on screen.

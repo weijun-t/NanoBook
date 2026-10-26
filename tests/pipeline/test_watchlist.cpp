@@ -210,14 +210,14 @@ TEST(Watchlist, ANewRunStartsEverythingOver) {
     auto t = three_stocks();
     Watchlist w;
     w.refresh(*t, 0.0);
-    w.toggle_pin(2);
-    auto next = std::make_unique<L1Table>(); // another run: one stock, another name
+    w.toggle_pin(1);                         // AAPL, at locate 1
+    auto next = std::make_unique<L1Table>(); // another run: another stock at locate 1
     next->header.run_id.store(2);
     next->symbols[1] = sym("SPY");
     start(*next, 0);
     w.refresh(*next, 1.0);
     const auto rows = w.rows("", SortBy::Symbol);
     EXPECT_EQ(symbols(rows), (std::vector<std::string>{"SPY"}));
-    EXPECT_FALSE(rows[0].pinned);
+    EXPECT_FALSE(rows[0].pinned); // the pin was AAPL's, not SPY's
     EXPECT_EQ(rows[0].quote, Quote{});
 }

@@ -102,7 +102,7 @@ TEST(ViewRender, AFrameShowsTheRunAndEveryStock) {
     const std::vector<Row> rows{stock("AAPL", 1, {.bid = 1'650'500, .ask = 1'650'600}),
                                 stock("MSFT", 2, {.bid = 4'000'000, .ask = 0})};
     const UiState ui = attached_to("nanobook");
-    const std::string frame = draw(h, rows, ui, 120, 20);
+    const std::string frame = draw(h, rows, ui, 108, 20); // the README's width: nothing cut off
     EXPECT_NE(frame.find("/dev/shm/nanobook"), std::string::npos) << frame;
     EXPECT_NE(frame.find("running"), std::string::npos);
     EXPECT_NE(frame.find("ITCH 09:31:04.123"), std::string::npos);

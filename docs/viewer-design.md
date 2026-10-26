@@ -23,6 +23,10 @@
 > not a fault: p99 31–54 µs at 1x (phase 5's WSL2 figure: 65–72 µs), 0.6–2.4 ms at 60x, where a
 > burst Nasdaq sent over 1 ms of ITCH time arrives in 17 µs. The intended-time stamps (rule 18)
 > count that wait, as they should; the screen says "(sped-up bursts queue)" above 1x.
+> Step 7: README "Watch it run" (a real 108-column frame) and `docs/viewer-report.md` + PDF: 12
+> planted bugs, 11 caught; the new-run test strengthened after a miss; the memory-order plant
+> can't be caught on x86 (total store order, every field atomic), explained in the report §6.3.
+> **Viewer complete except step 4**, the publisher's cost, in one bare-metal session.
 
 The roadmap is done (`v1.0.0`, phases 0–7). Plan §1 allows one optional extra after phase 7: a
 live view in a **separate process** that reads the publisher's output, as a TUI or a small web
