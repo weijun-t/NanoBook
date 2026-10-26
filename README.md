@@ -134,6 +134,8 @@ cmake --build build/gcc-release --target nanobook_pipeline nanobook_view
 - **Latency above 1× is mostly queueing:** at 60× a burst Nasdaq spread over 1 ms arrives in
   17 µs, and the feed stamps when each update was *due*, so the wait counts. At 1× the same
   screen shows a p99 of 31–54 µs on WSL2.
+- **What it costs the pipeline** (bare metal, 1–4 M records/s): writing the table, nothing
+  measurable; with the viewer attached, p99 +6 to +45 ns (1–7%), not clearly beyond the noise.
 - Keys: arrows to move, `p` pin, `/` filter, `s` sort (activity, symbol, spread), `q` quit.
   Design: `docs/viewer-design.md`; what was built and tested: `docs/viewer-report.md`.
 
@@ -219,4 +221,4 @@ The full list, with what was tried instead and the evidence: `docs/interview-not
 | 5. Pipeline | Done: three pinned threads over SPSC rings, TSan clean, log identical to one thread |
 | 6. Optimise | Done: 11 experiments, 4 kept, each with a before/after table, re-checked on bare metal |
 | 7. Polish | Done: this front page, one-command reproduction (55 s), flame graph, interview notes, final report |
-| Viewer (after the roadmap) | Done: a live watchlist in a separate process; the publisher's cost to be measured on bare metal |
+| Viewer (after the roadmap) | Done: a live watchlist in a separate process; its cost to the pipeline measured on bare metal |

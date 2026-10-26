@@ -26,7 +26,12 @@
 > Step 7: README "Watch it run" (a real 108-column frame) and `docs/viewer-report.md` + PDF: 12
 > planted bugs, 11 caught; the new-run test strengthened after a miss; the memory-order plant
 > can't be caught on x86 (total store order, every field atomic), explained in the report §6.3.
-> **Viewer complete except step 4**, the publisher's cost, in one bare-metal session.
+> Step 4 on bare metal (2026-10-26, `f5aa78a`, `docs/data/bare_metal/viewer/`): `--latency
+> --rate` at 1, 2, 4 M/s, two rounds, three ways. Writing the table: no measurable cost (-10 to
+> +15 ns, inside the noise). Viewer attached: slower than `off` in all 6 pairs, p99 +6 to +45 ns
+> (1–7%), not clearly beyond the noise, and confounded by a fixed run order. No publisher-side
+> fix (perf log, 2026-10-26). The session script lacked its executable bit; fixed, CI checks it.
+> **Viewer complete.**
 
 The roadmap is done (`v1.0.0`, phases 0–7). Plan §1 allows one optional extra after phase 7: a
 live view in a **separate process** that reads the publisher's output, as a TUI or a small web

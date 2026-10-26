@@ -1,6 +1,6 @@
 # NanoBook: Viewer Report
 
-**A live L1 watchlist that the engine never knows about** · 26 October 2026 · C++23, GCC 14 / Clang 19, FTXUI 6.1.9, Linux · Built on the `ui` branch after `v1.0.0`; the publisher's cost is still to be measured on bare metal
+**A live L1 watchlist that the engine never knows about** · 26 October 2026 · C++23, GCC 14 / Clang 19, FTXUI 6.1.9, Linux · Built on the `ui` branch after `v1.0.0`; the publisher's cost measured on bare metal
 
 ---
 
@@ -13,10 +13,11 @@ the pipeline's publisher through **shared memory**.
 
 | | |
 |---|---|
-| Status | **Built and tested** (steps 1–3 and 5–7 of viewer design §8). Step 4, the publisher's cost before and after, moves to one bare-metal session (§9) |
+| Status | **Complete**: all 7 steps of viewer design §8. Step 4, the publisher's cost, ran in one bare-metal session (§7.3) |
 | The engine | **Untouched.** No file under `include/` or `src/` changed since `v1.0.0`; the full day's log has the published checksum (`748abedf40533b82`) with the viewer off, on, and on one thread (§6.1) |
 | The table | One 64-byte slot per stock (65,536, one per locate), a **seqlock** each: the publisher never waits, a reader never blocks it (§5) |
 | Watching | 60× the ITCH clock held to **59.9–60.4×**; about **1.3–1.4 M updates/s** through the open (§7.1) |
+| The publisher's cost | Bare metal, 1–4 M records/s: writing the table, **nothing measurable**; with the viewer attached, p99 **+6 to +45 ns** (1–7%), not clearly beyond the noise. No fix (§7.3) |
 | Latency on screen | p99 **31–54 µs at 1×**, **0.4–2.4 ms at 60×**: the difference is queueing behind sped-up bursts, not a fault (§7.2) |
 | Tests | **819** in Release builds (800 with sanitizers): **29 new**, plus 4 layout tests in the viewer's own program (`nanobook_view_tests`) |
 | Planted bugs | **12** deliberate bugs: **11 caught**; one weak test found and fixed on the way; the one miss (a memory-order bug) explained in §6.3 |
@@ -24,12 +25,13 @@ the pipeline's publisher through **shared memory**.
 How to read this report:
 - §2 explains the viewer in plain words, and §3 the plan.
 - §4 covers what was built, and §5 the seqlock line by line.
-- §6 shows how correctness was proven, §7 what watching the day showed.
+- §6 shows how correctness was proven, §7 what watching the day showed and what the viewer costs.
 - §8 lists the decisions and what changed along the way, and §9 what's next.
 
 All numbers are from WSL2 on an Intel Core i7-14650HX (24 threads), kernel
 6.18.54.1-microsoft-standard-WSL2, GCC 14.2: **not for publishing** (rule 20). None of them is a
-published latency claim; they say what the viewer shows and why.
+published latency claim; they say what the viewer shows and why. **Except §7.3**, the publisher's
+cost: measured on the same laptop on bare metal, with isolated cores, so it can be published.
 
 ---
 
@@ -68,7 +70,7 @@ up while a line is being rewritten, you look again a moment later.
 | 1 | Design note (`docs/viewer-design.md`) | Approved 2026-10-26, every decision as proposed |
 | 2 | The L1 table in shared memory, with tests | Done (§4.1) |
 | 3 | `nanobook_pipeline --view NAME`: the publisher writes the table | Done (§4.2); checksum unchanged (§6.1) |
-| 4 | The publisher's cost, before and after (rule 22) | **Moved** to one bare-metal session (§9), the user's choice |
+| 4 | The publisher's cost, before and after (rule 22) | Done on bare metal (§7.3), after step 6 (the user's choice) |
 | 5 | `--speed N`: pacing by the ITCH clock | Done (§4.3) |
 | 6 | `nanobook_view` on FTXUI, CI job | Done (§4.4) |
 | 7 | README "Watch it run", this report | Done |
@@ -297,8 +299,51 @@ That is the measurement working, not a fault. At 1× the p99 matches phase 5's W
 are not pinned, and threads yield after a short spin. Above 1× the screen now says
 "(sped-up bursts queue)", so nobody reads a 60× tail as the engine's.
 
-So **the publisher's cost must be measured with `--latency --rate`, not `--speed`** (§9): a fixed
-rate below saturation, as in phase 5, measures the pipeline; a sped-up day measures the bursts.
+So **the publisher's cost must be measured with `--latency --rate`, not `--speed`** (§7.3): a
+fixed rate below saturation, as in phase 5, measures the pipeline; a sped-up day measures the
+bursts.
+
+### 7.3 What the viewer costs the pipeline (bare metal)
+
+The question of step 4: does the viewer slow the engine's output down? Three ways, each at the
+phase 5 rates of 1, 2 and 4 M records/s:
+- **off:** no `--view`, the code of `v1.0.0`;
+- **table:** `--view` with nobody reading, the cost of writing the table;
+- **viewer:** `--view` with `nanobook_view` attached on its own core, the cost of a reader too.
+
+`scripts/run_viewer_session.sh` on bare metal (cores 8–13 isolated; feed, engine and publisher
+on 8, 10, 12; the viewer on 2), 10:00–10:05 of the day (5.6 M records), two rounds. 18 runs, all
+clean, ring 2 never full. Every viewer screen ended on "done": it was reading throughout.
+
+p99 in ns, rounds 1 / 2 (in brackets the change from `off` in the same round):
+
+| Rate | off | table | viewer |
+|---|---|---|---|
+| 1 M/s | 605 / 628 | 618 / 632 (+12 / +4) | 650 / 636 (+45 / +8) |
+| 2 M/s | 632 / 626 | 625 / 639 (-7 / +13) | 642 / 637 (+9 / +11) |
+| 4 M/s | 687 / 681 | 688 / 684 (+1 / +3) | 693 / 711 (+6 / +30) |
+
+p50 and p99.9 tell the same story (all of them: `docs/perf-log.md`, 2026-10-26). `off` matches
+the release session's phase 5 numbers (630–686 ns), so the machine behaved as it did then.
+
+How to read it. The same run twice differs by 5–20 ns: that's the **noise**.
+- **Writing the table costs nothing measurable.** `table` lands on both sides of `off`, inside
+  the noise. The publisher writes a few stores into a cache line that only it touches.
+- **A reader may cost a few ns.** `viewer` is slower than `off` in all 6 pairs, at p50, p99 and
+  p99.9 alike: +6 to +11 ns at p99 in four (1–2%), +30 and +45 in two (5–7%).
+- **But it isn't proven.** The order was the same every time (`off`, `table`, then `viewer`), so
+  the viewer always ran last of its three; anything that drifts inside a group (heat, say)
+  would look the same. And the +45 sits next to the session's lowest `off`.
+
+A likely mechanism, not tested: think of each slot as a **whiteboard** that the publisher keeps
+on its own desk. When the viewer reads a slot, the board is copied to the viewer's desk too, and
+the publisher has to take the copy back before its next write (a "read for ownership", tens of
+ns between cores). That happens at most once per slot per refresh, so only to a few updates:
+the right shape for a few ns at p99.
+
+**Decision: no fix.** The rule, fixed before the session, called for a fix on the publisher's
+side only if p99 moved by more than the noise, and it hasn't clearly done so. The engine is
+untouched either way.
 
 ---
 
@@ -318,6 +363,9 @@ What changed along the way, each recorded in the design note:
 - **Fences became release stores and acquire loads** (§5): GCC's TSan warning would have failed
   the build.
 - **Step 4 moved** to one bare-metal session after step 6, the user's choice.
+- **Found on the stick:** `scripts/run_viewer_session.sh` was committed without its executable
+  bit (exit 126), so it ran as `bash scripts/run_viewer_session.sh`. Fixed, and CI now checks every
+  `scripts/*.sh`.
 - **Found while watching:** the 60× latency tail (§7.2), now labelled on screen.
 - **Found by the layout tests:** the latency line was cut off at 120 columns; it was shortened
   until a 108-column frame shows all of it.
@@ -327,10 +375,10 @@ What changed along the way, each recorded in the design note:
 
 ## 9. What's next
 
-1. **Step 4, on bare metal:** `nanobook_pipeline --latency --rate R` at the phase 5 rates (1, 2,
-   4 M/s), three ways: no `--view`; `--view` with no reader; `--view` with `nanobook_view`
-   attached. p50, p99, p99.9 and ring 2's full count, before and after, in `docs/perf-log.md`.
-   If p99 moves by more than the noise, the fix goes on the publisher's side (for example, write
-   each stock's slot every N updates), never on the engine.
+1. **If the reader's cost is ever worth settling** (§7.3): a bare-metal session with the order
+   rotated (each way first, second and third once), 4 rounds, and `perf c2c` during a viewer run
+   to see whether the slots' cache lines bounce between cores. If they do and it matters, the fix
+   is on the publisher's side (for example, write each stock's slot every N updates), never on
+   the engine.
 2. **Then maybe:** an L2 ladder for one chosen stock (engine-side work, so a measured
    experiment); a trade tape; a small web page reading the same table.

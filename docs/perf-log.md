@@ -1716,3 +1716,65 @@ Timing on WSL2 (ns, 4 rounds each):
   `Modify`, `Replace`) already knows the slot, and a slot is in the table only once. An erase
   that compares `entry.slot == slot` needs no confirmation read. It would need its own A/B and
   a new bare-metal phase 3 run.
+
+---
+
+## 2026-10-26: Viewer step 4, the publisher's cost (viewer design §8)
+
+**Bare metal.** Does `--view` slow the pipeline? Three ways, each at the phase 5 rates: `off` (no
+`--view`, the code of `v1.0.0`), `table` (`--view` with no reader: the cost of writing the
+table) and `viewer` (`--view` with `nanobook_view` attached: the cost of a reader too). **Rule**
+(viewer report §9): if p99 moves by more than the noise, fix it on the publisher's side, never
+in the engine. **Result: writing the table costs nothing measurable; a reader may cost a few
+ns, not proven. No fix.** Data: `docs/data/bare_metal/viewer/` (`summary.csv`, `progress.log`,
+one `.txt` + `.csv` per run, and each viewer run's last screen).
+
+### Method
+- **Machine:** as on 2026-10-24 (i7-14650HX, Ubuntu 26.04.1 LTS, Linux 7.0.0-30-generic,
+  `isolcpus=8-13 nohz_full=8-13 rcu_nocbs=8-13`, `performance` governor, turbo on, GCC 14.3.0
+  `-O3`, idle laptop on power). Commit `f5aa78a` (`v1.0.0-7`), `gcc-release` with the viewer.
+- `scripts/run_viewer_session.sh`, 07:13–07:23: `nanobook_pipeline --latency --rate R`, feed,
+  engine and publisher on cores 8, 10, 12; window 10:00:00–10:05:00 (5,641,949 records);
+  `nanobook_view` on core 2 in tmux. Two rounds, each one `off`, `table`, `viewer` at 1, 2,
+  then 4 M records/s. 18 runs, all exit 0, ring 2 full 0 tries in all.
+- Every viewer screen shows the session, "done" and 52,280,852 updates: it was attached and
+  reading. Each refresh (10 a second) reads about 9,000 slots, every stock with a name.
+
+### Results (ns, rounds 1 / 2; in brackets the change from `off` in the same round)
+
+| Rate | Way | p50 | p99 | p99.9 |
+|---|---|---|---|---|
+| 1 M/s | off | 356.7 / 378.6 | 605.2 / 627.9 | 766.0 / 788.3 |
+| | table | 367.5 / 382.8 (+11 / +4) | 617.6 / 631.6 (+12 / +4) | 772.6 / 787.5 (+7 / -1) |
+| | viewer | 393.9 / 380.7 (+37 / +2) | 650.2 / 636.2 (+45 / +8) | 806.5 / 794.5 (+41 / +6) |
+| 2 M/s | off | 376.2 / 371.6 | 632.4 / 626.2 | 785.8 / 774.2 |
+| | table | 369.1 / 377.8 (-7 / +6) | 625.0 / 639.1 (-7 / +13) | 775.5 / 789.1 (-10 / +15) |
+| | viewer | 381.9 / 373.3 (+6 / +2) | 641.5 / 637.4 (+9 / +11) | 794.1 / 789.1 (+8 / +15) |
+| 4 M/s | off | 381.5 / 373.7 | 687.0 / 681.2 | 888.7 / 880.0 |
+| | table | 385.7 / 377.4 (+4 / +4) | 688.2 / 684.1 (+1 / +3) | 886.7 / 887.5 (-2 / +8) |
+| | viewer | 383.6 / 388.1 (+2 / +14) | 692.8 / 711.4 (+6 / +30) | 897.0 / 923.9 (+8 / +44) |
+
+**Sanity check against phase 5** (release session, same machine, `v1.0.0`'s code), p99 rounds
+1 / 2: 638 / 631, 630 / 634, 680 / 686. Today's `off`: 605 / 628, 632 / 626, 687 / 681. The
+machine behaved as it did then.
+
+### What these numbers say
+- **Noise:** the same way in two rounds moves by 5–20 ns; up to 23 for `off` itself (1 M/s)
+  and 27 for `viewer` (4 M/s, p99.9).
+  `table` minus `off` spans -10 to +15 ns.
+- **Writing the table: no measurable cost.** Every `table` change is inside the noise, in both
+  directions. The slot write is a few stores to a line the publisher already owns.
+- **A reader: maybe a small cost.** `viewer` is slower than `off` in all 6 rate × round pairs at
+  p50, p99 and p99.9. In 4 of the 6, p99 is +6 to +11 ns (1–2%), the size of `table`'s spread;
+  in 2, +30 and +45 ns (5–7%). `viewer` minus `table` is positive at p99 in 5 of 6.
+- **Why "maybe":** the order was fixed (`off`, `table`, `viewer` every time), so `viewer`
+  always ran last of its three. A drift inside each three-run group (heat, for example) would
+  look the same. The biggest gap (+45 ns) sits next to the lowest `off` of the session (605 ns).
+- **Hypothesis (untested):** a viewer refresh reads each slot's cache line, so the line becomes
+  shared with core 2. The publisher's next write to that slot must take it back first (a
+  read-for-ownership, tens of ns across cores). That hits at most one write per slot per
+  refresh, so only a small share of the updates: the right shape for a few ns at p99. `perf
+  c2c` on bare metal would show it.
+- **Decision: no publisher-side fix.** The rule asks for a move beyond the noise, and this one
+  isn't clearly beyond it. To settle it: rotate the order (each way first, second and third
+  once), 4 rounds, and `perf c2c` during a viewer run. Not run.

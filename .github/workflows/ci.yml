@@ -143,6 +143,13 @@ jobs:
       - name: Check formatting
         run: git ls-files '*.hpp' '*.cpp' | xargs clang-format-19 --dry-run --Werror
 
+      # A script committed as 100644 fails with "Permission denied" (exit 126) when run as
+      # scripts/NAME.sh: viewer step 4 hit this on the bare-metal stick.
+      - name: Check scripts are executable
+        run: |
+          bad=$(git ls-files -s 'scripts/*.sh' | awk '$1 != "100755" {print $4}')
+          if [ -n "$bad" ]; then echo "not executable (git update-index --chmod=+x): $bad"; exit 1; fi
+
   # Runs clang-tidy with .clang-tidy on our own code only (not _deps/).
   tidy:
     runs-on: ubuntu-24.04
