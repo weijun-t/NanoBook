@@ -1,0 +1,58 @@
+[07:12:59] building gcc-release with the viewer
+[07:13:12] start: commit f5aa78af79ba, cores 8,10,12, viewer core 2, rates 1000000 2000000 4000000, window 10:00:00-10:05:00
+[07:13:12] round 1: off at 1000000 records/s
+[07:13:55]   exit 0
+[07:13:55] round 1: table at 1000000 records/s
+[07:14:30]   exit 0
+[07:14:30] round 1: viewer at 1000000 records/s
+[07:15:06]   exit 0
+[07:15:06] round 1: off at 2000000 records/s
+[07:15:38]   exit 0
+[07:15:38] round 1: table at 2000000 records/s
+[07:16:11]   exit 0
+[07:16:11] round 1: viewer at 2000000 records/s
+[07:16:44]   exit 0
+[07:16:44] round 1: off at 4000000 records/s
+[07:17:15]   exit 0
+[07:17:15] round 1: table at 4000000 records/s
+[07:17:46]   exit 0
+[07:17:46] round 1: viewer at 4000000 records/s
+[07:18:17]   exit 0
+[07:18:17] round 2: off at 1000000 records/s
+[07:18:53]   exit 0
+[07:18:53] round 2: table at 1000000 records/s
+[07:19:28]   exit 0
+[07:19:28] round 2: viewer at 1000000 records/s
+[07:20:05]   exit 0
+[07:20:05] round 2: off at 2000000 records/s
+[07:20:38]   exit 0
+[07:20:38] round 2: table at 2000000 records/s
+[07:21:10]   exit 0
+[07:21:10] round 2: viewer at 2000000 records/s
+[07:21:43]   exit 0
+[07:21:43] round 2: off at 4000000 records/s
+[07:22:15]   exit 0
+[07:22:15] round 2: table at 4000000 records/s
+[07:22:46]   exit 0
+[07:22:46] round 2: viewer at 4000000 records/s
+[07:23:18]   exit 0
+how     rate     round  count    p50_ns  p90_ns  p99_ns  p999_ns  max_ns   ring2_full
+off     1000000  1      5641949  356.7   454.7   605.2   766.0    25359.6  0
+table   1000000  1      5641949  367.5   465.9   617.6   772.6    9669.3   0
+viewer  1000000  1      5641949  393.9   496.9   650.2   806.5    4071.2   0
+off     2000000  1      5641949  376.2   482.4   632.4   785.8    51218.6  0
+table   2000000  1      5641949  369.1   476.6   625.0   775.5    3976.1   0
+viewer  2000000  1      5641949  381.9   491.5   641.5   794.1    8557.8   0
+off     4000000  1      5641949  381.5   506.8   687.0   888.7    3917.0   0
+table   4000000  1      5641949  385.7   510.1   688.2   886.7    3824.8   0
+viewer  4000000  1      5641949  383.6   510.1   692.8   897.0    4006.3   0
+off     1000000  2      5641949  378.6   477.0   627.9   788.3    8959.6   0
+table   1000000  2      5641949  382.8   481.2   631.6   787.5    4010.0   0
+viewer  1000000  2      5641949  380.7   482.8   636.2   794.5    8682.6   0
+off     2000000  2      5641949  371.6   477.4   626.2   774.2    3952.1   0
+table   2000000  2      5641949  377.8   489.4   639.1   789.1    9546.5   0
+viewer  2000000  2      5641949  373.3   486.9   637.4   789.1    3857.1   0
+off     4000000  2      5641949  373.7   502.6   681.2   880.0    3724.0   0
+table   4000000  2      5641949  377.4   502.2   684.1   887.5    3782.7   0
+viewer  4000000  2      5641949  388.1   525.0   711.4   923.9    3811.6   0
+[07:23:18] done: /home/ubuntu/NanoBook/docs/data/bare_metal/viewer
